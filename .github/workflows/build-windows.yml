@@ -1,0 +1,93 @@
+name: Build Windows
+
+# Compila Rustty solo para Windows en un runner de GitHub, bajo demanda, para no
+# hacerlo en el equipo local. No publica nada: sube los instaladores como
+# artefactos del run (descargables desde la página del run o con `gh run download`).
+#
+# Compila lo que hay en el commit del ref elegido. Los cambios sin commit ni push
+# NO entran: hay que subir la rama antes de lanzarlo.
+#
+#   gh workflow run build-windows.yml --ref feat/embedded-rdp
+#
+# Nota: `workflow_dispatch` solo aparece en la UI y en `gh` cuando el fichero
+# existe en la rama por defecto (main).
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    name: Build · Windows (x64)
+    env:
+      TARGET: x86_64-pc-windows-msvc
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 24
+          cache: npm
+
+      # Mismo toolchain que el resto de workflows: lo dicta rust-toolchain.toml.
+      - name: Leer el toolchain fijado
+        id: rust
+        shell: bash
+        run: sed -n 's/^channel = "\(.*\)"/channel=\1/p' src-tauri/rust-toolchain.toml >> "$GITHUB_OUTPUT"
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: ${{ steps.rust.outputs.channel }}
+          targets: ${{ env.TARGET }}
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          workspaces: src-tauri
+          key: windows-${{ env.TARGET }}
+
+      - name: Install JS dependencies
+        run: npm ci
+
+      # Sin releaseId ni tagName: tauri-action solo compila y deja los bundles en disco.
+      # Los secretos de firma del updater son obligatorios si `createUpdaterArtifacts`
+      # está activo; los de Google Drive se inyectan igual que en build.yml.
+      - name: Build Tauri (Windows)
+        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1
+        env:
+          GITHUB_TOKEN:                      ${{ secrets.GITHUB_TOKEN }}
+          RUSTTY_GOOGLE_DRIVE_CLIENT_ID:     ${{ secrets.RUSTTY_GOOGLE_DRIVE_CLIENT_ID }}
+          RUSTTY_GOOGLE_DRIVE_CLIENT_SECRET: ${{ secrets.RUSTTY_GOOGLE_DRIVE_CLIENT_SECRET }}
+          TAURI_SIGNING_PRIVATE_KEY:          ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          args: --target ${{ env.TARGET }}
+
+      - name: Recoger artefactos
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $out = "windows-artifacts"
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          $bundle = "src-tauri/target/$env:TARGET/release/bundle"
+          Get-ChildItem -Path $bundle -Recurse -File -Include *.msi, *.msi.sig, *.exe, *.exe.sig |
+            Copy-Item -Destination $out
+          Copy-Item "src-tauri/target/$env:TARGET/release/rustty.exe" "$out/rustty-portable.exe"
+          Get-ChildItem $out | Format-Table Name, Length
+
+      - name: Subir instaladores
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: rustty-windows-x64-${{ github.sha }}
+          path: windows-artifacts/*
+          if-no-files-found: error
+          retention-days: 14
