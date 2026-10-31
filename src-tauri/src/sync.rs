@@ -87,10 +87,13 @@ pub fn get_or_create_device_id(data_dir: &Path) -> String {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum SyncBackendKind {
+    /// `icloud` era el backend de iCloud Drive (solo macOS), retirado. Una
+    /// configuración antigua que lo tenga se lee como «sin backend» en vez de
+    /// fallar entera y perder el resto de ajustes.
     #[default]
+    #[serde(alias = "icloud")]
     None,
     Local,
-    Icloud,
     Webdav,
     GoogleDrive,
 }
@@ -98,30 +101,6 @@ pub enum SyncBackendKind {
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct LocalConfig {
     pub folder: String,
-}
-
-fn default_icloud_folder() -> Result<PathBuf, AppError> {
-    let home = dirs::home_dir()
-        .ok_or_else(|| AppError::Sync("No se pudo resolver el directorio home".into()))?;
-    Ok(home
-        .join("Library")
-        .join("Mobile Documents")
-        .join("com~apple~CloudDocs")
-        .join("Rustty"))
-}
-
-pub fn resolve_sync_folder(config: &SyncConfig) -> Result<Option<PathBuf>, AppError> {
-    match config.backend {
-        SyncBackendKind::Local => {
-            if config.local.folder.trim().is_empty() {
-                Ok(None)
-            } else {
-                Ok(Some(PathBuf::from(config.local.folder.trim())))
-            }
-        }
-        SyncBackendKind::Icloud => Ok(Some(default_icloud_folder()?)),
-        _ => Ok(None),
-    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -474,6 +453,25 @@ mod tests {
     use super::*;
     use crate::locks::MutexExt;
     use serde_json::json;
+
+    /// Una `sync_config.json` antigua con el backend de iCloud sigue cargando:
+    /// queda sin backend y conserva el resto de ajustes. Al guardarla ya no
+    /// vuelve a escribirse `icloud`.
+    #[test]
+    fn config_antigua_con_icloud_se_lee_como_sin_backend() {
+        let config: SyncConfig = serde_json::from_value(json!({
+            "enabled": true,
+            "backend": "icloud",
+            "auto_interval_seconds": 120
+        }))
+        .expect("una config con `icloud` debe seguir leyéndose");
+        assert_eq!(config.backend, SyncBackendKind::None);
+        assert_eq!(config.auto_interval_seconds, 120);
+        assert_eq!(
+            serde_json::to_value(&config.backend).unwrap(),
+            json!("none")
+        );
+    }
 
     /// El callback OAuth debe sobrevivir a conexiones que no son el callback:
     /// preconexión especulativa del navegador (conecta y calla), favicon y un
@@ -3293,12 +3291,6 @@ impl SyncManager {
                     ));
                 }
                 let folder = PathBuf::from(&config.local.folder);
-                Ok(Box::new(LocalBackend {
-                    path: folder.join(STATE_FILENAME),
-                }))
-            }
-            SyncBackendKind::Icloud => {
-                let folder = default_icloud_folder()?;
                 Ok(Box::new(LocalBackend {
                     path: folder.join(STATE_FILENAME),
                 }))

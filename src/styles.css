@@ -1634,12 +1634,6 @@ body.sidebar-collapsed #btn-toggle-sidebar .chevron { transform: rotate(180deg);
   -webkit-app-region: no-drag;
 }
 
-/* En macOS los traffic lights nativos están a la izquierda:
-   ocultamos nuestros controles y dejamos un hueco a la izquierda
-   del tab-bar para que no se solapen con ellos. */
-body.platform-macos #window-controls { display: none; }
-body.platform-macos #tab-bar { padding-left: 76px; }
-
 .win-ctrl {
   flex: 0 0 auto;
   width: 44px;
@@ -4905,6 +4899,11 @@ select option {
   cursor: not-allowed;
 }
 
+/* Ajustes del RDP en la pestaña cuando se usa la ventana externa. */
+.settings-row.is-disabled {
+  opacity: 0.5;
+}
+
 input[type="checkbox"] {
   width: 15px;
   height: 15px;
@@ -6333,19 +6332,6 @@ body.overlay-scrollbars:not(.native-scrollbars) ::-webkit-scrollbar-thumb:hover 
   margin: 0;
 }
 
-.sync-path-code {
-  display: block;
-  padding: 7px 8px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--border-radius);
-  background: var(--surface-sunken);
-  color: var(--subtext1);
-  font-size: 11px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 /* ─── Sincronización en la nube ──────────────────────────────── */
 .sync-selective-grid {
   display: grid;
@@ -7267,6 +7253,50 @@ body.overlay-scrollbars:not(.native-scrollbars) ::-webkit-scrollbar-thumb:hover 
   font-size: 12px;
   color: var(--overlay1);
   margin-top: 4px;
+}
+
+/* RDP integrado: el canvas ocupa el panel en cuanto la sesión conecta; la
+   tarjeta de estado (conectando, cerrada, reconectar) vuelve al caer. */
+.rdp-canvas-host {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: var(--crust);
+}
+
+.rdp-pane.rdp-embedded-live .rdp-canvas-host {
+  display: flex;
+}
+
+.rdp-pane.rdp-embedded-live .rdp-status-card {
+  display: none;
+}
+
+/* Sin tamaño CSS propio, el canvas mide su resolución en píxeles CSS; el tope
+   del panel lo reduce a 1:1 en píxeles físicos (`devicePixelRatio`). */
+.rdp-canvas {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  touch-action: none;
+}
+
+/* Recibe el foco del teclado y la composición del IME sin verse. */
+.rdp-key-target {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  border: 0;
+  padding: 0;
+  resize: none;
+  pointer-events: none;
 }
 
 /* ═══════════════════════════════════════════════════════════════

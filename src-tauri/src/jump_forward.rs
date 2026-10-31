@@ -8,8 +8,8 @@
 //! `127.x.y.z`. Con una sola `127.0.0.1` para todos, el cliente RDP guardaría
 //! los certificados de servidores distintos bajo el mismo nombre, y en Windows
 //! dos RDP por túnel se pisarían la credencial `TERMSRV/127.0.0.1` que se deja
-//! para mstsc. macOS solo trae `127.0.0.1` de serie: allí se usa esa, y si una
-//! `127.x.y.z` no se deja abrir (algún contenedor), también.
+//! para mstsc. Si una `127.x.y.z` no se deja abrir (algún contenedor), se cae a
+//! `127.0.0.1`.
 //!
 //! El puerto es **estable** ([`stable_port`]): sale de un hash de la ruta y del
 //! destino, en un rango alto. Así el cliente RDP, que recuerda el certificado
@@ -18,9 +18,9 @@
 //! prueban unos pocos siguientes y, en último caso, uno cualquiera.
 //!
 //! El reenvío vive lo que el cliente: se cierra al cerrar la sesión
-//! (`*_disconnect`) y al terminar su proceso. Pero en Windows y macOS (y con el
-//! Telnet de un `gnome-terminal`) el proceso que se lanza es un **lanzador**
-//! (`cmd /c start`, `open`, el emulador de terminal) que sale enseguida y deja
+//! (`*_disconnect`) y al terminar su proceso. Pero en Windows (y con el Telnet
+//! de un `gnome-terminal`) el proceso que se lanza es un **lanzador**
+//! (`cmd /c start`, el emulador de terminal) que sale enseguida y deja
 //! al cliente de verdad por su cuenta: si el proceso muere a los pocos
 //! segundos, el reenvío espera a que el cliente conecte y se cierra cuando lleva
 //! un rato sin conexiones. Dos sesiones al mismo servidor por la misma ruta
@@ -89,12 +89,8 @@ pub(crate) fn stable_port(key: &str) -> u16 {
 
 /// Dirección de loopback estable de un reenvío (ver el módulo): una
 /// `127.x.y.z` por destino, fuera de `127.0.x.x` (donde viven `127.0.0.1`, el
-/// `127.0.0.53` de systemd-resolved o el `127.0.1.1` de Debian). En macOS,
-/// `127.0.0.1`.
+/// `127.0.0.53` de systemd-resolved o el `127.0.1.1` de Debian).
 pub(crate) fn loopback_for(key: &str) -> Ipv4Addr {
-    if cfg!(target_os = "macos") {
-        return Ipv4Addr::LOCALHOST;
-    }
     let digest = Sha256::digest(key.as_bytes());
     Ipv4Addr::new(127, 1 + digest[4] % 254, digest[5], 1 + digest[6] % 254)
 }
@@ -646,10 +642,6 @@ mod tests {
         let a = loopback_for("a/ana@salto:22|10.0.0.5:3389");
         assert_eq!(a, loopback_for("a/ana@salto:22|10.0.0.5:3389"));
         assert!(a.is_loopback());
-        if cfg!(target_os = "macos") {
-            assert_eq!(a, Ipv4Addr::LOCALHOST);
-            return;
-        }
         // Fuera de 127.0.x.x y sin .0 ni .255 al final.
         let [_, second, _, last] = a.octets();
         assert_ne!(second, 0);

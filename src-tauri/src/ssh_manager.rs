@@ -126,23 +126,12 @@ fn apply_socket_keepalive(stream: &TcpStream) {
 pub(crate) fn apply_tcp_keepalive(sock: socket2::SockRef<'_>) {
     use socket2::TcpKeepalive;
     let _ = sock.set_tcp_nodelay(true);
-    let mut ka = TcpKeepalive::new().with_time(Duration::from_secs(30));
-    // `with_interval` y `with_retries` no están disponibles en todas las
-    // plataformas; aplicamos lo que el target permita.
-    #[cfg(any(
-        target_os = "linux",
-        target_os = "macos",
-        target_os = "freebsd",
-        target_os = "android",
-        target_os = "windows"
-    ))]
-    {
-        ka = ka.with_interval(Duration::from_secs(15));
-    }
-    #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "android"))]
-    {
-        ka = ka.with_retries(4);
-    }
+    let ka = TcpKeepalive::new()
+        .with_time(Duration::from_secs(30))
+        .with_interval(Duration::from_secs(15));
+    // Windows no permite fijar el número de sondas (`TCP_KEEPCNT`): solo Linux.
+    #[cfg(target_os = "linux")]
+    let ka = ka.with_retries(4);
     let _ = sock.set_tcp_keepalive(&ka);
 }
 

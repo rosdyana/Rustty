@@ -4,23 +4,21 @@ Esta página describe cómo se firman los binarios de Rustty, quién autoriza ca
 firma y cómo comprobar que una descarga es auténtica.
 
 > La firma de código de los binarios de **Windows** está **en evaluación**.
-> Mientras tanto, los instaladores de Windows se publican sin firma Authenticode;
-> verifica el `sha256` del release. El resto de garantías (macOS y actualizaciones
-> automáticas) ya están en vigor.
+> Mientras tanto, el ejecutable portable de Windows se publica sin firma
+> Authenticode; verifícalo con el `SHA256SUMS.txt` del release, que sí está
+> respaldado por una attestation de procedencia.
 
 ## Estado de la firma por plataforma
 
-- **macOS** (Apple Silicon): firmado con **Apple Developer ID Application** y
-  **notarizado** por Apple. Gatekeeper no muestra avisos en una instalación
-  limpia.
-- **Windows**: firma de código **en evaluación**. Hasta entonces, verifica el
-  `sha256` publicado en el release.
-- **Linux** (`.deb` / `.rpm` / `.AppImage` / `.pkg.tar.zst` / Flatpak): no aplica
-  firma de código del sistema operativo; la integridad la validan el gestor de
-  paquetes y el `sha256` del release.
-- **Actualizaciones automáticas** (updater de Tauri): cada artefacto se firma con
-  una clave **minisign** y la app verifica la firma contra la **clave pública**
-  embebida antes de instalar; rechaza cualquier descarga manipulada.
+- **Windows** (`.exe` portable): firma de código **en evaluación**. Hasta
+  entonces, verifícalo con `SHA256SUMS.txt`.
+- **Debian / Ubuntu** (`.deb`): no aplica firma de código del sistema operativo;
+  la integridad se valida con `SHA256SUMS.txt`.
+- **`SHA256SUMS.txt`**: lleva una **attestation de procedencia** de GitHub que lo
+  ata al workflow, al commit y al runner que generaron el release.
+
+Rustty no se actualiza solo: comprueba si hay una versión nueva y, si la hay,
+abre la página del release para que la descargues tú.
 
 ## Construcción verificable
 
@@ -40,17 +38,16 @@ repositorio y a la firma usan **autenticación multifactor**.
 
 ## Cómo verificar una descarga
 
-- **`sha256`**: compáralo con el hash publicado en la página del release.
+- **`SHA256SUMS.txt`**: comprueba primero que el manifiesto viene del CI del
+  proyecto y después que tu descarga coincide con él.
 
   ```bash
-  sha256sum Rustty_*_amd64.deb
-  # comparar con el hash indicado en la release
+  gh attestation verify SHA256SUMS.txt --repo rosdyana/Rustty
+  sha256sum --check --ignore-missing SHA256SUMS.txt
   ```
 
-- **macOS**: el sistema valida la firma de Apple y la notarización al abrir la app.
 - **Windows** (cuando la firma esté activa): el editor verificado aparecerá en
   SmartScreen / UAC y en *Propiedades → Firmas digitales*.
-- **Actualizaciones automáticas**: la verificación minisign es automática.
 
 ## Privacidad
 
@@ -62,8 +59,8 @@ que lo solicite expresamente la persona que lo instala o lo opera**. Consulta la
 
 Si un binario que dice ser de Rustty tiene una firma o un `sha256` que no coincide
 con lo publicado, **no lo ejecutes** y repórtalo de forma privada según el
-[`SECURITY.md`](https://github.com/Aleixenandros/Rustty/blob/main/SECURITY.md) del
+[`SECURITY.md`](https://github.com/rosdyana/Rustty/blob/main/SECURITY.md) del
 repositorio.
 
 El detalle técnico completo está en
-[`CODE_SIGNING.md`](https://github.com/Aleixenandros/Rustty/blob/main/CODE_SIGNING.md).
+[`CODE_SIGNING.md`](https://github.com/rosdyana/Rustty/blob/main/CODE_SIGNING.md).

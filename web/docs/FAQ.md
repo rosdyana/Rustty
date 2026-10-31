@@ -6,8 +6,8 @@ Esas versiones llevan un fallo por el que la comprobación falla con
 `ReferenceError: normalizeVersion` **precisamente cuando hay una versión nueva
 que ofrecer**. Descarga la última versión a mano una única vez desde
 [Descargas](/descargas) (o el release de GitHub) e instálala encima: perfiles,
-preferencias y copias se conservan tal cual. Desde la 2.0.1 el updater vuelve
-a funcionar con normalidad.
+preferencias y copias se conservan tal cual. Desde la 2.0.1 la comprobación
+vuelve a funcionar con normalidad.
 
 ## ¿Rustty sube mis contraseñas a la nube?
 
@@ -45,9 +45,12 @@ La comprobación al iniciar es opcional. Puedes activarla o desactivarla en **Pr
 
 ## ¿Cómo se actualiza Rustty?
 
-En **Windows**, **macOS** y **AppImage de Linux**, Rustty se **actualiza desde dentro de la app**: descarga la nueva versión (verificando su firma), la instala y se reinicia. Lánzalo desde **Preferencias → Acerca de → Comprobar actualizaciones**, o deja activado **Comprobar al iniciar**.
+Rustty **no se actualiza solo**. En **Preferencias → Acerca de → Comprobar actualizaciones** (o con **Comprobar al iniciar** activado) consulta la última release publicada en GitHub y, si hay una versión nueva, te avisa y abre la página del release.
 
-En el resto de formatos de Linux (`.deb`, `.rpm`, Flatpak, Arch) la actualización la hace tu **gestor de paquetes**; Rustty solo te avisa y abre la página de descargas. En Windows, si actualizas con instalador, el `.msi` actualiza in-place; con el `.exe` (NSIS) elige "Uninstall before installing" (conserva tus datos).
+- **Windows**: descarga el nuevo `Rustty_<version>_x64-portable.exe` y déjalo en la misma carpeta que el anterior, para que use la misma carpeta de datos `.conf\`.
+- **Debian / Ubuntu**: descarga el nuevo `.deb` e instálalo con `sudo apt install ./Rustty_*_amd64.deb`; actualiza encima de la versión anterior.
+
+En ambos casos tus perfiles, preferencias y notas se conservan.
 
 ## ¿Puedo añadir notas a una conexión?
 
@@ -69,10 +72,6 @@ Ninguna de las dos cosas. Los scripts se guardan en un `scripts.json` local que 
 
 Sí. Rustty incluye un grabador interactivo (botón **Grabar desde la sesión…** en el panel de Scripts). Cuando está activo en una sesión SSH conectada, captura los comandos que envías e inserta automáticamente las esperas al prompt. Por seguridad, las contraseñas introducidas bajo eco apagado se detectan heurísticamente y no se graban literales; en su lugar, se genera un paso genérico para que asocies tu credencial guardada al terminar la grabación.
 
-## ¿iCloud necesita Client ID o secret?
-
-No. iCloud Drive se usa como carpeta local de macOS; Rustty escribe el blob cifrado y el sistema se encarga de subirlo.
-
 ## ¿Qué son los perfiles-contenedor (workspaces)?
 
 Son árboles independientes de carpetas y conexiones que conviven en la misma instalación. Te permiten separar, por ejemplo, **Trabajo** y **Personal**, o un cliente de otro. Se crean, renombran, eliminan y conmutan desde el popover del botón **≡** de la cabecera de la sidebar. Cada conexión guarda el `workspace_id` al que pertenece y la lista, el dashboard y la búsqueda se filtran por el workspace activo. Los workspaces viajan con la sincronización en la nube.
@@ -82,8 +81,7 @@ Son árboles independientes de carpetas y conexiones que conviven en la misma in
 En el directorio de datos de Tauri:
 
 - Linux: `~/.local/share/com.rustty.app/`
-- macOS: `~/Library/Application Support/com.rustty.app/`
-- Windows: `%APPDATA%\com.rustty.app\`
+- Windows: `%APPDATA%\com.rustty.app\`, o `.conf\com.rustty.app\` junto al ejecutable cuando su nombre termina en `-portable.exe` (el que se publica)
 
 ## ¿Rustty recuerda el tamaño de la ventana?
 

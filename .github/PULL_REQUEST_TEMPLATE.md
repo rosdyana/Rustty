@@ -12,9 +12,8 @@
 
 ## Checklist de pruebas manuales (UI / plataforma)
 
-- [ ] Probado en Linux
+- [ ] Probado en Linux (Debian/Ubuntu)
 - [ ] Probado en Windows
-- [ ] Probado en macOS
 - [ ] `cargo test` pasa
 - [ ] `npm run build` pasa
 - [ ] Sin secretos ni credenciales en el diff

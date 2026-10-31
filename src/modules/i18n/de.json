@@ -579,6 +579,41 @@
     "workarea": "Arbeitsbereich",
     "fixed": "Feste Größe (ältere Server)"
   },
+  "rdp_mode": {
+    "embedded": "Im Tab",
+    "external": "In einem externen Fenster (mstsc / xfreerdp)"
+  },
+  "rdp_perf": {
+    "speed": "Geschwindigkeit",
+    "balanced": "Ausgewogen",
+    "quality": "Qualität"
+  },
+  "rdp_embed": {
+    "err": {
+      "generic": "unerwarteter Sitzungsfehler.",
+      "auth_failed": "falscher Benutzername oder falsches Passwort, oder das Konto darf sich nicht per Remotedesktop anmelden.",
+      "cert_rejected": "das Serverzertifikat wurde nicht bestätigt.",
+      "cert_changed": "das Serverzertifikat hat sich geändert und die Änderung wurde nicht akzeptiert.",
+      "cert_store": "der Fingerabdruck des Zertifikats konnte nicht gespeichert werden.",
+      "unreachable": "der Server ist nicht erreichbar.",
+      "timeout": "der Server hat nicht rechtzeitig geantwortet.",
+      "tls": "die TLS-Aushandlung ist fehlgeschlagen (der Server verwendet möglicherweise eine zu alte TLS-Version).",
+      "unsupported": "der Server verlangt einen Sicherheitsmodus, den der integrierte Client nicht unterstützt. Versuche den externen Client.",
+      "protocol": "RDP-Protokollfehler. Wenn er erneut auftritt, versuche den externen Client.",
+      "network": "die Verbindung zum Server ist abgebrochen.",
+      "redirect": "der Server möchte die Sitzung auf einen anderen Rechner umleiten, was der integrierte Client noch nicht unterstützt.",
+      "reactivation_timeout": "der Server hat die Sitzung nach einer Bildschirmänderung nicht rechtzeitig reaktiviert.",
+      "internal": "interner Fehler des integrierten Clients."
+    },
+    "clip_err": {
+      "generic": "unerwarteter Fehler.",
+      "too_large": "die Kopie überschreitet das Limit von 8 GiB.",
+      "unsafe_name": "der Remote hat einen ungültigen Dateinamen gesendet.",
+      "remote": "der Remotedesktop hat die Datei nicht geliefert.",
+      "short_read": "die Datei hat sich während des Kopierens auf dem Remote geändert.",
+      "empty": "es gab nichts zu kopieren."
+    }
+  },
   "ctx": {
     "key_access": "Zugriff ohne Passwort (SSH-Schlüssel)…",
     "new_conn_here": "Neue Verbindung hier",
@@ -871,7 +906,7 @@
     "disable_paste_confirm": "Riskantes Einfügen in diesem Profil nicht bestätigen",
     "disable_paste_confirm_hint": "Überspringt die Bestätigungsvorschau beim Einfügen von mehrzeiligem, sehr langem oder Steuerzeichen enthaltendem Text in Sitzungen dieses Profils.",
     "x11_forwarding": "X11 weiterleiten",
-    "x11_forwarding_hint": "Erfordert einen lokalen X-Server unter localhost:6000 (DISPLAY=:0). Unter Windows oder macOS ist ein eigener X-Server nötig.",
+    "x11_forwarding_hint": "Erfordert einen lokalen X-Server unter localhost:6000 (DISPLAY=:0). Unter Windows ist ein eigener X-Server nötig.",
     "auto_reconnect": "Wiederverbindungsversuche",
     "auto_reconnect_hint": "0 = deaktiviert. Anzahl automatischer Wiederverbindungsversuche nach einem Abbruch, mit exponentiellem Backoff (2s, 4s, 8s…).",
     "persist_session": "Persistente Sitzung fortsetzen (tmux/screen)",
@@ -1020,7 +1055,16 @@
     "stored": "Gespeichert:\n{fingerprint}",
     "received": "Jetzt empfangen:\n{fingerprint}",
     "advice": "Akzeptiere NUR, wenn du diese Änderung erwartet hast und den neuen Fingerabdruck über einen vertrauenswürdigen Kanal prüfen kannst. Beim Akzeptieren wird das gespeicherte Zertifikat vergessen und die Verbindung im selben Tab neu gestartet; beim Ablehnen wird nichts geändert.",
-    "accept": "Neues Zertifikat akzeptieren"
+    "accept": "Neues Zertifikat akzeptieren",
+    "advice_embedded": "Stimme NUR zu, wenn du diese Änderung erwartet hast und den neuen Fingerabdruck über einen vertrauenswürdigen Kanal prüfen kannst. Bis du entscheidest, werden keine Anmeldedaten gesendet. Zustimmen ersetzt den gespeicherten Fingerabdruck und die Verbindung wird fortgesetzt; Ablehnen ändert nichts."
+  },
+  "modal_rdp_cert": {
+    "title": "Unbekanntes Zertifikat des RDP-Servers",
+    "intro": "Du verbindest dich zum ersten Mal mit dem integrierten Remotedesktop zu {host}:{port}, und für diesen Server ist kein Zertifikat gespeichert.",
+    "via_jump": "Die Verbindung läuft über einen Sprunghost: Das ist der Fingerabdruck des Zielservers, nicht des Sprunghosts.",
+    "fingerprint": "Fingerabdruck des Zertifikats (SHA-256):\n{fingerprint}",
+    "advice": "Prüfe ihn über einen vertrauenswürdigen Kanal mit dem Serveradministrator. Bis du zustimmst, werden keine Anmeldedaten gesendet. Wenn du zustimmst, wird er gespeichert und wir warnen dich, falls er sich ändert.",
+    "accept": "Vertrauen und verbinden"
   },
   "key_setup": {
     "title": "Zugriff ohne Passwort",
@@ -1507,7 +1551,7 @@
     "read_only_unlock": "Schreibgeschützte Sitzung: Klicke zum Entsperren",
     "cwd_seg_nav": "Zu {path} im SFTP-Panel wechseln",
     "cwd_copy": "Vollständigen Pfad kopieren",
-    "cwd_copy_seg": "Strg/Cmd+Klick zum Kopieren des Pfads",
+    "cwd_copy_seg": "Strg+Klick zum Kopieren des Pfads",
     "cwd_copied": "Pfad in die Zwischenablage kopiert",
     "cwd_nav_error": "SFTP-Panel konnte unter {path} nicht geöffnet werden"
   },
@@ -1542,16 +1586,12 @@
     "backend": "Anbieter",
     "backend_none": "Keins",
     "backend_local": "Lokaler Ordner / NAS",
-    "backend_icloud": "iCloud Drive",
     "backend_webdav": "WebDAV (Nextcloud, ownCloud…)",
     "backend_google_drive": "Google Drive",
     "local_folder": "Lokaler Ordner",
     "local_folder_label": "Sync-Ordner (lokal)",
-    "backend_folder_label": "Sync-Ordner",
     "local_folder_ph": "/pfad/zum/sync-ordner",
     "local_cloud_hint": "Du kannst auf einen lokalen Ordner, ein NAS oder einen vom System synchronisierten Ordner verweisen.",
-    "icloud_folder": "iCloud-Ordner",
-    "icloud_hint": "Verwendet iCloud Drive als synchronisierten lokalen Ordner. Verfügbar unter macOS mit aktiviertem iCloud Drive.",
     "browse": "Durchsuchen…",
     "open_folder": "Ordner öffnen",
     "snapshots": "Snapshot wiederherstellen",
@@ -1720,19 +1760,15 @@
     "website": "Projekt-Website",
     "repo": "Repository",
     "issues": "Problem melden",
+    "original_project": "Ursprüngliches Projekt (Alejandro Soriano)",
     "check_updates": "Nach Updates suchen",
     "check_updates_startup": "Beim Start prüfen",
     "checking_updates": "Suche…",
     "update_available": "Neue Version {version} verfügbar",
     "update_current": "Rustty ist aktuell",
-    "update_flatpak_managed": "Aktualisierungen übernimmt Flatpak: nutze deine Software-Verwaltung oder „flatpak update“.",
     "update_error": "Konnte nicht prüfen",
     "update_no_version": "das Release enthält keine Versionsnummer",
-    "open_release": "Eine neue Version ({version}) ist verfügbar. Download-Seite öffnen?",
-    "update_install_prompt": "Neue Version {version} verfügbar. Jetzt herunterladen und installieren?",
-    "update_downloading": "Update wird heruntergeladen… {pct}%",
-    "update_installing": "Update wird installiert…",
-    "update_restarting": "Rustty wird neu gestartet…"
+    "open_release": "Eine neue Version ({version}) ist verfügbar. Download-Seite öffnen?"
   },
   "prefs_system": {
     "title": "System",
@@ -1741,6 +1777,18 @@
     "autostart_hint": "Fügt Rustty zur Liste der Programme hinzu, die beim Anmelden automatisch gestartet werden.",
     "rdp_display": "Fenster des Remotedesktops (RDP)",
     "rdp_display_hint": "Standard für RDP-Sitzungen; jedes Profil kann davon abweichen. Das größenveränderbare Fenster lässt sich maximieren und ziehen, und der Remotedesktop folgt der Größe: benötigt Windows 8 / Server 2012 oder neuer. «Feste Größe» ist das bisherige Verhalten, für Server, die das nicht unterstützen.",
+    "rdp_mode": "Remotedesktop (RDP) öffnen",
+    "rdp_mode_hint": "Im Tab wird der Desktop mit dem integrierten Client in Rustty angezeigt. Das externe Fenster nutzt mstsc (Windows) oder xfreerdp (Linux) und unterstützt, was dieser Client unterstützt (Audio, Drucker, mehrere Monitore…).",
+    "rdp_perf": "Leistung des Remotedesktops",
+    "rdp_perf_hint": "Gilt für neue Verbindungen. „Geschwindigkeit“ blendet auf dem Remote Hintergrundbild, Designs und Animationen aus und komprimiert am stärksten: für langsame Verbindungen. „Ausgewogen“ blendet Hintergrundbild und Animationen aus, behält aber die Schriftglättung. „Qualität“ zeigt den Desktop unverändert, für lokale Netze.",
+    "rdp_clipboard": "Zwischenablage mit dem Remotedesktop teilen",
+    "rdp_clipboard_hint": "Auf einer Seite kopieren, auf der anderen einfügen. Lokal Kopiertes wird an den Remote gesendet, sobald du zum Tab zurückkehrst oder einfügst.",
+    "rdp_clipboard_files": "Auch Dateien und Ordner kopieren und einfügen",
+    "rdp_clipboard_files_hint": "Auf dem Remote kopierte Dateien werden in einen temporären Ordner heruntergeladen und können danach lokal eingefügt werden. Lokal kopierte Dateien werden erst gelesen, wenn der Remote sie einfügt.",
+    "rdp_shared_folder": "Einen lokalen Ordner als Laufwerk auf dem Remote freigeben",
+    "rdp_shared_folder_pick": "Ordner wählen…",
+    "rdp_shared_folder_hint": "Der Ordner erscheint im Explorer des Remotes, mit Lese- und Schreibzugriff. Nur dieser Ordner, nichts außerhalb. Gilt für neue Verbindungen.",
+    "rdp_shared_folder_none": "Kein Ordner gewählt",
     "autostart_minimized": "Minimiert starten",
     "restore_work_tabs": "Wiederherstellen der Tabs der letzten Sitzung anbieten",
     "restore_work_tabs_hint": "Speichert die Tab-Reihenfolge und ihre Profile (nie Terminalinhalte, Geheimnisse oder private Sitzungen) und bietet beim Start an, sie gesammelt neu zu verbinden.",
@@ -2057,7 +2105,13 @@
     "transfer_skipped": "Übersprungen: {name}",
     "transfers_pause_all_failed": "Die allgemeine Pause ließ sich nicht ändern: {err}",
     "file_grant_invalid": "Die Berechtigung für diese Datei ist nicht mehr gültig (abgelaufen, schon benutzt oder der Pfad hat sich geändert). Wähle sie erneut aus.",
-    "import_failed": "Import fehlgeschlagen: {err}"
+    "import_failed": "Import fehlgeschlagen: {err}",
+    "rdp_embed_failed": "Remotedesktop „{name}“ konnte nicht geöffnet werden: {reason}",
+    "rdp_shared_folder_failed": "Freigegebener Ordner konnte nicht gespeichert werden: {error}",
+    "rdp_clip_download_start": "„{name}“: {files} Datei(en) werden vom Remotedesktop kopiert ({size} MB)…",
+    "rdp_clip_download_done": "„{name}“: {files} Datei(en) bereit zum Einfügen",
+    "rdp_clip_download_failed": "„{name}“: Dateien konnten nicht kopiert werden: {reason}",
+    "rdp_clip_unavailable": "„{name}“: Die System-Zwischenablage ist nicht verfügbar; Kopieren und Einfügen mit dem Remotedesktop funktioniert nicht."
   },
   "time": {
     "now": "gerade eben",

@@ -58,7 +58,7 @@ const MAX_TRUSTED: usize = 500;
 /// Shell con el que se ejecuta la orden.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Dialect {
-    /// `sh -c` (Linux, macOS, BSD).
+    /// `sh -c` (Linux).
     Posix,
     /// `cmd /C` (Windows).
     Cmd,

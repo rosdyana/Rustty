@@ -1,6 +1,6 @@
 # Política de seguridad
 
-Gracias por ayudar a mantener Rustty seguro. Rustty es un cliente de acceso remoto multiplataforma (Linux, macOS y Windows) escrito en Rust + Tauri 2. Esta política describe cómo reportar vulnerabilidades, qué versiones reciben parches y qué garantías de seguridad ofrece el proyecto.
+Gracias por ayudar a mantener Rustty seguro. Rustty es un cliente de acceso remoto para Windows y Linux (Debian/Ubuntu) escrito en Rust + Tauri 2. Esta política describe cómo reportar vulnerabilidades, qué versiones reciben parches y qué garantías de seguridad ofrece el proyecto.
 
 ## Reporte de vulnerabilidades
 
@@ -8,7 +8,7 @@ Si crees haber encontrado una vulnerabilidad de seguridad, repórtala de forma *
 
 Vías de contacto, en orden de preferencia:
 
-1. **GitHub Security Advisories (vía preferida).** Usa el formulario privado "Report a vulnerability" en la pestaña *Security* del repositorio: <https://github.com/Aleixenandros/Rustty/security/advisories/new>. Permite coordinar la corrección y la divulgación de forma confidencial.
+1. **GitHub Security Advisories (vía preferida).** Usa el formulario privado "Report a vulnerability" en la pestaña *Security* del repositorio: <https://github.com/rosdyana/Rustty/security/advisories/new>. Permite coordinar la corrección y la divulgación de forma confidencial.
 2. **Correo electrónico.** Si no puedes usar GitHub, escribe a **aleixenandros@gmail.com** con el asunto `[Rustty][Security]`.
 
 Incluye, en la medida de lo posible:
@@ -58,7 +58,7 @@ Las siguientes garantías reflejan el comportamiento real del código y la docum
 
 ### Sincronización cifrada de extremo a extremo
 
-- La sincronización es **opcional (opt-in)** y **local-first**: no existe un servidor propio de Rustty entre tu equipo y tus datos. El usuario configura el destino (Google Drive, WebDAV, iCloud Drive o una carpeta local/NAS).
+- La sincronización es **opcional (opt-in)** y **local-first**: no existe un servidor propio de Rustty entre tu equipo y tus datos. El usuario configura el destino (Google Drive, WebDAV o una carpeta local/NAS).
 - El estado se cifra con [`age`](https://github.com/FiloSottile/age) y una **passphrase maestra** antes de subirse. El backend remoto solo recibe un blob ya cifrado (`rustty-sync.bin`); sin la passphrase no es descifrable.
 - **Nunca** se sincroniza la base KeePass desbloqueada ni rutas locales como `keepassPath` o `keepassKeyfile`. Las contraseñas guardadas solo viajan dentro del blob cifrado E2E, y únicamente si activas esa opción de forma explícita.
 
@@ -85,8 +85,9 @@ La interfaz (el WebView) se trata como no confiable frente al núcleo en Rust, c
 
 ### Firma de código y actualizaciones
 
-- Los binarios de **macOS** se firman con **Apple Developer ID Application** y se **notarizan** con Apple. La firma de código de **Windows** está en evaluación; hasta entonces los instaladores de Windows se publican sin firma Authenticode y deben verificarse por su `sha256`.
-- Las **actualizaciones automáticas** (updater de Tauri) van firmadas con una clave **minisign**; la app verifica cada artefacto contra la clave pública embebida antes de instalarlo y rechaza los que no cuadren.
+- Se publican dos artefactos por versión: el ejecutable portable de **Windows** (`Rustty_<version>_x64-portable.exe`) y el paquete **`.deb`** para Debian/Ubuntu. La firma de código de Windows está en evaluación; hasta entonces el `.exe` se publica sin firma Authenticode.
+- Cada release incluye un **`SHA256SUMS.txt`** con el hash de todos los artefactos y una **attestation de procedencia** de GitHub sobre ese manifiesto: `gh attestation verify SHA256SUMS.txt --repo rosdyana/Rustty` y después `sha256sum --check --ignore-missing SHA256SUMS.txt`.
+- Rustty **no tiene actualizador automático**: solo consulta la API de releases de GitHub y abre la página del release; nunca descarga ni instala binarios por su cuenta.
 - Las builds oficiales se construyen **solo desde el código fuente público** vía GitHub Actions; los binarios locales no se firman. Cada release requiere **aprobación manual** antes de firmarse.
 - El detalle completo (mecanismos, roles, build verificable y cómo verificar una descarga) está en [`CODE_SIGNING.md`](CODE_SIGNING.md).
 
@@ -94,9 +95,9 @@ La interfaz (el WebView) se trata como no confiable frente al núcleo en Rust, c
 
 Quedan fuera del alcance de esta política, por depender de software o entornos que Rustty no controla:
 
-- La seguridad del **propio sistema operativo** y de su **keyring/almacén de credenciales** (Credential Manager de Windows, Keychain de macOS, Secret Service de Linux, etc.).
+- La seguridad del **propio sistema operativo** y de su **keyring/almacén de credenciales** (Credential Manager de Windows, Secret Service de Linux, etc.).
 - La seguridad y configuración de los **servidores remotos** a los que te conectas (sus claves, su `sudoers`, sus servicios SSH/SFTP).
 - El **cliente RDP externo del sistema** (`mstsc.exe`, `xfreerdp`, `rdesktop`) y sus posibles vulnerabilidades, ya que Rustty solo lo lanza.
-- Los **proveedores de almacenamiento en la nube** elegidos para la sincronización (Google Drive, WebDAV, iCloud, NAS). Rustty solo garantiza que el contenido sube cifrado E2E.
+- Los **proveedores de almacenamiento en la nube** elegidos para la sincronización (Google Drive, WebDAV, NAS). Rustty solo garantiza que el contenido sube cifrado E2E.
 - La protección de la **passphrase maestra de sincronización**: si se pierde, los datos cifrados no se pueden recuperar; si se filtra, el blob deja de ser confidencial.
 - Los **exports JSON locales** que el usuario genere con la sección `secrets` incluida: ese fichero no va cifrado por sí mismo y su custodia es responsabilidad del usuario.

@@ -234,7 +234,7 @@ impl LocalShellManager {
     ///
     /// El objetivo es avisar al usuario antes de cerrar una pestaña ocupada.
     ///
-    /// ## Unix (Linux / macOS)
+    /// ## Linux
     /// Ejecuta `pgrep -P <pid>` y considera "ocupado" si reporta al menos un
     /// proceso hijo. Si `pgrep` no está disponible devuelve `false` (conservador:
     /// no molesta al usuario cuando no podemos saberlo).
@@ -319,12 +319,13 @@ fn build_command(
         env.push(("LANG".into(), "C.UTF-8".into()));
         env.push(("LC_CTYPE".into(), "C.UTF-8".into()));
     }
-    // Dentro de Flatpak el shell nace en el host (`flatpak-spawn --host`):
-    // el del contenedor no tiene los dotfiles ni las herramientas del
-    // usuario. Fuera del sandbox esto es un `CommandBuilder` normal. El
-    // entorno va en la llamada y no con `cmd.env`: bajo Flatpak no llegaría
-    // al host (ver `sandbox::HostSpawn::env`).
-    let mut cmd = crate::sandbox::host_pty_command(shell, cwd, &env);
+    let mut cmd = portable_pty::CommandBuilder::new(shell);
+    if let Some(dir) = cwd {
+        cmd.cwd(dir);
+    }
+    for (key, value) in env {
+        cmd.env(key, value);
+    }
     for arg in args {
         cmd.arg(arg);
     }
@@ -347,15 +348,12 @@ fn get_default_shell() -> String {
     }
     #[cfg(not(windows))]
     {
-        // `$SHELL` es el login shell real del usuario. Dentro de Flatpak esa
-        // variable describe el contenedor, así que `host_login_shell` la
-        // sustituye por la del sistema anfitrión (`getent passwd`).
-        if let Some(shell) = crate::sandbox::host_login_shell() {
+        // `$SHELL` es el login shell real del usuario.
+        if let Some(shell) = std::env::var("SHELL").ok().filter(|s| !s.is_empty()) {
             return shell;
         }
         // Caemos a bash y luego a sh para no quedarnos sin consola en sistemas
-        // mínimos. Bajo Flatpak estas rutas son las del runtime, pero solo se
-        // llega aquí si la consulta al host ya ha fallado.
+        // mínimos.
         for candidate in ["/bin/bash", "/bin/sh"] {
             if std::path::Path::new(candidate).exists() {
                 return candidate.to_string();
@@ -385,12 +383,6 @@ fn find_in_path(exe: &str) -> bool {
 /// En Windows devolvemos siempre `false`: la detección de hijos de un proceso
 /// PTY requeriría toolhelp32 o WMI, lo que añade complejidad innecesaria.
 /// El comportamiento de Windows queda documentado aquí como limitación conocida.
-///
-/// Bajo Flatpak la respuesta también es siempre `false`: el hijo del PTY es
-/// `flatpak-spawn`, y el shell real vive en el espacio de PIDs del host, que
-/// `pgrep` no alcanza desde el sandbox. Es la misma degradación conservadora
-/// que en Windows —no se avisa de procesos activos al cerrar la consola—, no
-/// un cierre forzado de nada.
 #[cfg(unix)]
 fn has_child_processes(pid: u32) -> bool {
     match std::process::Command::new("pgrep")

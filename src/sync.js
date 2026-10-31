@@ -890,7 +890,10 @@ export async function setStoredWebDavPassword(value) {
 /* ─────────────────────────── Comandos de alto nivel ────────────────── */
 
 export async function getConfig() {
-  return await invoke("sync_get_config");
+  const config = await invoke("sync_get_config");
+  // iCloud ya no existe como backend: una config antigua cae a «none».
+  if (config?.backend === "icloud") config.backend = "none";
+  return config;
 }
 
 export async function saveConfig(config) {

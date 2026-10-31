@@ -94,7 +94,7 @@ en lote** desde un aviso.
 
 ## Selección múltiple y movimiento
 
-En la sidebar puedes seleccionar varias conexiones con **Ctrl/Cmd+click** y rangos con **Shift+click**. Al arrastrar una conexión seleccionada hacia una carpeta o workspace, Rustty mueve el lote completo de conexiones seleccionadas dentro del mismo workspace origen.
+En la sidebar puedes seleccionar varias conexiones con **Ctrl+clic** y rangos con **Shift+click**. Al arrastrar una conexión seleccionada hacia una carpeta o workspace, Rustty mueve el lote completo de conexiones seleccionadas dentro del mismo workspace origen.
 
 El borrado también opera sobre el lote: si eliminas una conexión que forma parte de una selección múltiple, Rustty borra todas las seleccionadas tras una única confirmación con el recuento.
 
@@ -114,12 +114,12 @@ Si tu shell remoto emite las marcas semánticas **OSC 133** (bash, zsh y fish mo
 
 - **SSH**: sesión interactiva con terminal, SFTP integrado y autenticación por contraseña, clave pública o agente SSH.
 - **RDP**: lanzamiento de escritorio remoto usando `xfreerdp3` / `xfreerdp`, `rdesktop`, `mstsc` o el cliente disponible en el sistema.
-- **VNC**: lanzamiento del escritorio remoto en el visor VNC del sistema (TigerVNC / `vncviewer` en Linux, Pantalla compartida en macOS, el visor instalado o `vnc://` en Windows). El visor pide la contraseña VNC si el servidor la requiere.
+- **VNC**: lanzamiento del escritorio remoto en el visor VNC del sistema (TigerVNC / `vncviewer` en Linux, el visor instalado o `vnc://` en Windows). El visor pide la contraseña VNC si el servidor la requiere.
 - **Telnet**: abre el cliente `telnet` del sistema dentro de un emulador de terminal. Útil para equipos de red y dispositivos antiguos; recuerda que Telnet no cifra el tráfico.
 - **FTP**: panel de ficheros para servidores FTP heredados.
 - **FTPS**: FTP explícito sobre TLS para servidores que no ofrecen SFTP.
 
-RDP, VNC y Telnet no se embeben dentro de Rustty: se abren como [clientes externos](?page=ClientesExternos), con una pestaña de estado en la app.
+RDP se abre por defecto **dentro de la pestaña**, con el cliente integrado: comparte el portapapeles (texto, ficheros y carpetas) y, si la eliges en Preferencias → Sistema, una carpeta local que aparece como unidad en el remoto. En esa misma sección puedes volver a abrirlo en una ventana externa (mstsc / xfreerdp). VNC y Telnet se abren siempre como [clientes externos](?page=ClientesExternos), con una pestaña de estado en la app.
 
 ## Credenciales
 

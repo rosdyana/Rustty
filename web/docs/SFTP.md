@@ -47,7 +47,7 @@ Cuando **CWD** está activo, Rustty intenta seguir el directorio actual de la te
 
 El toggle **CWD** está en la propia toolbar del panel SFTP; ya no aparece en el formulario de conexión. Solo aplica a sesiones SSH/SFTP, no a perfiles FTP/FTPS.
 
-La barra de estado inferior muestra el directorio remoto como un **breadcrumb clicable**: pulsa cualquier segmento de la ruta para llevar el panel SFTP a esa carpeta (lo abre si hace falta). Un clic en el icono 📂 copia la ruta completa, y `Ctrl/Cmd+clic` sobre un segmento copia su ruta acumulada.
+La barra de estado inferior muestra el directorio remoto como un **breadcrumb clicable**: pulsa cualquier segmento de la ruta para llevar el panel SFTP a esa carpeta (lo abre si hace falta). Un clic en el icono 📂 copia la ruta completa, y `Ctrl+clic` sobre un segmento copia su ruta acumulada.
 
 ## Operaciones disponibles
 

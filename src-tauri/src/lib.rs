@@ -45,12 +45,18 @@ mod kbd_fixture;
 mod rdp_fixture;
 mod rdp_certs;
 mod rdp_manager;
+// Cliente RDP integrado (IronRDP). Sin la feature, un stub con los mismos
+// comandos que responde «no disponible».
+#[cfg(feature = "embedded-rdp")]
+mod rdp_embedded;
+#[cfg(not(feature = "embedded-rdp"))]
+#[path = "rdp_embedded/stub.rs"]
+mod rdp_embedded;
 mod remote_launch;
 #[cfg(all(test, target_os = "linux"))]
 mod ssh_fixture;
 #[cfg(all(test, target_os = "linux"))]
 mod webdav_fixture;
-mod sandbox;
 mod scripts;
 mod sftp_manager;
 mod shell_integration;
@@ -249,7 +255,6 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_notification::init())
-        .plugin(tauri_plugin_process::init())
         // Tamaño, posición y maximizado; **no** la visibilidad. Con los flags
         // por defecto (`StateFlags::all()`) el plugin hacía `show()` de la
         // ventana en `on_window_ready`, o sea con el webview recién creado y
@@ -287,18 +292,14 @@ pub fn run() {
             );
             app.manage(AppLogDir(log_dir.clone()));
             app.manage(AppLogLevel(log_level));
-            // Updater de Tauri (solo escritorio): permite actualizar la app
-            // desde dentro sin re-lanzar el instalador. Las actualizaciones se
-            // verifican con la clave pública de `tauri.conf.json`.
-            #[cfg(desktop)]
-            app.handle()
-                .plugin(tauri_plugin_updater::Builder::new().build())?;
             // El handler TOFU necesita poder pedir confirmación de una host key
             // nueva al usuario (evento `ssh-hostkey-prompt`). Sin este registro
             // —caso de la CLI— cae al prompt por stdin.
             host_keys::register_app(app.handle().clone());
             // Igual para la confirmación de certificados FTPS (`ftps-cert-prompt`).
             ftps_certs::register_app(app.handle().clone());
+            // Y para los certificados del RDP integrado (`rdp-cert-prompt`).
+            rdp_embedded::certs::register_app(app.handle().clone());
             // Y para las preguntas de la autenticación interactiva —el segundo
             // factor— (`ssh-auth-prompt`). Sin ventana no hay a quién preguntar:
             // la CLI rechaza esas conexiones en vez de colgarse esperando.
@@ -327,6 +328,7 @@ pub fn run() {
             // Estado global gestionado por Tauri (inyectado en los comandos vía State<T>)
             app.manage(SshManager::new());
             app.manage(RdpManager::new());
+            app.manage(rdp_embedded::EmbeddedRdpManager::new());
             app.manage(VncManager::new());
             app.manage(TelnetManager::new());
             app.manage(LocalShellManager::new());
@@ -358,6 +360,14 @@ pub fn run() {
                 dirs::home_dir().as_deref(),
             ));
             app.manage(DataDir(data_dir));
+            // Descargas del portapapeles RDP de sesiones de hace más de un día.
+            {
+                let base = rdp_embedded::clipboard_downloads_base(
+                    app.handle(),
+                    &app.state::<DataDir>().0,
+                );
+                std::thread::spawn(move || rdp_embedded::clipboard::cleanup_stale_downloads(&base));
+            }
             // Señal de arranque minimizado: el frontend la consulta al inicio
             // para decidir si ocultar la ventana en lugar de mostrarla.
             app.manage(LaunchMinimized(launched_minimized));
@@ -412,6 +422,7 @@ pub fn run() {
                 window.state::<SftpManager>().disconnect_all();
                 window.state::<LocalShellManager>().close_all();
                 window.state::<RdpManager>().disconnect_all();
+                window.state::<rdp_embedded::EmbeddedRdpManager>().disconnect_all();
                 window.state::<VncManager>().disconnect_all();
                 window.state::<TelnetManager>().disconnect_all();
             }
@@ -425,8 +436,6 @@ pub fn run() {
             commands::reveal_main_window,
             commands::save_workspace_index,
             commands::load_workspace_index,
-            commands::is_appimage,
-            commands::is_flatpak,
             app_tray::tray_update_quick_launcher,
             // ── Perfiles de conexión
             commands::get_profiles,
@@ -503,6 +512,20 @@ pub fn run() {
             commands::rdp_connect,
             commands::rdp_disconnect,
             commands::rdp_forget_cert,
+            // ── RDP integrado (IronRDP, pestaña con canvas)
+            rdp_embedded::rdp_embed_available,
+            rdp_embedded::rdp_embed_connect,
+            rdp_embedded::rdp_embed_input,
+            rdp_embedded::rdp_embed_resize,
+            rdp_embedded::rdp_embed_ack,
+            rdp_embedded::rdp_embed_disconnect,
+            rdp_embedded::rdp_cert_response,
+            rdp_embedded::rdp_known_certs_list,
+            rdp_embedded::rdp_known_cert_remove,
+            rdp_embedded::rdp_embed_clipboard_sync,
+            rdp_embedded::drive::rdp_shared_folder_get,
+            rdp_embedded::drive::rdp_shared_folder_pick,
+            rdp_embedded::drive::rdp_shared_folder_clear,
             // ── Sesiones VNC / Telnet (lanzador externo)
             commands::vnc_connect,
             commands::vnc_disconnect,
@@ -575,7 +598,6 @@ pub fn run() {
             commands::sync_get_device_id,
             commands::sync_run,
             commands::sync_test_backend,
-            commands::sync_get_backend_folder,
             commands::sync_oauth_begin,
             commands::sync_oauth_complete,
             commands::sync_oauth_status,

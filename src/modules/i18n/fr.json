@@ -579,6 +579,41 @@
     "workarea": "Zone de travail",
     "fixed": "Taille fixe (serveurs anciens)"
   },
+  "rdp_mode": {
+    "embedded": "Dans l’onglet",
+    "external": "Dans une fenêtre externe (mstsc / xfreerdp)"
+  },
+  "rdp_perf": {
+    "speed": "Vitesse",
+    "balanced": "Équilibré",
+    "quality": "Qualité"
+  },
+  "rdp_embed": {
+    "err": {
+      "generic": "erreur inattendue de la session.",
+      "auth_failed": "nom d’utilisateur ou mot de passe incorrect, ou le compte n’est pas autorisé à ouvrir une session par bureau à distance.",
+      "cert_rejected": "le certificat du serveur n’a pas été confirmé.",
+      "cert_changed": "le certificat du serveur a changé et le changement n’a pas été accepté.",
+      "cert_store": "impossible d’enregistrer l’empreinte du certificat.",
+      "unreachable": "le serveur est injoignable.",
+      "timeout": "le serveur n’a pas répondu à temps.",
+      "tls": "la négociation TLS a échoué (le serveur utilise peut-être une version de TLS trop ancienne).",
+      "unsupported": "le serveur exige un mode de sécurité que le client intégré ne prend pas en charge. Essayez le client externe.",
+      "protocol": "erreur de protocole RDP. Si elle se reproduit, essayez le client externe.",
+      "network": "la connexion au serveur a été perdue.",
+      "redirect": "le serveur demande de rediriger la session vers une autre machine, ce que le client intégré ne prend pas encore en charge.",
+      "reactivation_timeout": "le serveur n’a pas fini de réactiver la session après un changement d’affichage.",
+      "internal": "erreur interne du client intégré."
+    },
+    "clip_err": {
+      "generic": "erreur inattendue.",
+      "too_large": "la copie dépasse la limite de 8 Gio.",
+      "unsafe_name": "le distant a envoyé un nom de fichier non valide.",
+      "remote": "le bureau à distance n’a pas fourni le fichier.",
+      "short_read": "le fichier a changé sur le distant pendant la copie.",
+      "empty": "il n’y avait rien à copier."
+    }
+  },
   "ctx": {
     "key_access": "Accès sans mot de passe (clé SSH)…",
     "new_conn_here": "Nouvelle connexion ici",
@@ -871,7 +906,7 @@
     "disable_paste_confirm": "Ne pas confirmer les collages dangereux pour ce profil",
     "disable_paste_confirm_hint": "Ignore l'aperçu de confirmation lors du collage de texte multiligne, très long ou contenant des caractères de contrôle dans les sessions de ce profil.",
     "x11_forwarding": "Transférer X11",
-    "x11_forwarding_hint": "Nécessite un serveur X local sur localhost:6000 (DISPLAY=:0). Sous Windows ou macOS, un serveur X dédié est requis.",
+    "x11_forwarding_hint": "Nécessite un serveur X local sur localhost:6000 (DISPLAY=:0). Sous Windows, un serveur X dédié est requis.",
     "auto_reconnect": "Tentatives de reconnexion",
     "auto_reconnect_hint": "0 = désactivé. Nombre de tentatives automatiques après une coupure, avec backoff exponentiel (2s, 4s, 8s…).",
     "persist_session": "Reprendre une session persistante (tmux/screen)",
@@ -1020,7 +1055,16 @@
     "stored": "Enregistrée :\n{fingerprint}",
     "received": "Reçue maintenant :\n{fingerprint}",
     "advice": "Acceptez SEULEMENT si vous attendiez ce changement et pouvez vérifier la nouvelle empreinte par un canal de confiance. Accepter oublie le certificat enregistré et la connexion est relancée dans cet onglet ; refuser ne modifie rien.",
-    "accept": "Accepter le nouveau certificat"
+    "accept": "Accepter le nouveau certificat",
+    "advice_embedded": "N’acceptez QUE si vous attendiez ce changement et pouvez vérifier la nouvelle empreinte par un canal de confiance. Aucun identifiant n’est envoyé tant que vous n’avez pas décidé. Accepter remplace l’empreinte enregistrée et la connexion continue ; refuser ne modifie rien."
+  },
+  "modal_rdp_cert": {
+    "title": "Certificat du serveur RDP inconnu",
+    "intro": "C’est la première fois que vous vous connectez à {host}:{port} avec le bureau à distance intégré et aucun certificat n’est enregistré pour ce serveur.",
+    "via_jump": "La connexion passe par un rebond : il s’agit de l’empreinte du serveur de destination, pas de celle du rebond.",
+    "fingerprint": "Empreinte du certificat (SHA-256) :\n{fingerprint}",
+    "advice": "Vérifiez-la auprès de l’administrateur du serveur par un canal de confiance. Aucun identifiant n’est envoyé tant que vous n’acceptez pas. Si vous acceptez, elle sera enregistrée et nous vous avertirons si elle change.",
+    "accept": "Faire confiance et se connecter"
   },
   "key_setup": {
     "title": "Accès sans mot de passe",
@@ -1507,7 +1551,7 @@
     "read_only_unlock": "Session en lecture seule : cliquez pour la déverrouiller",
     "cwd_seg_nav": "Aller à {path} dans le panneau SFTP",
     "cwd_copy": "Copier le chemin complet",
-    "cwd_copy_seg": "Ctrl/Cmd+clic pour copier le chemin",
+    "cwd_copy_seg": "Ctrl+clic pour copier le chemin",
     "cwd_copied": "Chemin copié dans le presse-papiers",
     "cwd_nav_error": "Impossible d'ouvrir le panneau SFTP sur {path}"
   },
@@ -1542,16 +1586,12 @@
     "backend": "Fournisseur",
     "backend_none": "Aucun",
     "backend_local": "Dossier local / NAS",
-    "backend_icloud": "iCloud Drive",
     "backend_webdav": "WebDAV (Nextcloud, ownCloud…)",
     "backend_google_drive": "Google Drive",
     "local_folder": "Dossier local",
     "local_folder_label": "dossier local de synchronisation",
-    "backend_folder_label": "dossier de synchronisation",
     "local_folder_ph": "/chemin/vers/dossier/synchronise",
     "local_cloud_hint": "Vous pouvez pointer ici vers un dossier local, un NAS ou un dossier synchronisé par le système.",
-    "icloud_folder": "Dossier iCloud",
-    "icloud_hint": "Utilise iCloud Drive comme dossier local synchronisé. Disponible sur macOS avec iCloud Drive actif.",
     "browse": "Parcourir…",
     "open_folder": "Ouvrir le dossier",
     "auto_interval": "Synchronisation périodique",
@@ -1727,18 +1767,14 @@
     "website": "Site du projet",
     "repo": "Dépôt",
     "issues": "Signaler un problème",
+    "original_project": "Projet original (Alejandro Soriano)",
     "check_updates": "Vérifier les mises à jour",
     "checking_updates": "Vérification…",
     "update_available": "Nouvelle version {version} disponible",
     "update_current": "Rustty est à jour",
-    "update_flatpak_managed": "Les mises à jour sont gérées par Flatpak : utilisez votre logithèque ou « flatpak update ».",
     "update_error": "Vérification impossible",
     "update_no_version": "la publication n'indique pas de version",
-    "open_release": "Une nouvelle version ({version}) est disponible. Ouvrir la page de téléchargement ?",
-    "update_install_prompt": "Nouvelle version {version} disponible. Télécharger et installer maintenant ?",
-    "update_downloading": "Téléchargement de la mise à jour… {pct}%",
-    "update_installing": "Installation de la mise à jour…",
-    "update_restarting": "Redémarrage de Rustty…"
+    "open_release": "Une nouvelle version ({version}) est disponible. Ouvrir la page de téléchargement ?"
   },
   "prefs_system": {
     "title": "Système",
@@ -1747,6 +1783,18 @@
     "autostart_hint": "Ajoute Rustty à la liste des applications lancées automatiquement à l'ouverture de session.",
     "rdp_display": "Fenêtre du bureau distant (RDP)",
     "rdp_display_hint": "Valeur par défaut des sessions RDP ; chaque profil peut la remplacer. La fenêtre redimensionnable peut être agrandie et déplacée, et le bureau distant suit la taille : nécessite Windows 8 / Server 2012 ou plus récent. « Taille fixe » correspond au comportement précédent, pour les serveurs qui ne le prennent pas en charge.",
+    "rdp_mode": "Ouvrir le bureau à distance (RDP)",
+    "rdp_mode_hint": "Dans l’onglet, le bureau s’affiche dans Rustty avec le client intégré. La fenêtre externe utilise mstsc (Windows) ou xfreerdp (Linux) et prend en charge ce que ce client prend en charge (audio, imprimantes, plusieurs écrans…).",
+    "rdp_perf": "Performances du bureau à distance",
+    "rdp_perf_hint": "S’applique aux nouvelles connexions. « Vitesse » masque sur le distant le fond d’écran, les thèmes et les animations, et compresse au maximum : pour les liaisons lentes. « Équilibré » masque le fond d’écran et les animations mais garde le lissage des polices. « Qualité » affiche le bureau tel quel, pour les réseaux locaux.",
+    "rdp_clipboard": "Partager le presse-papiers avec le bureau à distance",
+    "rdp_clipboard_hint": "Copier d’un côté, coller de l’autre. Ce qui est copié en local est envoyé au distant quand vous revenez à l’onglet ou collez.",
+    "rdp_clipboard_files": "Copier-coller aussi les fichiers et dossiers",
+    "rdp_clipboard_files_hint": "Les fichiers copiés sur le distant sont téléchargés dans un dossier temporaire et, une fois terminés, peuvent être collés en local. Les fichiers copiés en local ne sont lus que lorsque le distant les colle.",
+    "rdp_shared_folder": "Partager un dossier local comme lecteur du distant",
+    "rdp_shared_folder_pick": "Choisir un dossier…",
+    "rdp_shared_folder_hint": "Le dossier apparaît dans l’Explorateur du distant, en lecture et écriture. Seulement ce dossier, rien en dehors. S’applique aux nouvelles connexions.",
+    "rdp_shared_folder_none": "Aucun dossier choisi",
     "autostart_minimized": "Démarrer réduit",
     "restore_work_tabs": "Proposer de restaurer les onglets de la dernière session",
     "restore_work_tabs_hint": "Enregistre l'ordre des onglets et leurs profils (jamais le contenu du terminal, ni secrets, ni sessions privées) et propose de les reconnecter en bloc au démarrage.",
@@ -2063,7 +2111,13 @@
     "transfer_skipped": "Ignoré : {name}",
     "transfers_pause_all_failed": "Impossible de changer la pause générale : {err}",
     "file_grant_invalid": "L'autorisation pour ce fichier n'est plus valable (elle a expiré, a déjà servi ou le chemin a changé). Choisissez-le à nouveau.",
-    "import_failed": "Échec de l'importation : {err}"
+    "import_failed": "Échec de l'importation : {err}",
+    "rdp_embed_failed": "Impossible d’ouvrir le bureau à distance « {name} » : {reason}",
+    "rdp_shared_folder_failed": "Impossible d’enregistrer le dossier partagé : {error}",
+    "rdp_clip_download_start": "« {name} » : copie de {files} fichier(s) depuis le bureau à distance ({size} Mo)…",
+    "rdp_clip_download_done": "« {name} » : {files} fichier(s) prêt(s) à coller",
+    "rdp_clip_download_failed": "« {name} » : impossible de copier les fichiers : {reason}",
+    "rdp_clip_unavailable": "« {name} » : le presse-papiers du système n’est pas disponible ; le copier-coller avec le bureau à distance ne fonctionnera pas."
   },
   "sftp": {
     "symlinks_skipped": "{n} liens symboliques ignorés (non copiés)",

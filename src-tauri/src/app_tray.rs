@@ -66,11 +66,10 @@ pub fn setup(app: &mut App) {
     if !appindicator_disponible() {
         // Sin este corte la app **muere al arrancar**: `libappindicator-sys`
         // entra en pánico cuando su `dlopen` falla, y un panic no lo captura el
-        // `Err` de abajo. Pasa en cualquier sistema sin AppIndicator instalado,
-        // y siempre dentro de Flatpak (ningún runtime la trae).
+        // `Err` de abajo. Pasa en cualquier sistema sin AppIndicator instalado.
         eprintln!(
             "AppIndicator no está disponible: Rustty arranca sin bandeja del sistema. \
-             Instala libayatana-appindicator3 para tenerla."
+             Instala libayatana-appindicator3-1 (sudo apt install libayatana-appindicator3-1) para tenerla."
         );
         return;
     }

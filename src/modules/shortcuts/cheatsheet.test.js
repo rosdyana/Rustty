@@ -9,14 +9,12 @@ const labels = { general: "General", tabs: "Pestañas y paneles", terminal: "Ter
 /**
  * Chuleta con las preferencias dadas, con nombres legibles de prueba.
  * @param {any} prefs
- * @param {(combo: string) => string} [format]
  */
-function sheet(prefs, format) {
+function sheet(prefs) {
   return buildCheatsheet({
     get: (id) => getShortcut(prefs, id),
     label: (id) => `acción ${id}`,
     groupLabel: (id) => labels[id],
-    format,
   });
 }
 
@@ -78,10 +76,9 @@ describe("buildCheatsheet", () => {
     expect(items.find((i) => i.id === "clear_terminal")?.combo).toBe("Ctrl+Alt+L");
   });
 
-  it("presenta la combinación por plataforma y la parte en teclas", () => {
-    const mac = sheet({}, (combo) => combo.replace(/\bCtrl\b/g, "Cmd"));
-    const palette = mac[0].items.find((i) => i.id === "command_palette");
-    expect(palette).toMatchObject({ combo: "Cmd+Shift+P", keys: ["Cmd", "Shift", "P"] });
+  it("presenta la combinación tal cual y la parte en teclas", () => {
+    const palette = sheet({})[0].items.find((i) => i.id === "command_palette");
+    expect(palette).toMatchObject({ combo: "Ctrl+Shift+P", keys: ["Ctrl", "Shift", "P"] });
   });
 
   it("un contexto sin ningún atajo asignado no aparece", () => {

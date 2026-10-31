@@ -46,9 +46,8 @@ body:
       label: Sistema operativo
       description: Selecciona el sistema operativo donde ocurre el problema.
       options:
-        - Linux
-        - macOS
-        - Windows
+        - Linux (Debian/Ubuntu, .deb)
+        - Windows (portable)
     validations:
       required: true
 
@@ -57,7 +56,7 @@ body:
     attributes:
       label: Versión / distribución del sistema operativo
       description: Indica la versión o distribución concreta.
-      placeholder: "Fedora 44 / macOS 15.4 / Windows 11 23H2"
+      placeholder: "Ubuntu 24.04 / Debian 13 / Windows 11 23H2"
     validations:
       required: true
 

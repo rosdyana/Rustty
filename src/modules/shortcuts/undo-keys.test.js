@@ -27,7 +27,7 @@ describe("undoRedoCommand", () => {
     expect(undoRedoCommand(ev("z", { shiftKey: true }))).toBeNull();
   });
 
-  it("Alt o Meta invalidan (AltGr de tercer nivel, convención Cmd de macOS)", () => {
+  it("Alt o Meta invalidan (AltGr de tercer nivel, Super no es Ctrl)", () => {
     expect(undoRedoCommand(ev("z", { ctrlKey: true, altKey: true }))).toBeNull();
     expect(undoRedoCommand(ev("z", { ctrlKey: true, metaKey: true }))).toBeNull();
   });

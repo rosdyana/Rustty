@@ -5,8 +5,6 @@
 
 import { invoke, Channel } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { check as checkUpdate } from "@tauri-apps/plugin-updater";
-import { relaunch } from "@tauri-apps/plugin-process";
 import { readText as readClipboardText, writeText as writeClipboardText } from "@tauri-apps/plugin-clipboard-manager";
 import { isPermissionGranted as notifPermissionGranted, requestPermission as requestNotifPermission, sendNotification } from "@tauri-apps/plugin-notification";
 import * as sync from "./sync.js";
@@ -81,7 +79,6 @@ import { createShortcutController } from "./modules/shortcuts/controller.js";
 import { createDialogController } from "./modules/dialogs/controller.js";
 import { undoRedoCommand } from "./modules/shortcuts/undo-keys.js";
 import { buildCheatsheet, filterCheatsheet } from "./modules/shortcuts/cheatsheet.js";
-import { formatAccelerator } from "./modules/platform.js";
 import { buildQuickProfile, findQuickTargetProfile, formatQuickTarget, paletteQuickTarget, parseQuickTarget } from "./modules/quick-connect.js";
 import { firstBlockPerAlias, linkSshConfigJumps, sshConfigJumpFields } from "./modules/ssh-config-jumps.js";
 import {
@@ -125,6 +122,7 @@ import { QUICK_SELECT_MAX_PATTERNS, QUICK_SELECT_MAX_PATTERN_LENGTH, quickSelect
 import { createQuickSelect } from "./modules/terminal/quick-select-ui.js";
 import { createPromptQueue } from "./modules/dialogs/prompt-queue.js";
 import { reconnectRoute, runReconnectOnce } from "./modules/sessions/reconnect.js";
+import { createRdpCanvasView } from "./modules/rdp/canvas-view.js";
 import {
   MAX_JUMPS, allowsTextBastion, bastionChoices, bastionLinksOf, bastionReferrers, clampIdleSecs, relinkRestoredBastion,
   withBastionOverride, describeRoute, detachDeletedBastions, filterJumpProfiles,
@@ -173,6 +171,8 @@ import {
 /** @typedef {import("./modules/ipc/events.js").SshReconnectingEvent} SshReconnectingEvent */
 /** @typedef {import("./modules/ipc/events.js").TrayAction} TrayAction */
 /** @typedef {import("./modules/ipc/events.js").HostKeyPromptEvent} HostKeyPromptEvent */
+/** @typedef {import("./modules/ipc/events.js").RdpCertPromptEvent} RdpCertPromptEvent */
+/** @typedef {import("./modules/ipc/events.js").RdpEmbedStatusEvent} RdpEmbedStatusEvent */
 
 // ═══════════════════════════════════════════════════════════════
 // ESTADO DE LA APLICACIÓN
@@ -259,8 +259,8 @@ const RECENT_CONNECTIONS_STORAGE_KEY = "rustty-recent-connections";
 const TERMINAL_OUTPUT_CHUNK_CHARS = 64 * 1024;
 const TERMINAL_OUTPUT_QUEUE_LIMIT_CHARS = 16 * 1024 * 1024;
 let _trayQuickLauncherTimer = null;
-const RELEASES_API_URL = "https://api.github.com/repos/Aleixenandros/Rustty/releases/latest";
-const RELEASES_PAGE_URL = "https://github.com/Aleixenandros/Rustty/releases/latest";
+const RELEASES_API_URL = "https://api.github.com/repos/rosdyana/Rustty/releases/latest";
+const RELEASES_PAGE_URL = "https://github.com/rosdyana/Rustty/releases/latest";
 const DEFAULT_SYNC_HISTORY_KEEP = 30;
 // Espejo de `WINDOW_STATE_FLAGS` en `lib.rs`: el plugin window-state restaura y
 // guarda con los mismos flags por los dos caminos. La visibilidad (8) se deja
@@ -1900,6 +1900,7 @@ function openSettingsModal() {
   if (_tmuxScroll) _tmuxScroll.value = String(Number(prefs.tmuxScrollbackLines) ?? 2000);
   document.getElementById("pref-bell").value                = prefs.bell;
   document.getElementById("pref-rdp-display").value         = prefs.rdpDisplay || "window";
+  loadRdpEmbeddedPrefs();
   const _metEnabled = document.getElementById("pref-metrics-enabled");
   if (_metEnabled) _metEnabled.checked = !!prefs.metricsEnabled;
   const _metSecs = document.getElementById("pref-metrics-secs");
@@ -2033,7 +2034,6 @@ const SYNC_PULL_INTERVALS = [0, 60, 300, 900, 1800, 3600];
 function syncDevicePlatform() {
   const ua = navigator.userAgent || "";
   if (ua.includes("Windows")) return "Windows";
-  if (ua.includes("Mac")) return "macOS";
   return "Linux";
 }
 
@@ -2150,7 +2150,7 @@ async function populateSyncTab() {
   }));
   _syncConfigCache = config;
 
-  const allowedBackends = ["none", "local", "icloud", "webdav", "google_drive"];
+  const allowedBackends = ["none", "local", "webdav", "google_drive"];
   const backend = allowedBackends.includes(config.backend) ? config.backend : "none";
   document.getElementById("sync-enabled").checked = !!config.enabled;
   document.getElementById("sync-backend").value = backend;
@@ -2222,9 +2222,6 @@ function syncUpdateBackendVisibility() {
   document.querySelectorAll(".sync-local-only").forEach((el) =>
     el.classList.toggle("hidden", v !== "local")
   );
-  document.querySelectorAll(".sync-icloud-only").forEach((el) =>
-    el.classList.toggle("hidden", v !== "icloud")
-  );
   document.querySelectorAll(".sync-webdav-only").forEach((el) =>
     el.classList.toggle("hidden", v !== "webdav")
   );
@@ -2254,7 +2251,6 @@ function syncBackendLabel(backend) {
   const map = {
     none: "prefs_sync.backend_none",
     local: "prefs_sync.backend_local",
-    icloud: "prefs_sync.backend_icloud",
     webdav: "prefs_sync.backend_webdav",
     google_drive: "prefs_sync.backend_google_drive",
   };
@@ -2315,7 +2311,6 @@ function renderSyncBackendCards() {
   if (!grid) return;
   const backends = [
     { id: "local",        icon: SYNC_ICON_LOCAL,  labelKey: "prefs_sync.backend_local" },
-    { id: "icloud",       icon: SYNC_ICON_ICLOUD, labelKey: "prefs_sync.backend_icloud" },
     { id: "webdav",       icon: SYNC_ICON_WEBDAV, labelKey: "prefs_sync.backend_webdav" },
     { id: "google_drive", icon: SYNC_ICON_DRIVE,  labelKey: "prefs_sync.backend_google_drive" },
   ];
@@ -3242,15 +3237,6 @@ async function sessionLogsOpenFolder() {
   }
 }
 
-async function syncOpenBackendFolder() {
-  await persistSyncConfig().catch((err) => console.error("[sync] save before open backend", err));
-  const path = await invoke("sync_get_backend_folder").catch((err) => {
-    toast(`${t("rail.sync")}: ${err}`, "error", 6000, { category: "sync" });
-    return null;
-  });
-  await openPathInFileManager(path, t("prefs_sync.backend_folder_label"));
-}
-
 // Diálogos que sync.js usa en export/import/restore: wry no implementa
 // window.prompt/confirm, así que se le inyectan los tematizados de main.js.
 const syncDialogs = {
@@ -3505,7 +3491,6 @@ async function populateAboutVersion() {
 function diagnosticsPlatform() {
   const ua = navigator.userAgent || "";
   if (/Windows/.test(ua)) return "windows";
-  if (/Mac OS X|Macintosh/.test(ua)) return "macos";
   if (/Linux/.test(ua)) return "linux";
   return "unknown";
 }
@@ -3611,123 +3596,8 @@ function setAboutUpdateStatus(text, type = "") {
   el.textContent = text;
 }
 
-/**
- * El updater de Tauri autoinstala en Windows y macOS (formato único, in-place
- * fiable) y en Linux **solo cuando la app es un AppImage** (único formato que el
- * updater sabe reemplazar). En el resto de formatos de Linux (deb/rpm/Flatpak/
- * Arch) se mantiene el aviso clásico que abre la página de releases, porque la
- * actualización corresponde al gestor de paquetes.
- */
-async function platformSupportsUpdater() {
-  const ua = navigator.userAgent || "";
-  if (/Windows/.test(ua) || /Mac OS X|Macintosh/.test(ua)) return true;
-  if (/Linux/.test(ua)) {
-    try {
-      return await invoke("is_appimage");
-    } catch {
-      return false;
-    }
-  }
-  return false;
-}
-
-/** Caché de `runningInFlatpak`: no cambia en toda la sesión. */
-let _isFlatpak = null;
-
-/**
- * Dentro de Flatpak la versión instalada la gobierna el remote (Flathub), no
- * las releases de GitHub: comprobar allí llevaría al usuario a descargar un
- * paquete distinto del que tiene.
- * @returns {Promise<boolean>}
- */
-async function runningInFlatpak() {
-  if (_isFlatpak === null) {
-    try {
-      _isFlatpak = await invoke("is_flatpak");
-    } catch {
-      _isFlatpak = false;
-    }
-  }
-  return _isFlatpak;
-}
-
 async function checkForUpdates({ interactive = true } = {}) {
-  if (await runningInFlatpak()) {
-    if (interactive) setAboutUpdateStatus(t("prefs_about.update_flatpak_managed"));
-    return;
-  }
-  if (await platformSupportsUpdater()) {
-    const handled = await checkForUpdatesViaUpdater({ interactive });
-    if (handled) return;
-    // Si el updater no estaba disponible (p. ej. ejecutando fuera del bundle),
-    // caemos al aviso clásico por la API de GitHub.
-  }
   await checkForUpdatesViaGithub({ interactive });
-}
-
-/**
- * Comprueba e instala una actualización con el updater de Tauri.
- * @returns {Promise<boolean>} true si gestionó el flujo (con o sin actualización);
- *   false si el updater no está disponible y conviene usar el fallback.
- */
-async function checkForUpdatesViaUpdater({ interactive }) {
-  const btn = document.getElementById("btn-about-check-updates");
-  if (btn) btn.disabled = true;
-  if (interactive) setAboutUpdateStatus(t("prefs_about.checking_updates"));
-  try {
-    const update = await checkUpdate();
-    if (!update) {
-      if (interactive) {
-        recordActivity({ kind: "update", status: "ok", title: t("prefs_about.update_current") });
-        setAboutUpdateStatus(t("prefs_about.update_current"), "success");
-      }
-      return true;
-    }
-
-    const version = `v${normalizeVersion(update.version) || update.version}`;
-    recordActivity({
-      kind: "update",
-      status: "warning",
-      title: t("prefs_about.update_available", { version }),
-    });
-    setAboutUpdateStatus(t("prefs_about.update_available", { version }), "warning");
-
-    const doInstall = await confirmThemed({
-      title: t("prefs_about.check_updates"),
-      message: t("prefs_about.update_install_prompt", { version }),
-      submitLabel: t("modal_credential.accept"),
-    });
-    if (!doInstall) {
-      try { await update.close(); } catch {}
-      return true;
-    }
-
-    let total = 0;
-    let received = 0;
-    await update.downloadAndInstall((event) => {
-      if (event.event === "Started") {
-        total = event.data.contentLength || 0;
-        setAboutUpdateStatus(t("prefs_about.update_downloading", { pct: 0 }), "warning");
-      } else if (event.event === "Progress") {
-        received += event.data.chunkLength || 0;
-        const pct = total > 0 ? Math.min(100, Math.round((received / total) * 100)) : 0;
-        setAboutUpdateStatus(t("prefs_about.update_downloading", { pct }), "warning");
-      } else if (event.event === "Finished") {
-        setAboutUpdateStatus(t("prefs_about.update_installing"), "warning");
-      }
-    });
-
-    setAboutUpdateStatus(t("prefs_about.update_restarting"), "success");
-    await relaunch();
-    return true;
-  } catch (err) {
-    console.warn("[updates] updater failed", err);
-    // El updater no está disponible (ejecución fuera del bundle, plugin no
-    // inicializado, etc.): deja que el caller use el fallback de GitHub.
-    return false;
-  } finally {
-    if (btn) btn.disabled = false;
-  }
 }
 
 async function checkForUpdatesViaGithub({ interactive = true } = {}) {
@@ -4062,6 +3932,11 @@ function readPrefsFromModal() {
     })(),
     bell:            document.getElementById("pref-bell").value,
     rdpDisplay:      document.getElementById("pref-rdp-display").value,
+    rdpMode:         document.getElementById("pref-rdp-mode")?.value === "external" ? "external" : "embedded",
+    rdpPerfProfile:  normalizeRdpPerfProfile(document.getElementById("pref-rdp-perf")?.value),
+    rdpClipboard:    document.getElementById("pref-rdp-clipboard")?.checked ?? true,
+    rdpClipboardFiles: document.getElementById("pref-rdp-clipboard-files")?.checked ?? true,
+    rdpSharedFolder: !!document.getElementById("pref-rdp-shared-folder")?.checked,
     metricsEnabled:  !!document.getElementById("pref-metrics-enabled")?.checked,
     metricsSecs:     parseInt(document.getElementById("pref-metrics-secs")?.value, 10) || DEFAULT_PREFS.metricsSecs,
     metricsPanelVertical: document.getElementById("pref-metrics-orientation")?.value === "vertical",
@@ -4113,7 +3988,7 @@ function readPrefsFromModal() {
     keepassKeyfile:  document.getElementById("pref-keepass-keyfile").value.trim(),
     keepassAutoLockMinutes: Number(document.getElementById("pref-keepass-autolock")?.value) || 0,
     keepassLockOnSuspend:   !!document.getElementById("pref-keepass-lock-on-suspend")?.checked,
-    lang:            newLang === null ? null : (SUPPORTED_LANGS.includes(newLang) ? newLang : "es"),
+    lang:            newLang === null ? null : (SUPPORTED_LANGS.includes(newLang) ? newLang : "en"),
     checkUpdatesOnStartup: document.getElementById("pref-check-updates-startup")?.checked ?? true,
     // Retención de logs de sesión: vacío / inválido → null (sin límite).
     sessionLogMaxAgeDays: readSessionLogLimit("pref-session-log-max-age"),
@@ -4585,6 +4460,8 @@ async function initMain() {
     .catch((e) => console.debug("[transfer] pause-all state", e));
   await initHostKeyPrompt().catch((e) => console.error("[hostkey] init", e));
   await initFtpsCertPrompt().catch((e) => console.error("[ftpscert] init", e));
+  await initRdpCertPrompt().catch((e) => console.error("[rdpcert] init", e));
+  rdpEmbedAvailable = await invoke("rdp_embed_available").catch(() => false) === true;
   await initAuthPrompt().catch((e) => console.error("[auth-prompt] init", e));
   // La interfaz está montada, responde y ya sabe preguntar por host keys,
   // certificados y segundo factor: fuera la pantalla de carga. Lo que sigue
@@ -5395,7 +5272,7 @@ async function handleWorkspaceMenuClick(action, wsId) {
   if (action === "delete") {
     toggleWorkspaceMenu(false);
     // La vía común: diálogos tematizados (wry no implementa `window.confirm`:
-    // en Linux y macOS no mostraba nada), confirmación tecleada si tiene
+    // en Linux no mostraba nada), confirmación tecleada si tiene
     // conexiones y papelera con Deshacer también para un workspace vacío.
     await deleteWorkspaceById(getActiveWorkspaceId());
     return;
@@ -5709,6 +5586,59 @@ async function initFtpsCertPrompt() {
       // `false` = la pregunta caducó mientras esperaba (en la cola o a la vista).
       if (accept && delivered === false) toast(t("toast.prompt_expired", { host: p.host }), "warning");
       else if (!accept) toast(t("toast.ftpscert_rejected", { host: p.host }), "warning");
+    }
+  );
+}
+
+/**
+ * Atiende `rdp-cert-prompt`: el servidor de una sesión RDP **integrada**
+ * presentó un certificado desconocido o distinto del guardado. El backend
+ * espera la respuesta tras el handshake TLS y **antes** de enviar credenciales.
+ */
+async function initRdpCertPrompt() {
+  await listen(
+    EVENT.rdpCertPrompt,
+    async (/** @type {{ payload: RdpCertPromptEvent }} */ event) => {
+      const p = event.payload || /** @type {RdpCertPromptEvent} */ ({});
+      const accept = p.changed
+        ? await confirmThemed({
+          title: t("modal_rdp_cert_changed.title"),
+          message: [
+            t("modal_rdp_cert_changed.intro", { host: p.host, port: p.port }),
+            "",
+            t("modal_rdp_cert_changed.stored", { fingerprint: p.previous || "?" }),
+            "",
+            t("modal_rdp_cert_changed.received", { fingerprint: p.fingerprint }),
+            "",
+            t("modal_rdp_cert_changed.advice_embedded"),
+          ].join("\n"),
+          submitLabel: t("modal_rdp_cert_changed.accept"),
+          danger: true,
+          armSubmit: true,
+          expiresAt: Date.now() + BACKEND_TRUST_PROMPT_MS,
+        })
+        : await confirmThemed({
+          title: t("modal_rdp_cert.title"),
+          message: [
+            t("modal_rdp_cert.intro", { host: p.host, port: p.port }),
+            ...(p.viaJump ? ["", t("modal_rdp_cert.via_jump")] : []),
+            "",
+            t("modal_rdp_cert.fingerprint", { fingerprint: p.fingerprint }),
+            "",
+            t("modal_rdp_cert.advice"),
+          ].join("\n"),
+          submitLabel: t("modal_rdp_cert.accept"),
+          danger: true,
+          armSubmit: true,
+          expiresAt: Date.now() + BACKEND_TRUST_PROMPT_MS,
+        });
+      let delivered = true;
+      try {
+        delivered = await invoke("rdp_cert_response", { promptId: p.promptId, accept });
+      } catch (e) {
+        console.error("[rdpcert] response", e);
+      }
+      if (accept && delivered === false) toast(t("toast.prompt_expired", { host: p.host }), "warning");
     }
   );
 }
@@ -6718,7 +6648,7 @@ function handleSidebarConnectionClick(e, el, container) {
     }
   }
 
-  if (e.ctrlKey || e.metaKey) {
+  if (e.ctrlKey) {
     if (sidebarSelectedConnectionIds.has(id)) {
       sidebarSelectedConnectionIds.delete(id);
     } else {
@@ -7362,7 +7292,7 @@ let menuReturnFocus = null;
 /**
  * Cuándo se cerró por última vez un menú visible. Un diálogo que se abre con
  * el foco en `body` justo después viene de ese menú; pasado el margen, el foco
- * en `body` es otra cosa (en macOS un clic no enfoca los botones) y volver al
+ * en `body` es otra cosa (un clic no siempre enfoca los botones) y volver al
  * disparador de un menú antiguo movería la barra lateral hasta él.
  */
 let menuHiddenAt = -Infinity;
@@ -11707,6 +11637,10 @@ async function connectRdp(profileId, { passwordOverride = null, credId = null, r
     }
   }
 
+  if (useEmbeddedRdp(profile)) {
+    return connectRdpEmbedded(profileId, { credId, reuse, routeOverride });
+  }
+
   const cred = getProfileCredential(profile, credId);
   const view = identityView(profile, cred);
   const promptProfile = { ...profile, username: view.username };
@@ -11841,6 +11775,279 @@ async function connectRdp(profileId, { passwordOverride = null, credId = null, r
   }
 }
 
+/** El backend trae el cliente RDP integrado (feature `embedded-rdp`). */
+let rdpEmbedAvailable = false;
+
+/**
+ * ¿Abrir este perfil RDP en la pestaña (IronRDP) en vez de en el cliente
+ * externo? En la pestaña por defecto; Ajustes › Sistema lo cambia a la ventana
+ * externa (`prefs.rdpMode`). Sin cliente integrado en la build, siempre externo.
+ * @param {any} _profile
+ */
+function useEmbeddedRdp(_profile) {
+  return rdpEmbedAvailable && prefs.rdpMode !== "external";
+}
+
+/** Canales extra de una sesión integrada, según Ajustes. */
+const RDP_PERF_PROFILES = ["speed", "balanced", "quality"];
+
+/** @param {unknown} v */
+function normalizeRdpPerfProfile(v) {
+  return RDP_PERF_PROFILES.includes(/** @type {string} */ (v)) ? /** @type {string} */ (v) : "balanced";
+}
+
+function rdpEmbedOptions() {
+  const clipboard = prefs.rdpClipboard !== false;
+  return {
+    clipboard,
+    clipboardFiles: clipboard && prefs.rdpClipboardFiles !== false,
+    sharedFolder: !!prefs.rdpSharedFolder,
+    perfProfile: normalizeRdpPerfProfile(prefs.rdpPerfProfile),
+  };
+}
+
+/** Rellena los ajustes del RDP integrado (y la carpeta guardada en el backend). */
+function loadRdpEmbeddedPrefs() {
+  const modeEl = /** @type {HTMLSelectElement|null} */ (document.getElementById("pref-rdp-mode"));
+  if (modeEl) {
+    modeEl.value = prefs.rdpMode === "external" ? "external" : "embedded";
+    // Sin cliente integrado en la build no hay nada que elegir.
+    modeEl.disabled = !rdpEmbedAvailable;
+    if (!rdpEmbedAvailable) modeEl.value = "external";
+  }
+  const perfEl = /** @type {HTMLSelectElement|null} */ (document.getElementById("pref-rdp-perf"));
+  if (perfEl) perfEl.value = normalizeRdpPerfProfile(prefs.rdpPerfProfile);
+  const clipEl = /** @type {HTMLInputElement|null} */ (document.getElementById("pref-rdp-clipboard"));
+  if (clipEl) clipEl.checked = prefs.rdpClipboard !== false;
+  const filesEl = /** @type {HTMLInputElement|null} */ (document.getElementById("pref-rdp-clipboard-files"));
+  if (filesEl) filesEl.checked = prefs.rdpClipboardFiles !== false;
+  const folderEl = /** @type {HTMLInputElement|null} */ (document.getElementById("pref-rdp-shared-folder"));
+  if (folderEl) folderEl.checked = !!prefs.rdpSharedFolder;
+  syncRdpEmbeddedPrefsUi();
+  invoke("rdp_shared_folder_get")
+    .then((/** @type {{ path?: string|null }} */ r) => showRdpSharedFolder(r?.path ?? null))
+    .catch(() => showRdpSharedFolder(null));
+}
+
+/** Habilita lo que solo tiene sentido en la pestaña y con sus dependencias. */
+function syncRdpEmbeddedPrefsUi() {
+  const embedded = rdpEmbedAvailable
+    && /** @type {HTMLSelectElement|null} */ (document.getElementById("pref-rdp-mode"))?.value !== "external";
+  for (const row of document.querySelectorAll("[data-rdp-embedded-only]")) {
+    row.classList.toggle("is-disabled", !embedded);
+    for (const el of row.querySelectorAll("input, button, select")) {
+      /** @type {HTMLInputElement|HTMLButtonElement|HTMLSelectElement} */ (el).disabled = !embedded;
+    }
+  }
+  const clip = /** @type {HTMLInputElement|null} */ (document.getElementById("pref-rdp-clipboard"));
+  const files = /** @type {HTMLInputElement|null} */ (document.getElementById("pref-rdp-clipboard-files"));
+  if (files) files.disabled = !embedded || !clip?.checked;
+}
+
+/** @param {string|null} path */
+function showRdpSharedFolder(path) {
+  const el = document.getElementById("rdp-shared-folder-path");
+  if (el) el.textContent = path || t("prefs_system.rdp_shared_folder_none");
+}
+
+async function pickRdpSharedFolder() {
+  try {
+    const r = await invoke("rdp_shared_folder_pick", { title: t("prefs_system.rdp_shared_folder_pick") });
+    if (!r) return;
+    showRdpSharedFolder(r.path ?? null);
+    const folderEl = /** @type {HTMLInputElement|null} */ (document.getElementById("pref-rdp-shared-folder"));
+    if (folderEl) folderEl.checked = true;
+  } catch (err) {
+    toast(t("toast.rdp_shared_folder_failed", { error: String(err) }), "error");
+  }
+}
+
+/**
+ * Avisos del portapapeles de una sesión integrada (ficheros copiados en el
+ * remoto que se descargan para poder pegarlos en local).
+ * @param {string} name nombre del perfil
+ * @param {import("./modules/ipc/events.js").RdpEmbedClipEvent} info
+ */
+function onRdpEmbedClip(name, info) {
+  const mb = (/** @type {number|undefined} */ b) => ((b || 0) / (1024 * 1024)).toFixed(1);
+  switch (info.kind) {
+    case "download-start":
+      // Lo pequeño termina antes de que el aviso se lea: solo se anuncia lo grande.
+      if ((info.total || 0) >= 8 * 1024 * 1024) {
+        toast(t("toast.rdp_clip_download_start", { name, files: info.files ?? 0, size: mb(info.total) }), "info");
+      }
+      break;
+    case "download-done":
+      toast(t("toast.rdp_clip_download_done", { name, files: info.files ?? 0 }), "success");
+      break;
+    case "download-error": {
+      const key = `rdp_embed.clip_err.${String(info.reason || "generic").replace(/-/g, "_")}`;
+      const text = t(key);
+      toast(t("toast.rdp_clip_download_failed", {
+        name,
+        reason: text === key ? (info.reason || t("rdp_embed.clip_err.generic")) : text,
+      }), "error", 10000);
+      break;
+    }
+    case "unavailable":
+      toast(t("toast.rdp_clip_unavailable", { name }), "warning", 8000);
+      break;
+  }
+}
+
+/** Texto del motivo de fallo de una sesión integrada (código estable del backend). */
+function rdpEmbedErrorText(code) {
+  const key = `rdp_embed.err.${String(code || "generic").replace(/-/g, "_")}`;
+  const text = t(key);
+  return text === key ? t("rdp_embed.err.generic") : text;
+}
+
+/**
+ * Conecta un perfil RDP **dentro de la pestaña** (cliente integrado).
+ *
+ * El frontend solo pasa el id del perfil (y la identidad elegida): el backend
+ * resuelve la contraseña (keyring, KeePass, credencial maestra, `${…}`). Solo
+ * si no hay ninguna guardada se pide aquí, y viaja una única vez.
+ *
+ * @param {string} profileId
+ * @param {{ credId?: string|null, reuse?: string|null, routeOverride?: any }} opts
+ */
+async function connectRdpEmbedded(profileId, { credId = null, reuse = null, routeOverride = null } = {}) {
+  const profile = profiles.find((p) => p.id === profileId);
+  if (!profile) return;
+  const cred = getProfileCredential(profile, credId);
+  const identity = identityView(profile, cred);
+  if (identity.keepassEntryUuid && !keepassUnlocked) {
+    toast(t("toast.keepass_locked"), "warning");
+    return;
+  }
+
+  const prepared = await prepareConnectionRoute(profile, reuse
+    ? { replay: sessions.get(reuse)?.route ?? null }
+    : { override: routeOverride });
+  if (!prepared) return;
+
+  const sessionId = reuse || `rdp-${crypto.randomUUID()}`;
+  const sessionObj = sessions.get(sessionId) || {
+    profileId,
+    id: sessionId,
+    type: "rdp",
+    embedded: true,
+    status: "connecting",
+    unlisteners: [],
+    credentialId: credId,
+    terminal: null,
+    fitAddon: null,
+  };
+  if (reuse) {
+    for (const ul of sessionObj.unlisteners) { try { ul(); } catch {} }
+    sessionObj.unlisteners = [];
+    sessionObj.status = "connecting";
+    sessionObj.rdpView?.dispose();
+    sessionObj.rdpView = null;
+    updateTabStatus(sessionId, "connecting");
+    setExternalPaneState(sessionId, "connecting", connectionProtocolMeta("rdp").label);
+  } else {
+    sessions.set(sessionId, sessionObj);
+    createRdpTab(sessionId, profile, "connecting");
+    setExternalPaneState(sessionId, "connecting", connectionProtocolMeta("rdp").label);
+  }
+  sessionObj.embedded = true;
+  sessionObj.route = prepared.route;
+  updateTabRoute(sessionId);
+
+  const pane = sessionObj.pane;
+  const rdpView = createRdpCanvasView({ sessionId, invoke, Channel });
+  sessionObj.rdpView = rdpView;
+  pane?.appendChild(rdpView.element);
+
+  const markClosed = () => {
+    sessionObj.status = "closed";
+    rdpView.setActive(false);
+    pane?.classList.remove("rdp-embedded-live");
+    updateTabStatus(sessionId, "error");
+    setExternalPaneState(sessionId, "closed", connectionProtocolMeta("rdp").label);
+    renderConnectionList();
+  };
+
+  const unlisten = await listen(eventName("rdpEmbedStatus", sessionId), (event) => {
+    if (sessionObj.rdpView !== rdpView) return;
+    const info = /** @type {RdpEmbedStatusEvent} */ (event?.payload) || {};
+    if (info.state === "connected") {
+      sessionObj.status = "connected";
+      updateTabStatus(sessionId, "connected");
+      pane?.classList.add("rdp-embedded-live");
+      rdpView.setActive(true);
+      if (activeSessionId === sessionId) rdpView.focus();
+      if (!sessionObj.private) recordRecentConnection(profileId);
+      renderConnectionList();
+    } else if (info.state === "closed") {
+      markClosed();
+      toast(t("toast.rdp_closed", { name: profile.name }), "info");
+    } else if (info.state === "error") {
+      markClosed();
+      toast(t("toast.rdp_embed_failed", { name: profile.name, reason: rdpEmbedErrorText(info.code) }), "error", 10000);
+    }
+  });
+  sessionObj.unlisteners.push(unlisten);
+  const unlistenClip = await listen(eventName("rdpEmbedClip", sessionId), (event) => {
+    if (sessionObj.rdpView !== rdpView) return;
+    onRdpEmbedClip(profile.name, /** @type {any} */ (event?.payload) || {});
+  });
+  sessionObj.unlisteners.push(unlistenClip);
+
+  const fail = (err) => {
+    for (const ul of sessionObj.unlisteners) { try { ul(); } catch {} }
+    sessionObj.unlisteners = [];
+    if (reuse) {
+      markClosed();
+    } else {
+      rdpView.dispose();
+      sessions.delete(sessionId);
+      removeTab(sessionId);
+    }
+    if (err) toast(t("external.toast_error", { proto: "RDP", err }), "error");
+  };
+
+  try {
+    const size = rdpView.measure();
+    const args = {
+      sessionId,
+      profileId,
+      credentialId: credId || null,
+      password: null,
+      jumps: prepared.jumps,
+      overrides: overridesWithRoute(null, prepared.route),
+      width: size.width,
+      height: size.height,
+      scale: size.scale,
+      options: rdpEmbedOptions(),
+      onFrame: rdpView.channel,
+    };
+    const reply = await invoke("rdp_embed_connect", args);
+    if (reply?.needsPassword) {
+      const password = await promptProfileSecret({ ...profile, username: identity.username }, {
+        titleKey: "modal_credential.rdp_password_title",
+        messageKey: "modal_credential.rdp_message",
+        labelKey: "modal_credential.password_label",
+        rememberKey: "modal_credential.remember_password",
+        secretKey: identity.pwKey,
+        secretLabel: t("toast.secret_password"),
+      });
+      if (password === null) {
+        fail(null);
+        return;
+      }
+      // La contraseña tecleada va directa al comando y no se guarda en ningún
+      // estado del frontend; el backend la borra de memoria tras autenticar.
+      await invoke("rdp_embed_connect", { ...args, password });
+    }
+    setActiveTab(sessionId);
+  } catch (err) {
+    fail(err);
+  }
+}
+
 /**
  * Conecta un protocolo que se lanza en un cliente externo sin autenticación por
  * parte de Rustty (VNC, Telnet): el visor/cliente pide sus credenciales. Crea la
@@ -11963,8 +12170,11 @@ async function closeExternalSession(sessionId, kind = "rdp") {
   for (const ul of s.unlisteners) { try { ul(); } catch {} }
   const cmd = kind === "vnc" ? "vnc_disconnect"
     : kind === "telnet" ? "telnet_disconnect"
+    : s.embedded ? "rdp_embed_disconnect"
     : "rdp_disconnect";
   await invoke(cmd, { sessionId }).catch(() => {});
+  s.rdpView?.dispose();
+  s.rdpView = null;
   sessions.delete(sessionId);
   removeTab(sessionId);
   renderConnectionList();
@@ -12687,16 +12897,16 @@ function createTab(sessionId, profile, initialStatus, { sftp = true, private: is
     if (e.target.classList.contains("tab-sftp")) return;
     if (e.target.classList.contains("tab-tunnels")) return;
     if (e.target.classList.contains("tab-notes")) return;
-    selectSession(tab.dataset.session, e.ctrlKey || e.metaKey);
+    selectSession(tab.dataset.session, e.ctrlKey);
   });
-  // Teclado: Enter/Espacio sobre la propia pestaña la selecciona (Ctrl/Cmd la
+  // Teclado: Enter/Espacio sobre la propia pestaña la selecciona (Ctrl la
   // añade a la vista múltiple). No interceptamos las teclas de los botones
   // internos (cerrar/SFTP/túneles/notas), que se activan de forma nativa.
   tab.addEventListener("keydown", (e) => {
     if (e.target !== tab) return;
     if (e.key === "Enter" || e.key === " " || e.key === "Spacebar") {
       e.preventDefault();
-      selectSession(tab.dataset.session, e.ctrlKey || e.metaKey);
+      selectSession(tab.dataset.session, e.ctrlKey);
     }
   });
   tab.querySelector(".tab-close").addEventListener("click", () => closeSession(tab.dataset.session));
@@ -14020,6 +14230,7 @@ function focusPaneByOffset(delta) {
   updateStatusBar();
   syncSidebarToActiveSession({ scroll: true });
   sessions.get(activeSessionId)?.terminal?.focus();
+  sessions.get(activeSessionId)?.rdpView?.focus();
 }
 
 function selectHomeTab() {
@@ -14610,7 +14821,7 @@ function collapseHomePath(path) {
  *     se muestra `~` como primer segmento, pero su `data-path` (y el de los
  *     segmentos siguientes) usa la base REAL del home, no `~`.
  * Cada segmento navega el panel SFTP a su ruta acumulada real al pulsar; con
- * Ctrl/Cmd+clic copia esa ruta. El icono 📂 copia la ruta completa.
+ * Ctrl+clic copia esa ruta. El icono 📂 copia la ruta completa.
  */
 function renderCwdBreadcrumb(sessionId, rawPath) {
   const cwdEl = document.getElementById("status-cwd");
@@ -14692,8 +14903,8 @@ function renderCwdBreadcrumb(sessionId, rawPath) {
     btn.addEventListener("click", async (ev) => {
       ev.preventDefault();
       ev.stopPropagation();
-      // Ctrl/Cmd+clic copia la ruta acumulada del segmento en vez de navegar.
-      if (ev.ctrlKey || ev.metaKey) {
+      // Ctrl+clic copia la ruta acumulada del segmento en vez de navegar.
+      if (ev.ctrlKey) {
         await writeSystemClipboardText(seg.path);
         toast(t("status.cwd_copied"), "success");
         return;
@@ -14963,6 +15174,8 @@ function renderView() {
       }
     });
     sessions.get(activeSessionId)?.terminal?.focus();
+    // RDP integrado: el teclado va al escritorio remoto al elegir su pestaña.
+    sessions.get(activeSessionId)?.rdpView?.focus();
   });
 }
 
@@ -17085,10 +17298,9 @@ async function promoteProfilePasswordToMaster(profileId) {
 
 /**
  * Abre el directorio donde se guarda profiles.json usando el gestor
- * de archivos nativo del sistema (xdg-open en Linux, Finder en macOS…).
+ * de archivos nativo del sistema (xdg-open en Linux, Explorador en Windows).
  * Los perfiles se guardan en:
  *   Linux:   ~/.local/share/rustty/profiles.json
- *   macOS:   ~/Library/Application Support/com.rustty.app/profiles.json
  *   Windows: %APPDATA%\com.rustty.app\profiles.json
  */
 async function openDataDirectory() {
@@ -21335,7 +21547,7 @@ function ensureSftpRowDelegation(filesDiv, sessionId, side) {
     const view = sftpView(s, side);
     // Alt cuenta como modificador de multi-selección: en entornos como GNOME el
     // gestor de ventanas se queda con Ctrl+clic sobre algunas zonas.
-    const toggle = ev.ctrlKey || ev.metaKey || ev.altKey;
+    const toggle = ev.ctrlKey || ev.altKey;
     setSftpSelection(sessionId, side, sftpSelectionAfterClick(view.selected, row.dataset.path, toggle));
   });
 
@@ -22335,12 +22547,12 @@ function sftpMaxConcurrent() {
 }
 
 /**
- * Opciones de `transferNameKey` para un lado: el disco local de Windows y macOS
- * no distingue mayúsculas por defecto (NTFS, APFS), así que allí `Informe.pdf`
+ * Opciones de `transferNameKey` para un lado: el disco local de Windows
+ * no distingue mayúsculas por defecto (NTFS), así que allí `Informe.pdf`
  * choca con `informe.PDF`. En Linux, y en el remoto, se comparan tal cual.
  */
 function sftpNameKeyOptions(side) {
-  return { foldCase: side === "local" && ["windows", "macos"].includes(diagnosticsPlatform()) };
+  return { foldCase: side === "local" && diagnosticsPlatform() === "windows" };
 }
 
 /**
@@ -25359,8 +25571,6 @@ function bindUIEvents() {
     ?.addEventListener("click", () => syncBrowseLocalFolder());
   document.getElementById("btn-sync-local-open")
     ?.addEventListener("click", () => syncOpenLocalFolder());
-  document.getElementById("btn-sync-icloud-open")
-    ?.addEventListener("click", () => syncOpenBackendFolder());
   document.getElementById("btn-sync-test")
     ?.addEventListener("click", () => syncTestNow());
   document.getElementById("btn-sync-now")
@@ -25415,6 +25625,13 @@ function bindUIEvents() {
     .addEventListener("click", () => importConnections());
   document.getElementById("btn-import-ssh-config")
     ?.addEventListener("click", () => importFromSshConfig());
+
+  // RDP en la pestaña: carpeta compartida (la elige y guarda el backend).
+  document.getElementById("btn-rdp-shared-folder-pick")
+    ?.addEventListener("click", () => pickRdpSharedFolder());
+  for (const id of ["pref-rdp-mode", "pref-rdp-clipboard", "pref-rdp-shared-folder"]) {
+    document.getElementById(id)?.addEventListener("change", () => syncRdpEmbeddedPrefsUi());
+  }
 
   // Asistente de importación (mRemoteNG, Ásbrú, …)
   document.getElementById("btn-import-external")
@@ -25958,7 +26175,7 @@ function bindUIEvents() {
   document.addEventListener("keydown", handleGlobalShortcut, { capture: true });
   // Deshacer/rehacer con teclado en campos editables. Solo Linux: WebKitGTK no
   // liga Ctrl+Z/Ctrl+Shift+Z/Ctrl+Y al editor (keybindings de GTK3), así que
-  // sin esto los diálogos no tienen undo; en Windows/macOS el WebView ya lo
+  // sin esto los diálogos no tienen undo; en Windows el WebView ya lo
   // trae nativo y no hay que tocarlo. Capture (registrado tras
   // handleGlobalShortcut, que si consume hace preventDefault) para que ningún
   // stopPropagation de un componente intermedio deje un campo sin deshacer.
@@ -26818,7 +27035,7 @@ function renderPaletteResults(query) {
         <span class="palette-item-title">${escHtml(it.title)}</span>
         ${it.sub ? `<span class="palette-item-sub">${escHtml(it.sub)}</span>` : ""}
       </span>
-      ${combo ? `<kbd class="palette-item-kbd">${escHtml(formatAccelerator(combo))}</kbd>` : ""}
+      ${combo ? `<kbd class="palette-item-kbd">${escHtml(combo)}</kbd>` : ""}
       <span class="palette-item-kind">${escHtml(t("palette.kind_" + it.kind))}</span>
     </div>`;
   }).join("");
@@ -26905,7 +27122,6 @@ function renderShortcutsHelp() {
     get: (id) => shortcuts.get(id),
     label: (id) => t(`prefs_shortcuts.action_${id}`),
     groupLabel: (id) => t(`prefs_shortcuts.group_${id}`),
-    format: (combo) => formatAccelerator(combo),
   }), query);
   if (!groups.length) {
     list.innerHTML = `<div class="palette-empty">${escHtml(t("palette.empty"))}</div>`;
@@ -27777,10 +27993,10 @@ function handleGlobalShortcut(e) {
   if (shortcuts.handle(e, { allow: allowShortcut })) return;
   if (modalOpen) return;
 
-  // Ctrl/Cmd+1…9 salta a la pestaña N (9 = última, convención de navegadores).
+  // Ctrl+1…9 salta a la pestaña N (9 = última, convención de navegadores).
   // Va después del bucle de atajos configurables para no pisar un combo que el
   // usuario haya asignado a Ctrl+<dígito>.
-  if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && /^Digit[1-9]$/.test(e.code)) {
+  if (e.ctrlKey && !e.altKey && !e.shiftKey && /^Digit[1-9]$/.test(e.code)) {
     if (jumpToTabByIndex(Number(e.code.slice(5)))) {
       e.preventDefault();
       e.stopPropagation();
@@ -27799,7 +28015,9 @@ function handleEditUndoRedo(e) {
   const cmd = undoRedoCommand(e);
   if (!cmd) return;
   const el = e.target;
-  if (!(el instanceof HTMLElement) || el.closest(".xterm")) return;
+  // El escritorio remoto integrado (su textarea de teclado) tampoco: Ctrl+Z es
+  // del remoto.
+  if (!(el instanceof HTMLElement) || el.closest(".xterm, .rdp-canvas-host")) return;
   const editable = el.tagName === "INPUT" || el.tagName === "TEXTAREA"
     ? !el.readOnly && !el.disabled
     : el.isContentEditable;
@@ -28106,7 +28324,6 @@ const TAB_CLOSE_ICON_SVG = `<svg viewBox="0 0 16 16" width="12" height="12" aria
 // Iconos monocromo de los backends de sincronización (tarjetas de Preferencias
 // → Copias de seguridad). Sustituyen a los emojis 📁 ☁ 🌐 🅖.
 const SYNC_ICON_LOCAL = `<svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M2 4.5a1 1 0 0 1 1-1h2.6a1 1 0 0 1 .7.3l.9.9H13a1 1 0 0 1 1 1V12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1z"/></svg>`;
-const SYNC_ICON_ICLOUD = `<svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M4.8 12h6.4a2.6 2.6 0 0 0 .3-5.18A3.4 3.4 0 0 0 5 5.9 2.8 2.8 0 0 0 4.8 12z"/></svg>`;
 const SYNC_ICON_WEBDAV = `<svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="6"/><path d="M2 8h12M8 2c2 2.2 2 9.8 0 12M8 2c-2 2.2-2 9.8 0 12"/></svg>`;
 const SYNC_ICON_DRIVE = `<svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M6.1 2.5h3.8l4 7h-3.8zM6.1 2.5 2.1 9.5 4 12.9l4-7zM4 12.9h7.9l1.9-3.4H5.9z"/></svg>`;
 
@@ -28316,7 +28533,7 @@ function initNoteEditor() {
     scheduleNotePreview();
   });
   textarea.addEventListener("keydown", (e) => {
-    if ((e.key === "s" || e.key === "S") && (e.ctrlKey || e.metaKey)) {
+    if ((e.key === "s" || e.key === "S") && e.ctrlKey) {
       e.preventDefault();
       saveNoteFromEditor({ close: false });
     } else if (e.key === "Escape") {
@@ -28687,14 +28904,14 @@ function initCommandEditor() {
       }
       if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); _cmdHistDismissed = true; hideCommandHistoryList(); return; }
     }
-    // Ctrl/Cmd+Espacio: abre o refresca el autocompletado por historial.
-    if (e.code === "Space" && (e.ctrlKey || e.metaKey)) {
+    // Ctrl+Espacio: abre o refresca el autocompletado por historial.
+    if (e.code === "Space" && e.ctrlKey) {
       e.preventDefault();
       _cmdHistDismissed = false;
       renderCommandHistoryList();
       return;
     }
-    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+    if (e.key === "Enter" && e.ctrlKey) {
       e.preventDefault();
       insertCommandEditor();
     } else if (e.key === "Escape") {
@@ -28890,7 +29107,7 @@ function updateZenExitTooltip() {
   const exitBtn = document.getElementById("zen-exit-btn");
   if (!exitBtn) return;
   const combo = shortcuts.get("toggle_zen_mode");
-  exitBtn.dataset.tooltip = t("window.zen_exit_title") + (combo ? ` (${formatAccelerator(combo)})` : "");
+  exitBtn.dataset.tooltip = t("window.zen_exit_title") + (combo ? ` (${combo})` : "");
 }
 
 function applyZenMode(enabled) {
@@ -29081,17 +29298,13 @@ function initSidebarResize() {
 
 /**
  * Controles de ventana integrados (CSD: decorations:false).
- * En macOS dejamos los traffic lights nativos (titleBarStyle Overlay),
- * así que ocultamos nuestros botones y añadimos un padding a la izquierda
- * del tab-bar vía la clase `platform-macos`. Mostrar la ventana por primera
+ * La clase `platform-*` del body permite ajustes por SO. Mostrar la ventana por primera
  * vez NO es cosa de aquí: lo hace revealMainWindow(), al arrancar.
  */
 async function initWindowControls() {
   // Detección de plataforma a partir del UA de la webview.
   const ua = navigator.userAgent || "";
-  const cls = /Mac OS X|Macintosh/.test(ua) ? "platform-macos"
-            : /Windows/.test(ua)            ? "platform-windows"
-            :                                 "platform-linux";
+  const cls = /Windows/.test(ua) ? "platform-windows" : "platform-linux";
   document.body.classList.add(cls);
 
   const win = await getMainWindow();

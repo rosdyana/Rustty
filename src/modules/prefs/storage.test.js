@@ -16,10 +16,10 @@ function storageWith(value = null) {
 }
 
 describe("persistencia de preferencias", () => {
-  it("el primer arranque detecta idioma sin escribir ni fechar defaults", () => {
+  it("el primer arranque usa inglés por defecto sin escribir ni fechar defaults", () => {
     const storage = storageWith();
     const prefs = loadPrefs(storage, deps);
-    expect(prefs.lang).toBe("es");
+    expect(prefs.lang).toBe("en");
     expect(prefs.workspaces).toEqual([{ id: "default", name: "Default" }]);
     expect(prefs._prefsUpdatedAt).toBeUndefined();
     expect(storage.setItem).not.toHaveBeenCalled();

@@ -4,7 +4,7 @@ version = "2.22.0"
 description = "Rustty - Cliente SSH multiplataforma de escritorio"
 authors = ["Alejandro Soriano"]
 license = "Apache-2.0"
-repository = "https://github.com/Aleixenandros/Rustty"
+repository = "https://github.com/rosdyana/Rustty"
 edition = "2021"
 
 [lib]
@@ -65,7 +65,7 @@ portable-pty = "0.9"
 # Almacenamiento seguro de credenciales en el keystore del SO.
 # En Linux usamos Secret Service como almacén persistente; keyutils por sí solo
 # vive en memoria de kernel y se pierde tras reiniciar.
-keyring = { version = "3", features = ["apple-native", "windows-native", "linux-native-sync-persistent", "crypto-rust"] }
+keyring = { version = "3", features = ["windows-native", "linux-native-sync-persistent", "crypto-rust"] }
 # Generación de UUIDs para IDs de sesión y perfil
 uuid = { version = "1", features = ["v4"] }
 # Directorios del sistema (app data dir)
@@ -113,8 +113,6 @@ hex = "0.4"
 # directamente para construir la entrada de autostart con o sin `--minimized`
 # y para consultar su estado, sin depender de un plugin adicional.
 auto-launch = "0.6"
-tauri-plugin-updater = "2.14.0"
-tauri-plugin-process = "2.4.0"
 # Coincidencia de patrones para el paso `waitRegex` del motor de scripts. Ya
 # presente en el árbol de dependencias; se declara directo para poder usarlo.
 regex = "1.12.4"
@@ -123,6 +121,59 @@ regex = "1.12.4"
 # de rand_core 0.10, que ya está en el árbol vía russh. Misma versión del lock.
 rand = "0.10"
 tauri-plugin-single-instance = "2.4.2"
+# Cliente RDP integrado (pestaña con canvas) con IronRDP. Se usan los crates
+# sueltos y NO el meta-crate `ironrdp`: su 0.17 fija el juego de julio y
+# mezclaría tipos de dos versiones. Todo opcional detrás de la feature
+# `embedded-rdp` (activa por defecto).
+# `ironrdp-cliprdr` (portapapeles, texto y ficheros) y `ironrdp-rdpdr` +
+# `ironrdp-rdpdr-native` (carpeta local como unidad del remoto) son del mismo
+# juego que el resto (`ironrdp-svc` 0.10 / `ironrdp-pdu` 0.11). `arboard` lee y
+# escribe el portapapeles del sistema (texto y lista de ficheros); ya estaba en
+# el árbol por `tauri-plugin-clipboard-manager`.
+# El TLS lo montamos nosotros con `tokio-rustls` + proveedor `ring` explícito
+# (no `ironrdp-tls`): su configuración usa el proveedor por defecto del
+# proceso —que con `ring` y `aws-lc` en el árbol no existe y entra en pánico—
+# y activa el volcado de claves de `SSLKEYLOGFILE`. Así, además, el TOFU de
+# certificados usa la misma huella SHA-256 que el de FTPS.
+ironrdp-connector = { version = "0.12", optional = true }
+ironrdp-session = { version = "0.13", optional = true }
+ironrdp-tokio = { version = "0.12", optional = true }
+ironrdp-dvc = { version = "0.10", optional = true }
+ironrdp-displaycontrol = { version = "0.10", optional = true }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"], optional = true }
+ironrdp-pdu = { version = "0.11", optional = true }
+ironrdp-graphics = { version = "0.11", optional = true }
+ironrdp-input = { version = "0.9", optional = true }
+ironrdp-core = { version = "0.3", optional = true }
+ironrdp-svc = { version = "0.10", optional = true }
+ironrdp-cliprdr = { version = "0.9", optional = true }
+ironrdp-rdpdr = { version = "0.9", optional = true }
+ironrdp-rdpdr-native = { version = "0.9", optional = true }
+arboard = { version = "3.6", default-features = false, optional = true }
+x509-cert = { version = "0.3", default-features = false, features = ["std"], optional = true }
+
+[features]
+default = ["embedded-rdp"]
+# Escritorio remoto dentro de la pestaña. Sin esta feature solo queda el
+# lanzador de cliente externo (mstsc / xfreerdp).
+embedded-rdp = [
+    "dep:ironrdp-connector",
+    "dep:ironrdp-session",
+    "dep:ironrdp-tokio",
+    "dep:ironrdp-dvc",
+    "dep:ironrdp-displaycontrol",
+    "dep:tokio-rustls",
+    "dep:ironrdp-pdu",
+    "dep:ironrdp-graphics",
+    "dep:ironrdp-input",
+    "dep:ironrdp-core",
+    "dep:ironrdp-svc",
+    "dep:ironrdp-cliprdr",
+    "dep:ironrdp-rdpdr",
+    "dep:ironrdp-rdpdr-native",
+    "dep:arboard",
+    "dep:x509-cert",
+]
 
 # Señales POSIX para terminar el árbol de procesos de un «comando local» que se
 # cancela o agota su plazo (`kill(-pgid)`). Solo Unix: en Windows el árbol se

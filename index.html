@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="es">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -1201,7 +1201,7 @@
                 <span data-i18n="modal_conn.x11_forwarding">Reenviar X11</span>
               </label>
               <p class="form-hint" data-i18n="modal_conn.x11_forwarding_hint">
-                Requiere un X server local en localhost:6000 (DISPLAY=:0). En Windows o macOS necesitarás un servidor X dedicado.
+                Requiere un X server local en localhost:6000 (DISPLAY=:0). En Windows necesitarás un servidor X dedicado.
               </p>
             </div>
 
@@ -3339,7 +3339,6 @@
                   <select id="sync-backend">
                     <option value="none" data-i18n="prefs_sync.backend_none">Ninguno</option>
                     <option value="local" data-i18n="prefs_sync.backend_local">Carpeta local / NAS</option>
-                    <option value="icloud" data-i18n="prefs_sync.backend_icloud">iCloud Drive</option>
                     <option value="webdav" data-i18n="prefs_sync.backend_webdav">WebDAV (Nextcloud, ownCloud…)</option>
                     <option value="google_drive" data-i18n="prefs_sync.backend_google_drive">Google Drive</option>
                   </select>
@@ -3354,16 +3353,6 @@
                   <button type="button" class="btn-secondary" id="btn-sync-local-browse" data-i18n="prefs_sync.browse">Examinar…</button>
                   <button type="button" class="btn-secondary" id="btn-sync-local-open" data-i18n="prefs_sync.open_folder">Abrir carpeta</button>
                   <p class="form-hint" data-i18n="prefs_sync.local_cloud_hint">Puedes apuntar aquí a una carpeta local, NAS o carpeta sincronizada por el sistema.</p>
-                </div>
-              </div>
-
-              <!-- Backend: iCloud Drive -->
-              <div class="settings-row settings-row-inline sync-icloud-only hidden">
-                <label data-i18n="prefs_sync.icloud_folder">Carpeta iCloud</label>
-                <div class="settings-control settings-control-wide">
-                  <code class="sync-path-code">~/Library/Mobile Documents/com~apple~CloudDocs/Rustty/</code>
-                  <button type="button" class="btn-secondary" id="btn-sync-icloud-open" data-i18n="prefs_sync.open_folder">Abrir carpeta</button>
-                  <p class="form-hint" data-i18n="prefs_sync.icloud_hint">Usa iCloud Drive como carpeta local sincronizada. Disponible en macOS con iCloud Drive activo.</p>
                 </div>
               </div>
 
@@ -3625,6 +3614,55 @@
               </div>
               <p class="settings-hint" data-i18n="prefs_system.rdp_display_hint">Valor por defecto de las sesiones RDP; cada perfil puede llevar el suyo. La ventana redimensionable deja maximizar y arrastrar, y el escritorio remoto sigue el tamaño: necesita Windows 8 / Server 2012 o superior. «Tamaño fijo» es el comportamiento anterior, para servidores que no lo admiten.</p>
 
+              <div class="settings-row settings-row-inline">
+                <label for="pref-rdp-mode" data-i18n="prefs_system.rdp_mode">Abrir el escritorio remoto (RDP)</label>
+                <select id="pref-rdp-mode">
+                  <option value="embedded" data-i18n="rdp_mode.embedded">En la pestaña</option>
+                  <option value="external" data-i18n="rdp_mode.external">En una ventana externa (mstsc / xfreerdp)</option>
+                </select>
+              </div>
+              <p class="settings-hint" data-i18n="prefs_system.rdp_mode_hint">En la pestaña, el escritorio se ve dentro de Rustty con el cliente integrado. La ventana externa usa mstsc (Windows) o xfreerdp (Linux) y admite lo que ese cliente admita (audio, impresoras, varios monitores…).</p>
+
+              <div class="settings-row" data-rdp-embedded-only>
+                <div class="settings-row-inline">
+                  <label for="pref-rdp-perf" data-i18n="prefs_system.rdp_perf">Rendimiento del escritorio remoto</label>
+                  <select id="pref-rdp-perf">
+                    <option value="speed" data-i18n="rdp_perf.speed">Velocidad</option>
+                    <option value="balanced" data-i18n="rdp_perf.balanced">Equilibrado</option>
+                    <option value="quality" data-i18n="rdp_perf.quality">Calidad</option>
+                  </select>
+                </div>
+                <p class="settings-hint" data-i18n="prefs_system.rdp_perf_hint">Se aplica a las conexiones nuevas. «Velocidad» quita en el remoto el fondo, los temas y las animaciones, y comprime al máximo: para enlaces lentos. «Equilibrado» quita el fondo y las animaciones pero mantiene las fuentes suavizadas. «Calidad» muestra el escritorio tal cual, para redes locales.</p>
+              </div>
+
+              <div class="settings-row" data-rdp-embedded-only>
+                <label class="checkbox-label">
+                  <input type="checkbox" id="pref-rdp-clipboard" />
+                  <span data-i18n="prefs_system.rdp_clipboard">Compartir el portapapeles con el escritorio remoto</span>
+                </label>
+                <p class="settings-hint" data-i18n="prefs_system.rdp_clipboard_hint">Copiar en un lado y pegar en el otro. Lo copiado en local se envía al remoto al volver a la pestaña o al pegar.</p>
+              </div>
+
+              <div class="settings-row" data-rdp-embedded-only>
+                <label class="checkbox-label">
+                  <input type="checkbox" id="pref-rdp-clipboard-files" />
+                  <span data-i18n="prefs_system.rdp_clipboard_files">Copiar y pegar también ficheros y carpetas</span>
+                </label>
+                <p class="settings-hint" data-i18n="prefs_system.rdp_clipboard_files_hint">Los ficheros copiados en el remoto se descargan a una carpeta temporal y, al terminar, se pueden pegar en local. Los copiados en local se leen del disco solo cuando el remoto pega.</p>
+              </div>
+
+              <div class="settings-row" data-rdp-embedded-only>
+                <label class="checkbox-label">
+                  <input type="checkbox" id="pref-rdp-shared-folder" />
+                  <span data-i18n="prefs_system.rdp_shared_folder">Compartir una carpeta local como unidad del remoto</span>
+                </label>
+                <div class="data-actions">
+                  <code id="rdp-shared-folder-path" class="settings-hint"></code>
+                  <button type="button" class="btn-secondary" id="btn-rdp-shared-folder-pick" data-i18n="prefs_system.rdp_shared_folder_pick">Elegir carpeta…</button>
+                </div>
+                <p class="settings-hint" data-i18n="prefs_system.rdp_shared_folder_hint">La carpeta aparece en el Explorador del remoto, con lectura y escritura. Solo esa carpeta: nada fuera de ella. Se aplica a las conexiones nuevas.</p>
+              </div>
+
               <div class="settings-row">
                 <label class="checkbox-label">
                   <input type="checkbox" id="pref-restore-work-tabs" />
@@ -3805,16 +3843,16 @@
                     <span data-i18n="prefs_about.website">Página del proyecto</span>
                     <span class="about-link-url">rustty.es</span>
                   </a>
-                  <a href="#" id="about-link-repo" class="about-link" data-url="https://github.com/Aleixenandros/Rustty">
+                  <a href="#" id="about-link-repo" class="about-link" data-url="https://github.com/rosdyana/Rustty">
                     <span class="about-link-icon" aria-hidden="true">
                       <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor">
                         <path fill-rule="evenodd" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
                       </svg>
                     </span>
                     <span data-i18n="prefs_about.repo">Repositorio</span>
-                    <span class="about-link-url">github.com/Aleixenandros/Rustty</span>
+                    <span class="about-link-url">github.com/rosdyana/Rustty</span>
                   </a>
-                  <a href="#" id="about-link-issues" class="about-link" data-url="https://github.com/Aleixenandros/Rustty/issues">
+                  <a href="#" id="about-link-issues" class="about-link" data-url="https://github.com/rosdyana/Rustty/issues">
                     <span class="about-link-icon" aria-hidden="true">
                       <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor">
                         <path fill-rule="evenodd" d="M8 1.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zM0 8a8 8 0 1116 0A8 8 0 010 8zm9 3a1 1 0 11-2 0 1 1 0 012 0zm-.25-6.25a.75.75 0 00-1.5 0v3.5a.75.75 0 001.5 0v-3.5z"/>
@@ -3822,6 +3860,11 @@
                     </span>
                     <span data-i18n="prefs_about.issues">Reportar un problema</span>
                     <span class="about-link-url">github.com/.../issues</span>
+                  </a>
+                  <a href="#" id="about-link-upstream" class="about-link" data-url="https://github.com/Aleixenandros/Rustty">
+                    <span class="about-link-icon" aria-hidden="true"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="4.5" cy="3" r="1.5"/><circle cx="11.5" cy="3" r="1.5"/><circle cx="8" cy="13" r="1.5"/><path d="M4.5 4.5v1.5a2 2 0 002 2h3a2 2 0 002-2V4.5M8 8v3.5"/></svg></span>
+                    <span data-i18n="prefs_about.original_project">Proyecto original (Alejandro Soriano)</span>
+                    <span class="about-link-url">github.com/Aleixenandros/Rustty</span>
                   </a>
                 </div>
               </div>

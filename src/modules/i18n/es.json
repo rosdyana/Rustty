@@ -579,6 +579,41 @@
     "workarea": "Área de trabajo",
     "fixed": "Tamaño fijo (servidores antiguos)"
   },
+  "rdp_mode": {
+    "embedded": "En la pestaña",
+    "external": "En una ventana externa (mstsc / xfreerdp)"
+  },
+  "rdp_perf": {
+    "speed": "Velocidad",
+    "balanced": "Equilibrado",
+    "quality": "Calidad"
+  },
+  "rdp_embed": {
+    "err": {
+      "generic": "error inesperado de la sesión.",
+      "auth_failed": "usuario o contraseña incorrectos, o la cuenta no puede iniciar sesión por escritorio remoto.",
+      "cert_rejected": "no se confirmó el certificado del servidor.",
+      "cert_changed": "el certificado del servidor ha cambiado y no se aceptó el cambio.",
+      "cert_store": "no se pudo guardar la huella del certificado.",
+      "unreachable": "no se pudo llegar al servidor.",
+      "timeout": "el servidor no respondió a tiempo.",
+      "tls": "falló la negociación TLS (el servidor puede usar una versión de TLS demasiado antigua).",
+      "unsupported": "el servidor exige un modo de seguridad que el cliente integrado no soporta. Prueba con el cliente externo.",
+      "protocol": "error de protocolo RDP. Si se repite, prueba con el cliente externo.",
+      "network": "se perdió la conexión con el servidor.",
+      "redirect": "el servidor pide redirigir la sesión a otro equipo, y el cliente integrado aún no lo soporta.",
+      "reactivation_timeout": "el servidor no terminó de reactivar la sesión tras un cambio de pantalla.",
+      "internal": "error interno del cliente integrado."
+    },
+    "clip_err": {
+      "generic": "error inesperado.",
+      "too_large": "la copia supera el máximo de 8 GiB.",
+      "unsafe_name": "el remoto envió un nombre de fichero no válido.",
+      "remote": "el escritorio remoto no entregó el fichero.",
+      "short_read": "el fichero cambió en el remoto durante la copia.",
+      "empty": "no había nada que copiar."
+    }
+  },
   "ctx": {
     "key_access": "Acceso sin contraseña (clave SSH)…",
     "new_conn_here": "Nueva conexión aquí",
@@ -871,7 +906,7 @@
     "disable_paste_confirm": "No confirmar pegados peligrosos en este perfil",
     "disable_paste_confirm_hint": "Omite la previsualización de confirmación al pegar texto multilínea, muy largo o con caracteres de control en las sesiones de este perfil.",
     "x11_forwarding": "Reenviar X11",
-    "x11_forwarding_hint": "Requiere un X server local en localhost:6000 (DISPLAY=:0). En Windows o macOS necesitarás un servidor X dedicado.",
+    "x11_forwarding_hint": "Requiere un X server local en localhost:6000 (DISPLAY=:0). En Windows necesitarás un servidor X dedicado.",
     "auto_reconnect": "Reintentos de reconexión",
     "auto_reconnect_hint": "0 = desactivado. Número de reintentos automáticos al caer la conexión, con backoff exponencial (2s, 4s, 8s…).",
     "persist_session": "Reanudar sesión persistente (tmux/screen)",
@@ -1020,7 +1055,16 @@
     "stored": "Registrada:\n{fingerprint}",
     "received": "Recibida ahora:\n{fingerprint}",
     "advice": "Acepta SOLO si esperabas este cambio y puedes verificar la huella nueva por un canal de confianza. Al aceptar, se olvida el certificado guardado y la conexión se relanza en esta misma pestaña; al rechazar, no se modifica nada.",
-    "accept": "Aceptar el certificado nuevo"
+    "accept": "Aceptar el certificado nuevo",
+    "advice_embedded": "Acepta SOLO si esperabas este cambio y puedes verificar la huella nueva por un canal de confianza. Hasta que decidas no se envía ninguna credencial. Al aceptar, la huella nueva sustituye a la guardada y la conexión continúa; al rechazar, no se modifica nada."
+  },
+  "modal_rdp_cert": {
+    "title": "Certificado del servidor RDP desconocido",
+    "intro": "Es la primera vez que te conectas a {host}:{port} con el escritorio remoto integrado y no hay ningún certificado guardado para este servidor.",
+    "via_jump": "La conexión va por un salto: la huella es la del servidor de destino, no la del salto.",
+    "fingerprint": "Huella del certificado (SHA-256):\n{fingerprint}",
+    "advice": "Compruébala con el administrador del servidor por un canal de confianza. Hasta que la aceptes no se envía ninguna credencial. Si aceptas, se guardará y en adelante te avisaremos si cambia.",
+    "accept": "Confiar y conectar"
   },
   "key_setup": {
     "title": "Acceso sin contraseña",
@@ -1507,7 +1551,7 @@
     "read_only_unlock": "Sesión en solo lectura: pulsa para desbloquearla",
     "cwd_seg_nav": "Ir a {path} en el panel SFTP",
     "cwd_copy": "Copiar ruta completa",
-    "cwd_copy_seg": "Ctrl/Cmd+clic para copiar la ruta",
+    "cwd_copy_seg": "Ctrl+clic para copiar la ruta",
     "cwd_copied": "Ruta copiada al portapapeles",
     "cwd_nav_error": "No se pudo abrir el panel SFTP en {path}"
   },
@@ -1542,16 +1586,12 @@
     "backend": "Proveedor",
     "backend_none": "Ninguno",
     "backend_local": "Carpeta local / NAS",
-    "backend_icloud": "iCloud Drive",
     "backend_webdav": "WebDAV (Nextcloud, ownCloud…)",
     "backend_google_drive": "Google Drive",
     "local_folder": "Carpeta local",
     "local_folder_label": "carpeta local de sync",
-    "backend_folder_label": "carpeta de sync",
     "local_folder_ph": "/ruta/a/carpeta/sincronizada",
     "local_cloud_hint": "Puedes apuntar aquí a una carpeta local, NAS o carpeta sincronizada por el sistema.",
-    "icloud_folder": "Carpeta iCloud",
-    "icloud_hint": "Usa iCloud Drive como carpeta local sincronizada. Disponible en macOS con iCloud Drive activo.",
     "browse": "Examinar…",
     "open_folder": "Abrir carpeta",
     "auto_interval": "Sincronización periódica",
@@ -1720,19 +1760,15 @@
     "website": "Página del proyecto",
     "repo": "Repositorio",
     "issues": "Reportar un problema",
+    "original_project": "Proyecto original (Alejandro Soriano)",
     "check_updates": "Comprobar actualizaciones",
     "check_updates_startup": "Comprobar al iniciar",
     "checking_updates": "Comprobando…",
     "update_available": "Nueva versión {version} disponible",
     "update_current": "Rustty está actualizado",
-    "update_flatpak_managed": "Las actualizaciones las gestiona Flatpak: usa tu centro de software o «flatpak update».",
     "update_error": "No se pudo comprobar",
     "update_no_version": "la release no indica su versión",
-    "open_release": "Hay una nueva versión ({version}). ¿Abrir la página de descargas?",
-    "update_install_prompt": "Nueva versión {version} disponible. ¿Descargar e instalar ahora?",
-    "update_downloading": "Descargando actualización… {pct}%",
-    "update_installing": "Instalando actualización…",
-    "update_restarting": "Reiniciando Rustty…"
+    "open_release": "Hay una nueva versión ({version}). ¿Abrir la página de descargas?"
   },
   "prefs_system": {
     "title": "Sistema",
@@ -1741,6 +1777,18 @@
     "autostart_hint": "Añade Rustty a los programas que se lanzan automáticamente al iniciar sesión.",
     "rdp_display": "Ventana del escritorio remoto (RDP)",
     "rdp_display_hint": "Valor por defecto de las sesiones RDP; cada perfil puede llevar el suyo. La ventana redimensionable deja maximizar y arrastrar, y el escritorio remoto sigue el tamaño: necesita Windows 8 / Server 2012 o superior. «Tamaño fijo» es el comportamiento anterior, para servidores que no lo admiten.",
+    "rdp_mode": "Abrir el escritorio remoto (RDP)",
+    "rdp_mode_hint": "En la pestaña, el escritorio se ve dentro de Rustty con el cliente integrado. La ventana externa usa mstsc (Windows) o xfreerdp (Linux) y admite lo que ese cliente admita (audio, impresoras, varios monitores…).",
+    "rdp_perf": "Rendimiento del escritorio remoto",
+    "rdp_perf_hint": "Se aplica a las conexiones nuevas. «Velocidad» quita en el remoto el fondo, los temas y las animaciones, y comprime al máximo: para enlaces lentos. «Equilibrado» quita el fondo y las animaciones pero mantiene las fuentes suavizadas. «Calidad» muestra el escritorio tal cual, para redes locales.",
+    "rdp_clipboard": "Compartir el portapapeles con el escritorio remoto",
+    "rdp_clipboard_hint": "Copiar en un lado y pegar en el otro. Lo copiado en local se envía al remoto al volver a la pestaña o al pegar.",
+    "rdp_clipboard_files": "Copiar y pegar también ficheros y carpetas",
+    "rdp_clipboard_files_hint": "Los ficheros copiados en el remoto se descargan a una carpeta temporal y, al terminar, se pueden pegar en local. Los copiados en local se leen del disco solo cuando el remoto pega.",
+    "rdp_shared_folder": "Compartir una carpeta local como unidad del remoto",
+    "rdp_shared_folder_pick": "Elegir carpeta…",
+    "rdp_shared_folder_hint": "La carpeta aparece en el Explorador del remoto, con lectura y escritura. Solo esa carpeta: nada fuera de ella. Se aplica a las conexiones nuevas.",
+    "rdp_shared_folder_none": "Ninguna carpeta elegida",
     "autostart_minimized": "Arrancar minimizado",
     "restore_work_tabs": "Ofrecer restaurar las pestañas de la última sesión",
     "restore_work_tabs_hint": "Guarda el orden de pestañas y sus perfiles (nunca el contenido del terminal, ni secretos, ni sesiones privadas) y al arrancar ofrece reconectarlas en lote.",
@@ -2057,7 +2105,13 @@
     "transfer_skipped": "Omitido: {name}",
     "transfers_pause_all_failed": "No se pudo cambiar la pausa general: {err}",
     "file_grant_invalid": "El permiso para ese fichero ya no es válido (caducó, ya se usó o la ruta cambió). Vuelve a elegirlo.",
-    "import_failed": "Error al importar: {err}"
+    "import_failed": "Error al importar: {err}",
+    "rdp_embed_failed": "No se pudo abrir el escritorio remoto «{name}»: {reason}",
+    "rdp_shared_folder_failed": "No se pudo guardar la carpeta compartida: {error}",
+    "rdp_clip_download_start": "«{name}»: copiando {files} fichero(s) del escritorio remoto ({size} MB)…",
+    "rdp_clip_download_done": "«{name}»: {files} fichero(s) listos para pegar",
+    "rdp_clip_download_failed": "«{name}»: no se pudieron copiar los ficheros: {reason}",
+    "rdp_clip_unavailable": "«{name}»: el portapapeles del sistema no está disponible; copiar y pegar con el escritorio remoto no funcionará."
   },
   "time": {
     "now": "ahora",

@@ -30,7 +30,7 @@ use crate::scripts::{HostPreview, RunOptions, Script, ScriptManager};
 use crate::sftp_manager::{FileEntry, SftpManager, TransferConflictPolicy};
 use crate::ssh_manager::{legacy_catalog_info, SshManager, SshTunnelConfig, SshTunnelInfo};
 use crate::sync::{
-    pack_state, resolve_sync_folder, significant_clock_skew, unpack_state, OAuthAccountState,
+    pack_state, significant_clock_skew, unpack_state, OAuthAccountState,
     OAuthFinishResult, OAuthProvider, OAuthStartResult, SnapshotEntry, SyncBackendKind, SyncConfig,
     SyncManager, SyncRunOutcome, SyncState, CONFLICT_MARKER,
 };
@@ -363,7 +363,7 @@ pub struct ConnectOverrides {
 }
 
 /// Aplica los overrides de conexión sobre la copia local del perfil.
-fn apply_connect_overrides(profile: &mut ConnectionProfile, ov: &ConnectOverrides) {
+pub(crate) fn apply_connect_overrides(profile: &mut ConnectionProfile, ov: &ConnectOverrides) {
     if let Some(u) = ov.username.as_deref() {
         if !u.trim().is_empty() {
             profile.username = u.trim().to_string();
@@ -819,7 +819,7 @@ fn resolve_password_from_keepass(profile: &ConnectionProfile) -> Result<Option<S
 /// perfil: sobrescribe usuario y parámetros de autenticación para que el resto
 /// del flujo (sustitución, resolución de contraseña, conexión) use esa
 /// identidad en vez de la principal. Si el id no existe, devuelve error.
-fn apply_credential(profile: &mut ConnectionProfile, credential_id: &str) -> Result<(), String> {
+pub(crate) fn apply_credential(profile: &mut ConnectionProfile, credential_id: &str) -> Result<(), String> {
     let cred = profile
         .extra_credentials
         .iter()
@@ -1036,45 +1036,84 @@ pub fn get_profile_password(
     // Identidad adicional cuya contraseña se quiere pegar. `None` = principal.
     credential_id: Option<String>,
 ) -> Result<Option<String>, String> {
-    use crate::profiles::PasswordSource;
-
     let profiles = profile_state.load_all().map_err(|e| e.to_string())?;
     let mut profile = profiles
         .into_iter()
         .find(|p| p.id == profile_id)
         .ok_or_else(|| format!("Perfil {} no encontrado", profile_id))?;
 
-    // Clave de keyring de la contraseña propia: la principal usa
-    // `password:<id>`; cada identidad extra usa `password:<id>:<cred_id>`.
-    let keyring_key = match credential_id.as_deref() {
-        Some(cid) => {
-            apply_credential(&mut profile, cid)?;
-            format!("password:{}:{}", profile_id, cid)
-        }
-        None => format!("password:{}", profile_id),
-    };
-
-    let has_keepass = profile
-        .keepass_entry_uuid
-        .as_deref()
-        .is_some_and(|s| !s.is_empty());
+    if let Some(cid) = credential_id.as_deref() {
+        apply_credential(&mut profile, cid)?;
+    }
 
     // 1) KeePass o credencial maestra → reutilizamos la resolución unificada.
-    if matches!(
-        profile.password_source,
-        PasswordSource::Keepass | PasswordSource::Master
-    ) || has_keepass
-    {
+    if uses_external_secret(&profile) {
         return resolve_profile_password(&profile, &cred_state, None, None);
     }
 
     // 2) keyring (si el usuario guardó la contraseña al crear el perfil)
+    stored_own_password(&profile_id, credential_id.as_deref())
+}
+
+/// El perfil (con la identidad ya aplicada) toma la contraseña de KeePass o de
+/// una credencial maestra, no del keyring propio del perfil.
+fn uses_external_secret(profile: &ConnectionProfile) -> bool {
+    let has_keepass = profile
+        .keepass_entry_uuid
+        .as_deref()
+        .is_some_and(|s| !s.is_empty());
+    matches!(
+        profile.password_source,
+        PasswordSource::Keepass | PasswordSource::Master
+    ) || has_keepass
+}
+
+/// Contraseña propia guardada en el keyring. La principal usa
+/// `password:<id>`; cada identidad extra usa `password:<id>:<cred_id>`.
+fn stored_own_password(
+    profile_id: &str,
+    credential_id: Option<&str>,
+) -> Result<Option<String>, String> {
+    let keyring_key = match credential_id {
+        Some(cid) => format!("password:{profile_id}:{cid}"),
+        None => format!("password:{profile_id}"),
+    };
     let entry = keyring::Entry::new(keyring_scope::SERVICE, &keyring_key).map_err(|e| e.to_string())?;
     match entry.get_password() {
         Ok(p) => Ok(Some(p)),
         Err(keyring::Error::NoEntry) => Ok(None),
         Err(e) => Err(e.to_string()),
     }
+}
+
+/// Contraseña de una conexión resuelta **entera en el backend** a partir del
+/// perfil: KeePass, credencial maestra o keyring propio, y después el motor de
+/// sustitución (`${master:}`, `${secret:}`…). El frontend no la ve nunca.
+///
+/// `prompted` es la que el usuario acaba de teclear en el diálogo cuando no
+/// había ninguna guardada; manda sobre el keyring. `Ok(None)` = no hay ninguna
+/// y hay que pedirla. Se devuelve en `Zeroizing` para borrarla al soltarla.
+#[cfg_attr(not(feature = "embedded-rdp"), allow(dead_code))]
+pub(crate) fn resolve_connection_secret(
+    profile: &ConnectionProfile,
+    profile_id: &str,
+    credential_id: Option<&str>,
+    store: &CredentialStore,
+    prompted: Option<String>,
+) -> Result<Option<Zeroizing<String>>, String> {
+    let resolved = if uses_external_secret(profile) {
+        resolve_profile_password(profile, store, None, None)?
+    } else {
+        let own = match prompted.filter(|p| !p.is_empty()) {
+            Some(p) => Some(p),
+            None => stored_own_password(profile_id, credential_id)?,
+        };
+        match own {
+            Some(pw) => resolve_profile_password(profile, store, Some(pw), None)?,
+            None => None,
+        }
+    };
+    Ok(resolved.filter(|p| !p.is_empty()).map(Zeroizing::new))
 }
 
 /// Envía bytes de entrada del usuario al servidor SSH.
@@ -1263,7 +1302,7 @@ pub async fn rdp_connect(
 // Los argumentos son los de los tres comandos que lo llaman; agruparlos sería
 // otro struct de ida y vuelta para una función privada.
 #[allow(clippy::too_many_arguments)]
-async fn external_forward(
+pub(crate) async fn external_forward(
     kind: &str,
     profiles: &[ConnectionProfile],
     profile: &ConnectionProfile,
@@ -1737,7 +1776,7 @@ fn confirm_upload(app: &AppHandle, guard: &LocalFsGuard, request: &TransferReque
     let Some(concern) = concern else {
         return Ok(());
     };
-    let lang = request.lang.as_deref().unwrap_or("es");
+    let lang = request.lang.as_deref().unwrap_or("en");
     let texts = local_fs_guard::upload_texts(lang);
     let name = local
         .file_name()
@@ -1759,7 +1798,7 @@ fn confirm_upload(app: &AppHandle, guard: &LocalFsGuard, request: &TransferReque
             texts.accept.to_string(),
             texts.cancel.to_string(),
         ));
-    #[cfg(any(windows, target_os = "macos"))]
+    #[cfg(windows)]
     let dialog = match app.get_webview_window("main") {
         Some(window) => dialog.parent(&window),
         None => dialog,
@@ -2202,7 +2241,6 @@ pub fn keepass_list_entries() -> Result<Vec<keepass_manager::EntrySummary>, Stri
 ///
 /// Útil para que el usuario sepa dónde hacer backups.
 ///   Linux:   ~/.local/share/com.rustty.app/
-///   macOS:   ~/Library/Application Support/com.rustty.app/
 ///   Windows: %APPDATA%\com.rustty.app\  (o `<dir-del-exe>\.conf\com.rustty.app\` en portable)
 #[tauri::command]
 pub fn get_data_dir(state: State<crate::DataDir>) -> Result<String, String> {
@@ -2302,7 +2340,7 @@ pub async fn fs_pick(
     }
 
     let mut builder = window.dialog().file();
-    #[cfg(any(windows, target_os = "macos"))]
+    #[cfg(windows)]
     {
         builder = builder.set_parent(&window);
     }
@@ -2537,7 +2575,7 @@ fn confirm_local_command(app: &AppHandle, name: &str, template: &str, lang: &str
             texts.accept.to_string(),
             texts.cancel.to_string(),
         ));
-    #[cfg(any(windows, target_os = "macos"))]
+    #[cfg(windows)]
     let dialog = match app.get_webview_window("main") {
         Some(window) => dialog.parent(&window),
         None => dialog,
@@ -2810,13 +2848,6 @@ pub async fn sync_test_backend(
         Some(_) => Ok("ok-existing".into()),
         None => Ok("ok-empty".into()),
     }
-}
-
-#[tauri::command]
-pub fn sync_get_backend_folder(state: State<SyncManager>) -> Result<Option<String>, String> {
-    let config = state.load_config();
-    let folder = resolve_sync_folder(&config).map_err(|e| e.to_string())?;
-    Ok(folder.map(|path| path.to_string_lossy().into_owned()))
 }
 
 #[tauri::command]
@@ -3942,38 +3973,15 @@ fn resolve_run_credentials(
 /// mecanismo de autostart: tanto el alta/baja (`autostart_apply`) como la
 /// consulta de estado (`autostart_is_enabled`) comparten este builder, así que
 /// el toggle del frontend nunca se desincroniza de la entrada real del SO.
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn autostart_handle(minimized: bool) -> Result<auto_launch::AutoLaunch, String> {
     use auto_launch::AutoLaunchBuilder;
 
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-
-    #[cfg(target_os = "linux")]
-    let app_path = {
-        // En AppImage preferimos registrar el AppImage en lugar del binario interno.
-        std::env::var("APPIMAGE").unwrap_or_else(|_| exe.display().to_string())
-    };
-    #[cfg(not(target_os = "linux"))]
     let app_path = exe.display().to_string();
 
     let mut builder = AutoLaunchBuilder::new();
     builder.set_app_name("Rustty");
     builder.set_app_path(&app_path);
-
-    #[cfg(target_os = "macos")]
-    {
-        // macOS: usar Launch Agent (plist en ~/Library/LaunchAgents/)
-        builder.set_macos_launch_mode(auto_launch::MacOSLaunchMode::LaunchAgent);
-        // Si el exe está dentro de un .app, registrar el bundle
-        let path_str = exe
-            .canonicalize()
-            .map(|p| p.display().to_string())
-            .unwrap_or_else(|_| exe.display().to_string());
-        let parts: Vec<&str> = path_str.split(".app/").collect();
-        if parts.len() == 2 {
-            builder.set_app_path(&format!("{}.app", parts[0]));
-        }
-    }
 
     if minimized {
         builder.set_args(&["--minimized"]);
@@ -3983,7 +3991,6 @@ fn autostart_handle(minimized: bool) -> Result<auto_launch::AutoLaunch, String> 
 }
 
 #[tauri::command]
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn autostart_apply(enable: bool, minimized: bool) -> Result<(), String> {
     let al = autostart_handle(enable && minimized)?;
     if enable {
@@ -3996,24 +4003,10 @@ pub fn autostart_apply(enable: bool, minimized: bool) -> Result<(), String> {
 /// Devuelve `true` si la entrada de autostart del SO está activa. Los args
 /// (`--minimized`) no afectan a la detección, que se hace por `app_name`.
 #[tauri::command]
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn autostart_is_enabled() -> Result<bool, String> {
     autostart_handle(false)?
         .is_enabled()
         .map_err(|e| e.to_string())
-}
-
-/// Versión no-op para plataformas móviles (Android/iOS): el autostart no aplica.
-#[tauri::command]
-#[cfg(any(target_os = "android", target_os = "ios"))]
-pub fn autostart_apply(_enable: bool, _minimized: bool) -> Result<(), String> {
-    Ok(())
-}
-
-#[tauri::command]
-#[cfg(any(target_os = "android", target_os = "ios"))]
-pub fn autostart_is_enabled() -> Result<bool, String> {
-    Ok(false)
 }
 
 /// Devuelve `true` si la app fue lanzada con el argumento `--minimized`
@@ -4067,27 +4060,6 @@ pub fn reveal_main_window(app: AppHandle, launched: State<LaunchMinimized>) -> b
     // crear la ventana; repetirlo es barato y deja la garantía en un solo sitio.
     let _ = window.restore_state(crate::WINDOW_STATE_FLAGS);
     window.show().is_ok()
-}
-
-/// Indica si la app se está ejecutando como AppImage en Linux (variable de
-/// entorno `APPIMAGE` presente y no vacía). El frontend lo usa para habilitar
-/// el updater de Tauri en Linux solo cuando es AppImage (el único formato que
-/// el updater sabe actualizar in-place); el resto de formatos se actualizan por
-/// el gestor de paquetes.
-#[tauri::command]
-pub fn is_appimage() -> bool {
-    std::env::var("APPIMAGE")
-        .map(|v| !v.trim().is_empty())
-        .unwrap_or(false)
-}
-
-/// Indica si la app corre dentro del sandbox de Flatpak. El frontend lo usa
-/// para no ofrecer comprobación de actualizaciones: en Flatpak la versión la
-/// gestiona el remote (Flathub) y avisar de releases de GitHub llevaría al
-/// usuario a descargar un paquete que no es el que tiene instalado.
-#[tauri::command]
-pub fn is_flatpak() -> bool {
-    crate::sandbox::in_flatpak()
 }
 
 // ─── Notas Markdown por conexión («runbooks») ───────────────────────────────

@@ -61,6 +61,22 @@ export const DEFAULT_PREFS = {
   // tamaño clavado de siempre, para servidores sin Display Control). Cada perfil
   // puede llevar su propio `rdp_display` y entonces manda el del perfil.
   rdpDisplay:      "window",
+  // Dónde se abre el escritorio remoto: "embedded" (en la pestaña, cliente
+  // integrado IronRDP) o "external" (mstsc / xfreerdp en su propia ventana).
+  // Si la build no trae el cliente integrado se usa siempre el externo.
+  rdpMode:         "embedded",
+  // Solo en la pestaña: portapapeles compartido con el escritorio remoto
+  // (texto) y, además, ficheros y carpetas por copiar/pegar.
+  rdpClipboard:    true,
+  rdpClipboardFiles: true,
+  // Solo en la pestaña: qué se pide al servidor para gastar menos ancho de
+  // banda. "speed" (sin fondo, temas ni animaciones, compresión fuerte),
+  // "balanced" (sin fondo ni animaciones) o "quality" (el escritorio tal cual).
+  rdpPerfProfile:  "balanced",
+  // Solo en la pestaña: compartir la carpeta elegida en Ajustes como unidad
+  // del remoto. La ruta la guarda el backend (`rdp_shared_folder_pick`): aquí
+  // solo el interruptor.
+  rdpSharedFolder: false,
   // Captura la pantalla de cada sesión SSH (no privada) en disco para poder
   // restaurarla luego con «Conectar y restaurar pantalla anterior». Solo es la
   // salida visual; puede contener datos sensibles. Excluido de sync.
@@ -161,8 +177,9 @@ export const DEFAULT_PREFS = {
   keepassAutoLockMinutes: 0,
   // Bloquear la base si el equipo se suspende (se detecta por el salto de reloj).
   keepassLockOnSuspend: true,
-  // Idioma de la interfaz: "es" | "en" | "fr" | "pt"
-  lang:            null, // null → usar detectLanguage() en loadPrefs
+  // Idioma de la interfaz: "en" | "es" | "fr" | "pt" | "de" | null.
+  // Por defecto, inglés. null = «Sistema» → detectLanguage() en loadPrefs.
+  lang:            "en",
   // Overrides de atajos: { [actionId]: accelerator | null }
   // Solo se almacenan los atajos que el usuario ha modificado respecto al default.
   shortcuts:       {},

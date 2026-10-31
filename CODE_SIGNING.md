@@ -3,34 +3,32 @@
 Este documento describe cómo se firman los binarios de Rustty, quién puede
 autorizar una firma y cómo verificar que un artefacto descargado es auténtico.
 
-> Estado: los instaladores de **Windows** se publican por ahora **sin firma
+> Estado: el ejecutable portable de **Windows** se publica por ahora **sin firma
 > Authenticode**; la firma de código de Windows está **en evaluación** (ver «Plan
-> de firma de Windows»). El resto de garantías de este documento (macOS,
-> actualizador automático) ya están en vigor.
+> de firma de Windows»). La verificación por `SHA256SUMS.txt` con attestation de
+> procedencia ya está en vigor para todos los artefactos.
 
 ## Estado actual de la firma
 
 | Plataforma | Firma | Mecanismo |
 | --- | --- | --- |
-| **macOS** (Apple Silicon) | Sí | Firmado con **Apple Developer ID Application** y **notarizado** por Apple. Gatekeeper no muestra avisos en una instalación limpia. |
-| **Windows** | **Todavía no** (firma en evaluación) | Pendiente de certificado. Verifica el `sha256` publicado en el release. |
-| **Linux** (`.deb`/`.rpm`/`.AppImage`/`.pkg.tar.zst`/Flatpak) | No aplica firma de código de SO | La integridad se valida por el gestor de paquetes y el `sha256` del release. |
-| **Actualizaciones automáticas** (todas las plataformas con updater) | Sí | Cada artefacto del updater de Tauri se firma con una clave **minisign**; la app verifica la firma contra la **clave pública** embebida antes de instalar. |
+| **Windows** (`Rustty_<version>_x64-portable.exe`) | **Todavía no** (firma en evaluación) | Pendiente de certificado. Verifica el ejecutable contra `SHA256SUMS.txt`. |
+| **Debian / Ubuntu** (`Rustty_<version>_amd64.deb`) | No aplica firma de código de SO | La integridad se valida con `SHA256SUMS.txt` y su attestation de procedencia. |
+| **Manifiesto `SHA256SUMS.txt`** (todas las plataformas) | Sí | **Attestation de procedencia** de GitHub (Sigstore), emitida por el workflow de release; cubre por hash todos los artefactos. |
 
-Los secretos de firma viven exclusivamente en los secretos cifrados de GitHub
-Actions del repositorio y nunca se incluyen en el código fuente ni en los
-artefactos publicados:
+Rustty no tiene actualizador automático: la app solo consulta la API de releases
+de GitHub y, si hay una versión nueva, abre la página del release para que la
+descargues. Por eso no hay firmas de actualizador ni secretos asociados.
 
-- macOS: `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`,
-  `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`.
-- Updater de Tauri: `TAURI_SIGNING_PRIVATE_KEY`,
-  `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
+Los secretos que necesite el futuro firmado de Windows vivirán exclusivamente en
+los secretos cifrados de GitHub Actions del repositorio y nunca se incluirán en el
+código fuente ni en los artefactos publicados.
 
 ## Plan de firma de Windows
 
 La firma de código de Windows está **en evaluación**. Mientras tanto, los
-instaladores (`.msi`, `.exe` NSIS y portable) se publican sin firma Authenticode
-y deben verificarse por su `sha256`. Las vías que se consideran:
+ejecutable portable (`.exe`) se publica sin firma Authenticode y debe
+verificarse contra `SHA256SUMS.txt`. Las vías que se consideran:
 
 - **SignPath Foundation** (gratuita para OSS) — objetivo preferido. Rustty cumple
   los criterios técnicos de elegibilidad (licencia [Apache-2.0](LICENSE) aprobada
@@ -87,22 +85,27 @@ control). Los detalles completos están en la
 
 ## Cómo verificar la integridad de una descarga
 
-- **`sha256`**: cada release de GitHub publica el hash SHA-256 de cada fichero.
-  Compáralo con el de tu descarga:
+- **Manifiesto `SHA256SUMS.txt` con procedencia**: cada release publica un
+  `SHA256SUMS.txt` con el hash SHA-256 de todos sus artefactos, y ese manifiesto
+  lleva una **attestation de procedencia** de GitHub (emitida por el job
+  `publish_release`, fuera del propio release) que lo ata al workflow, al commit y
+  al runner que lo generaron. Así, quien pudiera alterar un binario del release no
+  puede alterar también el hash con el que se compara:
 
   ```bash
-  sha256sum Rustty_*_amd64.deb
-  # comparar con el hash indicado en la página del release
+  # 1. El manifiesto lo generó el CI de este repositorio
+  gh attestation verify SHA256SUMS.txt --repo rosdyana/Rustty
+
+  # 2. Tu descarga (p. ej. Rustty_x.y.z_amd64.deb o
+  #    Rustty_x.y.z_x64-portable.exe) coincide con el manifiesto
+  sha256sum --check --ignore-missing SHA256SUMS.txt
   ```
 
-- **macOS**: el sistema valida automáticamente la firma de Apple Developer ID y la
-  notarización al abrir la aplicación.
+  En Windows (PowerShell), el paso 2 equivale a comparar
+  `Get-FileHash .\Rustty_*_x64-portable.exe` con su línea del manifiesto.
 - **Windows** (cuando la firma esté activa): el binario mostrará el editor
   verificado en el diálogo de SmartScreen / UAC y en
   *Propiedades → Firmas digitales*.
-- **Actualizaciones automáticas**: la verificación de la firma minisign es
-  automática; el updater rechaza cualquier artefacto cuya firma no cuadre con la
-  clave pública embebida.
 
 ## Atribución
 

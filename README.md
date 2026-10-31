@@ -1,98 +1,91 @@
-# Rustty - Cliente SSH Multiplataforma🦀⚡
+# Rustty - Cross-Platform SSH Client🦀⚡
 
-> 🌐 English version: [README.en.md](README.en.md)
+> 🌐 Versión en español: [README.es.md](README.es.md)
 
-> ⚠️ **Aviso**: este repositorio contiene código y documentación generados en parte con agentes de IA.
-> Las contribuciones y/o críticas son bienvenidas. Al participar, sigue el [Código de conducta](CODE_OF_CONDUCT.md); para la firma de los binarios consulta [`CODE_SIGNING.md`](CODE_SIGNING.md).
+> ⚠️ **Notice**: this repository contains code and documentation generated in part with AI agents.
+> Contributions and/or criticism are welcome. When taking part, follow the [Code of Conduct](CODE_OF_CONDUCT.md); for how the binaries are signed see [`CODE_SIGNING.md`](CODE_SIGNING.md).
 
-**Rustty** es un cliente de terminal y gestor de conexiones multiplataforma, moderno y ligero, diseñado para ofrecer una experiencia fluida en la administración de servidores remotos. Construido con **Rust** y **Tauri**, combina la potencia de las herramientas de bajo nivel con una interfaz web moderna y ágil.
+**Rustty** is a cross-platform, modern and lightweight terminal client and connection manager, designed to deliver a smooth experience for administering remote servers. Built with **Rust** and **Tauri**, it combines the power of low-level tooling with a modern, agile web interface.
 
-## Características principales
+## Key features
 
-- **Multi-protocolo**: conexiones SSH, SFTP, FTP, FTPS, RDP, VNC y Telnet (RDP, VNC y Telnet mediante los clientes externos del sistema: `xfreerdp`/`mstsc`, `vncviewer`/TigerVNC y `telnet`). En Windows, RDP entra directo sin repetir la contraseña (credencial `TERMSRV` inyectada por la API del sistema y retirada al cerrar); en Linux, si el cliente RDP externo falla al arrancar, Rustty muestra el motivo real (p. ej. certificado del servidor cambiado). La **ventana del escritorio remoto** es configurable —redimensionable, pantalla completa, área de trabajo o tamaño fijo—, global y por perfil; y una sesión externa cerrada ofrece **Reconectar** en su misma pestaña.
-- **Terminal moderno**: xterm.js con renderizado por GPU (WebGL), temas, cursor configurable, scrollback, **búsqueda dentro del buffer** (Ctrl+F), **selección por doble clic** que corta en separadores de campo (`:`, `@`, `/`, `=`, `.`, `|`) para aislar trozos en salidas densas (`grep`, logs), cola de salida con drenado por lotes para que comandos muy verbosos (`cat` de logs grandes, `journalctl`, etc.) no congelen la interfaz, barra inferior con estado/latencia/diagnóstico, soporte de OSC 7 (seguimiento del `cwd` remoto) y **editor multilínea de comandos** (Ctrl+Shift+E) para redactar instrucciones largas con borrador por perfil y un **historial de comandos compartido entre pestañas** (opt-in) con **autocompletado** en ese mismo editor: al escribir filtra los comandos previos por coincidencia (primero por prefijo) y se navega con las flechas, aceptando con `Tab` o `Intro`.
-- **Snippets, comandos y paleta**: biblioteca de **snippets** insertables en el terminal activo y catálogo de **comandos locales** (ejecutar un comando, abrir una URL o una carpeta) configurables en Preferencias → Comandos, ambos con sustituciones `${host}/${user}/${var:…}/${ask:…}` y confirmación opcional; un comando local nuevo o editado se autoriza una vez por equipo en un diálogo del sistema, y cada valor sustituido le llega como un único argumento, sin que el shell lo interprete. Una **paleta de comandos global** (`Ctrl+Shift+P`) ofrece búsqueda difusa sobre perfiles, snippets, comandos y acciones de la app. Además, **plantillas de perfil** integradas (Linux SSH, SSH con clave, bastión, SSH heredado, RDP, FTPS) para crear conexiones con valores por defecto, pudiendo marcar tus propios perfiles como plantilla.
-- **Notas Markdown por conexión (runbooks)**: clic derecho sobre una conexión para **añadir o editar una nota en Markdown**, con editor de previsualización en vivo, barra de formato, título y etiquetas. Cada nota se guarda como un archivo `.md` autocontenido (sincronizable, opt-in en Copias de seguridad), resuelve variables `${host}/${user}/…` en la vista y puede mostrarse como **panel runbook** junto a la sesión con casillas de tarea interactivas. Atajo `Ctrl+Shift+M`.
-- **Panel de ficheros integrado**: explorador SFTP/FTP/FTPS con **vista dividida remoto / local** (con el remoto a la izquierda o a la derecha, configurable en Preferencias → Estética), transferencia recursiva de carpetas, drag & drop entre paneles **y desde el explorador del sistema operativo** (soltar ficheros/carpetas sobre el panel remoto los sube), conflictos configurables, cola de transferencias, logs en pestañas redimensionables, menús contextuales, **renombrado rápido con F2**, **historial atrás/adelante y ruta en migas clicables** por lado (`Ctrl+L` para escribirla a mano), **autocompletado de rutas** (`Tab` y desplegable de sugerencias), **búsqueda de ficheros** por nombre en el directorio actual o recursiva, creación de carpetas y archivos vacíos en ambos lados, seguimiento opcional del directorio del terminal en SSH y modo elevado a **sudo** cuando el servidor lo permita. Las transferencias SFTP usan **pipelining** (peticiones simultáneas en vuelo de 256 KiB, configurable en Preferencias) y saturan el ancho de banda real de la conexión en lugar de quedarse limitadas por el RTT; el número de peticiones en paralelo se puede bajar para servidores con límite de handles (p. ej. Hetzner Storage Box). Al transferir carpetas, los **ficheros pequeños viajan varios a la vez** dentro de ese mismo límite, que es lo que acelera las carpetas con cientos o miles de ellos.
-- **CLI para scripts**: sin abrir la interfaz gráfica, `rustty -l` lista las conexiones guardadas, `rustty -c <perfil>` conecta y `--exec` ejecuta un comando y **sale con su código**; `--workspace`/`--group`/`--all` lo lanzan en varios servidores a la vez (con salida `--json` o `--ndjson` en streaming), `--script` manda un script local, `--get`/`--put` copian ficheros o carpetas enteras (`-r`) por SFTP y `--import` carga conexiones desde un JSON.
-- **Túneles SSH integrados**: redirección de puertos **local** (`-L`), **remota** (`-R`) y **dinámica / SOCKS** (`-D`) sobre una sesión activa o desde acceso rápido global, con panel de estado, tráfico, túneles guardados y autoconexión opcional por perfil.
-- **Opciones avanzadas SSH por perfil**: **mantener la sesión activa** (keep-alive contra desconexiones por inactividad/NAT; desactivado por defecto, se activa por conexión y con clic derecho en la pestaña, con efecto inmediato), **reconexión automática con backoff** ante caídas, **grabación de sesión** a fichero, bastion / ProxyJump, agent forwarding, X11 forwarding y opción para permitir cifrados / kex / MAC legacy (aes-cbc, 3des-cbc, dh-sha1, hmac-sha1, ssh-rsa) en servidores antiguos, pudiendo elegir qué algoritmos concretos ofrecer.
-- **Varios usuarios por conexión**: añade identidades adicionales a un perfil (cada una con su propia autenticación: contraseña, credencial maestra, clave SSH o agente). Al conectar se usa la principal; con clic derecho → **«Conectar con otro usuario»** eliges una identidad alternativa, y `Ctrl+P` pega la contraseña del usuario con el que se inició esa sesión. Disponible en SSH, RDP y SFTP/FTP.
-- **Restaurar pantalla anterior**: clic derecho → **«Conectar y restaurar pantalla anterior»** reconecta repintando lo que se vio en la última sesión (restauración *visual* del scrollback, no del proceso remoto). La captura se guarda por perfil en disco y puede desactivarse en Preferencias → Seguridad; no se sincroniza.
-- **Multi-pestaña y vistas divididas**: trabaja con varias sesiones simultáneas, distribúyelas en *split* horizontal / vertical / grid y activa el *broadcast* para teclear en varias a la vez.
-- **Sidebar pulida**: rail vertical de iconos (Perfiles, Favoritos, Túneles, Actividad, Sync, Preferencias y acciones rápidas), **drag & drop** entre carpetas y workspaces, colores por carpeta, recuerdo del árbol abierto, **renombrado de la conexión seleccionada con F2** y selección automática de la conexión asociada a la pestaña activa.
-- **Diagnóstico y actividad**: botón **Probar** en el modal de conexión sin guardar el perfil, logs SSH por etapas, comprobación TCP para RDP/FTP/FTPS y centro global de actividad persistente con transferencias, sync, errores y actualizaciones agrupados por día.
-- **Bandeja del sistema / quick launcher**: acceso rápido a favoritos, recientes, workspaces, consola local, **Wake On LAN** de los perfiles con MAC y abrir/ocultar ventana desde el icono de tray. Opción de **iniciar Rustty con el sistema** y **arrancar minimizado** en la bandeja (opt-in, en Preferencias → Sistema).
-- **Exportación granular**: exporta todos los perfiles, los de una carpeta o los de un workspace a JSON desde el menú contextual, preguntando antes si debe incluir contraseñas/passphrases guardadas.
-- **Importación desde otras herramientas**: importa tu `~/.ssh/config` o, con un **asistente por pasos**, conexiones de **mRemoteNG** (`.xml`) o **Ásbrú Connection Manager** (`.yml`) — reconstruye el árbol de carpetas en un perfil-contenedor nuevo, deja elegir qué importar, muestra el progreso y descifra opcionalmente las contraseñas guardadas (todo en local).
-- **Seguridad**:
-  - Integración nativa con el keyring del sistema (Secret Service/KWallet en Linux, macOS Keychain, Windows Credential Store).
-  - Soporte para bases de datos **KeePass** (`.kdbx`) como fuente de contraseñas.
-  - **Credenciales maestras** reutilizables: define una contraseña una vez y refiérela desde varios perfiles con `${master:nombre}`; el valor vive solo en el keyring y rotarlo actualiza todos los perfiles que la usan. Forma parte de un **motor de variables** (`${host}`, `${env:…}`, `${var:…}`, `${ask:…}`) que se resuelve al conectar, también en campos como el host o el usuario.
-  - Gestión unificada en **Preferencias → Credenciales**, con vistas separadas para credenciales locales, KeePass y variables; unifica el acceso sin mezclar sus almacenamientos.
-  - Atajo `Ctrl+P` para pegar la contraseña del perfil activo (la del **usuario con el que se conectó** la sesión, si se usó un usuario adicional) sin exponerla en pantalla. Con *broadcast* activo no se bloquea: una preferencia decide si se difunde a todas las panes, solo a la activa o se pregunta (ver pestaña Seguridad).
-  - **Pestaña Seguridad** en Preferencias que centraliza las opciones sensibles bajo un principio claro —nunca bloquear, siempre ofrecer opciones— incluyendo el pegado de contraseña con *broadcast*, la confirmación de pegados peligrosos, el guardado de pantalla, la gestión de `known_hosts` y la retención de logs.
-  - **Sesión privada / efímera** ("Abrir en privado" desde el menú del perfil): no deja rastro en recientes, centro de actividad, borradores ni grabación de sesión, y la pestaña se marca como privada.
-  - Verificación de `known_hosts` con TOFU y aviso ante cambios de fingerprint, más un **gestor visual de `known_hosts`** en Preferencias → Seguridad para revisar huellas y eliminar entradas conflictivas.
-  - **FTPS con certificado autofirmado por huella (TOFU)**: los NAS y servidores internos con certificado propio se aceptan confirmando su huella la primera vez —igual que las claves SSH— y se avisa si el certificado cambia, en vez de exigir una CA pública o ignorar la verificación. Aviso visible al conectar por **FTP plano** (credenciales y datos en claro).
-  - Aviso y confirmación al **activar el agent forwarding**, para no compartir el agente SSH con hosts no confiables sin darse cuenta.
-  - **Mínimo privilegio entre la interfaz y el núcleo**: los diálogos de abrir y guardar los abre el núcleo en Rust y la interfaz solo recibe un permiso de un solo uso sobre la ruta elegida, así que no puede leer ni escribir ficheros que no hayas escogido tú; los comandos locales se autorizan por equipo en un diálogo nativo; y el panel de archivos no puede tocar la carpeta de datos de la app ni subir una clave privada sin confirmarlo en un diálogo nativo.
-  - **Retención configurable de los logs de sesión** (por edad y tamaño) con limpieza manual y aviso de contenido sensible.
-- **Copias de seguridad y sincronización E2E**: perfiles, preferencias, temas, atajos, notas de conexión y, si lo activas, contraseñas guardadas pueden sincronizarse con Google Drive, iCloud Drive, carpeta local / NAS o WebDAV. El blob remoto se cifra localmente con `age` y una passphrase maestra. Sincronización **por evento** (comprueba al iniciar y sincroniza si hay cambios locales/remotos) y **restauración de snapshots históricos** desde la pestaña de Copias.
-- **Organización**: agrupa conexiones en **perfiles-contenedor (workspaces)** independientes, en carpetas dentro de cada workspace, **conexiones favoritas** y vistas de la sidebar (workspace actual, todos los perfiles, favoritos), búsqueda rápida y duplicación de conexiones / sesiones desde el menú contextual. **Orden alfabético o manual** de carpetas y conexiones: en modo manual, «Mover arriba / abajo» desde el menú contextual de cada carpeta o máquina.
-- **Personalización**: 12 temas base integrados y una biblioteca ampliada de 221 temas Rustty v2 precargados para interfaz y terminal, además de ajustes de cursor, scrollback y *bell*. Posibilidad de importar temas personalizados en formato JSON v2 con tokens de UI y terminal; consulta la [guía para crear un tema personalizado](web/docs/Temas.md#crear-un-tema-personalizado). **Tamaño de la interfaz ajustable** (rail, sidebar, pestañas y modales) independiente del terminal, con control en Preferencias y atajos `Ctrl+Alt` con `+` / `-` / `0`, y **densidad de la interfaz** en tres niveles (Espaciosa / Cómoda / Compacta). En Preferencias → Apariencia hay además ajustes de **accesibilidad** (contraste reforzado, reducir movimiento, foco visible, contraste mínimo del terminal y modo daltónico).
-- **Internacionalización**: interfaz traducida a español, inglés, francés, portugués y alemán. (Traducciones realizadas con IA)
+- **Multi-protocol**: SSH, SFTP, FTP, FTPS, RDP, VNC and Telnet connections (RDP, VNC and Telnet via the system's external clients: `xfreerdp`/`mstsc`, `vncviewer`/TigerVNC and `telnet`). On Windows, RDP connects directly without asking for the password twice (a `TERMSRV` credential is injected through the system API and removed on close); on Linux, if the external RDP client fails at startup, Rustty shows the real reason (e.g. a changed server certificate).
+- **Modern terminal**: xterm.js with GPU (WebGL) rendering, themes, configurable cursor, scrollback, **in-buffer search** (Ctrl+F), **double-click selection** that breaks on field separators (`:`, `@`, `/`, `=`, `.`, `|`) to isolate chunks in dense output (`grep`, logs), batched output draining so very chatty commands (`cat` on large logs, `journalctl`, etc.) do not freeze the UI, a bottom bar with status/latency/diagnostics, OSC 7 support (tracking the remote `cwd`) and a **multi-line command editor** (Ctrl+Shift+E) to compose long commands, with a per-profile draft and a **shared command history across tabs** (opt-in) with **autocomplete** in that same editor: as you type it filters previous commands by match (prefix first) and you navigate with the arrow keys, accepting with `Tab` or `Enter`.
+- **Snippets, commands and palette**: a library of **snippets** that insert into the active terminal and a catalog of **local commands** (run a command, open a URL or a folder), both configurable in Preferences → Commands with `${host}/${user}/${var:…}/${ask:…}` substitutions and optional confirmation. A **global command palette** (`Ctrl+Shift+P`) offers fuzzy search over profiles, snippets, commands and app actions. Plus built-in **profile templates** (Linux SSH, SSH with key, bastion, legacy SSH, RDP, FTPS) to create connections with sensible defaults, and you can mark your own profiles as templates.
+- **Markdown notes per connection (runbooks)**: right-click a connection to **add or edit a Markdown note**, with a live-preview editor, formatting toolbar, title and tags. Each note is stored as a self-contained `.md` file (syncable, opt-in in Backups), resolves `${host}/${user}/…` variables in the preview and can be shown as a **runbook panel** next to the session with interactive task checkboxes. Shortcut `Ctrl+Shift+M`.
+- **Integrated file panel**: SFTP/FTP/FTPS explorer with a **split remote / local view** (remote on the left or right, configurable in Preferences → Aesthetics), recursive folder transfers, drag & drop between panels **and from the operating system's file manager** (dropping files/folders onto the remote panel uploads them), configurable conflicts, transfer queue, resizable tabbed logs, context menus, **quick rename with F2**, **back/forward history and a clickable breadcrumb path** on each side (`Ctrl+L` to type the path), **path autocompletion** (`Tab` and a suggestions dropdown), **file search** by name in the current directory or recursively, creation of folders and empty files on both sides, optional tracking of the terminal directory over SSH, and elevation to **sudo** when the server allows it. SFTP transfers use **pipelining** (simultaneous in-flight requests of 256 KiB, configurable in Preferences) and saturate the connection's actual bandwidth instead of being limited by RTT; the number of parallel requests can be lowered for servers with a handle limit (e.g. Hetzner Storage Box).
+- **SSH CLI**: list saved connections with `rustty -l`, connect directly with `rustty -c <name|id|ip|host>` and run remote commands with `--exec`, `--` or the alias `rustty -c <profile> "cmd"`, without opening the graphical interface.
+- **Integrated SSH tunnels**: **local** (`-L`), **remote** (`-R`) and **dynamic / SOCKS** (`-D`) port forwarding over an active session or from the global quick access, with a status panel, traffic, saved tunnels and optional per-profile auto-connect.
+- **Advanced per-profile SSH options**: **keep the session alive** (keep-alive against idle/NAT disconnects; off by default, toggled per connection and by right-clicking the tab, with immediate effect), **automatic reconnection with backoff** on drops, **session recording** to file, bastion / ProxyJump, agent forwarding, X11 forwarding and an option to allow legacy ciphers / kex / MACs (aes-cbc, 3des-cbc, dh-sha1, hmac-sha1, ssh-rsa) on old servers, letting you pick which specific algorithms to offer.
+- **Multiple users per connection**: add extra identities to a profile (each with its own authentication: password, master credential, SSH key or agent). Connecting uses the primary one; right-click → **“Connect as another user”** picks an alternative identity, and `Ctrl+P` pastes the password of the user that session logged in with. Available for SSH, RDP and SFTP/FTP.
+- **Restore previous screen**: right-click → **“Connect and restore previous screen”** reconnects, repainting what was shown in the last session (a *visual* scrollback restore, not the remote process). The capture is stored on disk per profile and can be turned off in Preferences → Security; it is never synced.
+- **Multi-tab and split views**: work with multiple simultaneous sessions, arrange them in horizontal / vertical / grid *splits* and enable *broadcast* to type into several at once.
+- **Polished sidebar**: a vertical rail of icons (Profiles, Favorites, Tunnels, Activity, Sync, Preferences and quick actions), **drag & drop** between folders and workspaces, per-folder colors, remembering of the expanded tree, **renaming the selected connection with F2** and automatic selection of the connection associated with the active tab.
+- **Diagnostics and activity**: a **Test** button in the connection modal without saving the profile, staged SSH logs, TCP checks for RDP/FTP/FTPS and a persistent global activity center with transfers, sync, errors and updates grouped by day.
+- **System tray / quick launcher**: quick access to favorites, recents, workspaces, local console, **Wake On LAN** for profiles with a MAC address and show/hide window from the tray icon. Optionally **start Rustty with the system** and **start minimized** to the tray (opt-in, under Preferences → System).
+- **Granular export**: export all profiles, those of a folder or those of a workspace to JSON from the context menu, asking first whether saved passwords/passphrases should be included.
+- **Import from other tools**: import your `~/.ssh/config` or, via a **step-by-step wizard**, connections from **mRemoteNG** (`.xml`) or **Ásbrú Connection Manager** (`.yml`) — it rebuilds the folder tree into a new workspace, lets you choose what to import, shows progress and optionally decrypts the saved passwords (all locally).
+- **Security**:
+  - Native integration with the system keyring (Secret Service/KWallet on Linux, Windows Credential Store).
+  - Support for **KeePass** databases (`.kdbx`) as a password source.
+  - Reusable **master credentials**: define a password once and reference it from several profiles with `${master:name}`; the value lives only in the keyring and rotating it updates every profile that uses it. It is part of a **variable engine** (`${host}`, `${env:…}`, `${var:…}`, `${ask:…}`) resolved at connection time, including fields such as the host or the user.
+  - `Ctrl+P` shortcut to paste the active profile's password (the one of the **user the session logged in with**, if an additional user was used) without exposing it on screen. With *broadcast* active it is no longer blocked: a preference decides whether to send it to all panes, only the active one, or ask each time (see the Security tab).
+  - **Security tab** in Preferences that centralizes sensitive options under a clear principle —never block, always offer choices— including password paste with *broadcast*, risky-paste confirmation, screen capture, `known_hosts` management and log retention.
+  - **Private / ephemeral session** ("Open in private" from the profile menu): leaves no trace in recents, the activity center, drafts or session recording, and the tab is marked as private.
+  - `known_hosts` verification with TOFU and a warning on fingerprint changes, plus a **visual `known_hosts` manager** in Preferences → Security to review fingerprints and remove conflicting entries.
+  - Warning and confirmation when **enabling agent forwarding**, so you don't share the SSH agent with untrusted hosts by mistake.
+  - **Configurable retention of session logs** (by age and size) with manual cleanup and a sensitive-content warning.
+- **E2E backups and synchronization**: profiles, preferences, themes, shortcuts, connection notes and, if you enable it, saved passwords can be synchronized with Google Drive, a local folder / NAS or WebDAV. The remote blob is encrypted locally with `age` and a master passphrase. **Event-based** synchronization (it checks at startup and syncs if there are local/remote changes) and **restoration of historical snapshots** from the Backups tab.
+- **Organization**: group connections into independent **container profiles (workspaces)**, in folders within each workspace, **favorite connections** and sidebar views (current workspace, all profiles, favorites), quick search and duplication of connections / sessions from the context menu. **Alphabetical or manual ordering** of folders and connections: in manual mode, "Move up / down" from each folder's or machine's context menu.
+- **Customization**: 12 built-in base themes and an extended library of 221 preloaded Rustty v2 themes for the interface and terminal, plus cursor, scrollback and *bell* settings. Ability to import custom themes in JSON v2 format with UI and terminal tokens; see the [custom theme guide](web/docs/Temas.md#crear-un-tema-personalizado). **Adjustable interface size** (rail, sidebar, tabs and modals) independent of the terminal, with a control in Preferences and `Ctrl+Alt` shortcuts with `+` / `-` / `0`, and **interface density** in three levels (Spacious / Comfortable / Compact). Preferences → Appearance also offers **accessibility** settings (stronger contrast, reduced motion, visible focus, minimum terminal contrast and color-blind mode).
+- **Internationalization**: interface translated into Spanish, English, French, Portuguese and German. (Translations done with AI)
 
-## Capturas
+## Screenshots
 
-Pantalla de bienvenida con el tema claro del sistema:
+Welcome screen with the system light theme:
 
-![Pantalla de bienvenida](images/Captura1.png)
+![Welcome screen](images/Captura1.png)
 
-Varias sesiones abiertas en pestañas y menú contextual del panel de conexiones (tema oscuro):
+Several sessions open in tabs and the connection panel context menu (dark theme):
 
-![Pestañas y menú contextual](images/Captura2.png)
+![Tabs and context menu](images/Captura2.png)
 
-Vista dividida en rejilla: cuatro paneles en la misma pestaña con el selector de *layout* en la esquina superior derecha:
+Grid split view: four panels in the same tab with the *layout* selector in the top-right corner:
 
-![Vista dividida en rejilla](images/Captura5.png)
+![Grid split view](images/Captura5.png)
 
-Preferencias → **Apariencia**: tema global de la interfaz y tema independiente del terminal (con el *swatch* "Igual que la interfaz" para herencia):
+Preferences → **Appearance**: global interface theme and an independent terminal theme (with the "Same as interface" *swatch* for inheritance):
 
-![Selector de temas](images/Captura4.png)
+![Theme selector](images/Captura4.png)
 
-Preferencias → **Idioma**: interfaz disponible en español, inglés, francés y portugués:
+Preferences → **Language**: interface available in Spanish, English, French and Portuguese:
 
-![Selector de idioma](images/Captura3.png)
+![Language selector](images/Captura3.png)
 
-## Atajos de teclado
+## Keyboard shortcuts
 
-Rustty incluye un **editor de atajos** en Preferencias → *Atajos* que permite reasignar cualquier acción con captura en vivo (pulsa "Editar" y la nueva combinación). Los atajos por defecto son:
+Rustty includes a **shortcut editor** in Preferences → *Shortcuts* that lets you reassign any action with live capture (press "Edit" and the new combination). The default shortcuts are:
 
-| Atajo                          | Acción                                                 |
+| Shortcut                       | Action                                                 |
 |--------------------------------|--------------------------------------------------------|
-| `Ctrl+Shift+N`                 | Nueva conexión                                         |
-| `Ctrl+Shift+T`                 | Nueva consola local                                    |
-| `Ctrl+W`                       | Cerrar pestaña activa                                  |
-| `Ctrl+Tab`                     | Pestaña siguiente                                      |
-| `Ctrl+Shift+Tab`               | Pestaña anterior                                       |
-| `Ctrl+,`                       | Abrir preferencias                                     |
-| `Ctrl+Alt+C`                   | Copiar selección del terminal                          |
-| `Ctrl+Alt+V`                   | Pegar en el terminal                                   |
-| `Ctrl+P`                       | Pegar la contraseña del perfil activo en el shell      |
-| `Ctrl+Shift+E`                 | Abrir el editor multilínea de comandos                 |
-| `Ctrl+Shift+P`                 | Abrir la paleta de comandos global                     |
-| `Ctrl+K`                       | Buscar conexiones desde cualquier vista                |
-| `Ctrl+F`                       | Buscar dentro del buffer del terminal                  |
-| `Alt+↑` / `Alt+↓`             | Bloque de comando OSC 133 anterior / siguiente         |
-| `Ctrl++` / `Ctrl+-` / `Ctrl+0` | Aumentar / disminuir / restablecer el tamaño de fuente |
+| `Ctrl+Shift+N`                 | New connection                                         |
+| `Ctrl+Shift+T`                 | New local console                                      |
+| `Ctrl+W`                       | Close active tab                                       |
+| `Ctrl+Tab`                     | Next tab                                               |
+| `Ctrl+Shift+Tab`               | Previous tab                                           |
+| `Ctrl+,`                       | Open preferences                                       |
+| `Ctrl+Alt+C`                   | Copy terminal selection                                |
+| `Ctrl+Alt+V`                   | Paste into the terminal                                |
+| `Ctrl+P`                       | Paste the active profile's password into the shell    |
+| `Ctrl+Shift+E`                 | Open the multi-line command editor                     |
+| `Ctrl+Shift+P`                 | Open the global command palette                        |
+| `Ctrl+K`                       | Search connections from any view                       |
+| `Ctrl+F`                       | Search within the terminal buffer                      |
+| `Ctrl++` / `Ctrl+-` / `Ctrl+0` | Increase / decrease / reset the font size              |
 
-La navegación por bloques solo consume `Alt+↑/↓` cuando el shell emite OSC 133
-y existe un destino; en caso contrario las teclas siguen llegando al remoto.
+## SSH CLI
 
-## CLI SSH
-
-Rustty también puede usarse desde terminal para trabajar con conexiones SSH guardadas:
+Rustty can also be used from the terminal to work with saved SSH connections:
 
 ```bash
 rustty -l
@@ -104,302 +97,233 @@ rustty -c <nombre|id|ip|host> --exec "uptime"
 rustty -c <nombre|id|ip|host> -- hostname
 rustty -c <nombre|id|ip|host> "hostname"
 rustty -c <nombre|id|ip|host> --tty -- sudo systemctl status nginx
-rustty -c <perfil> --script parche.sh --sudo --timeout 60
-rustty --workspace Produccion --exec "uptime" --ndjson
-rustty -c <perfil> -r --get /var/www/sitio ./copias/
-rustty --import conexiones.json --workspace Clientes
-rustty -c <perfil> --host-key SHA256:… --exec "uptime"
-rustty --workspace Produccion --accept-host-key --exec "uptime"
 ```
 
-`-c` reutiliza los datos del perfil, el keyring del sistema, `known_hosts`, ProxyJump, keepalive, agent forwarding y la compatibilidad legacy configurada en la conexión. Si una contraseña o passphrase no está guardada en el keyring, la pedirá en la terminal sin mostrarla. La contraseña del perfil vale también en servidores que solo admiten `keyboard-interactive` (PAM), y un segundo factor se pregunta por la terminal. Para scripts sin terminal, `--host-key <huella>` acepta solo esa huella SHA256 del servidor sin tocar `known_hosts` y `--accept-host-key` aprende la de un servidor desconocido sin preguntar.
+`-c` reuses the profile data, the system keyring, `known_hosts`, ProxyJump, keepalive, agent forwarding and the legacy compatibility configured on the connection. If a password or passphrase is not stored in the keyring, it will prompt for it in the terminal without showing it.
 
-Cuando se añade un comando remoto, Rustty abre un canal SSH `exec`, escribe `stdout`/`stderr` en la terminal local y termina con el código de salida remoto. `--exec` es la forma recomendada para comandos con comillas o tuberías; `--` acepta una forma breve similar a `ssh`, y el texto extra después del perfil queda como alias cómodo. `--tty` solicita pseudo-terminal para comandos que lo necesiten, como algunos usos de `sudo`.
+When a remote command is added, Rustty opens an SSH `exec` channel, writes `stdout`/`stderr` to the local terminal and exits with the remote exit code. `--exec` is the recommended form for commands with quotes or pipes; `--` accepts a short form similar to `ssh`, and extra text after the profile is left as a convenient alias. `--tty` requests a pseudo-terminal for commands that need it, such as some uses of `sudo`.
 
-Con `--workspace`, `--group` o `--all` el comando se ejecuta en todos los perfiles SSH que casen, varios a la vez: la salida llega agrupada por servidor, como un array con `--json` o **línea a línea según termina cada uno** con `--ndjson`. `--get` y `--put` copian por SFTP un fichero o, con `-r`, una carpeta entera (los enlaces simbólicos se omiten y un fichero que falla no detiene el resto). La referencia completa —códigos de salida, entrada estándar, `--import`, limitaciones— está en [`web/docs/CLI.md`](web/docs/CLI.md).
+## Installation
 
-## Instalación
+Rustty supports two platforms, and each GitHub release ships one artifact for each:
 
-En cada release de GitHub encontrarás binarios precompilados para Linux, Windows y macOS. Puedes descargarlos desde la página de [Releases](https://github.com/Aleixenandros/Rustty/releases) o desde la web del proyecto: [rustty.es/descargas](https://rustty.es/descargas).
-
-### Instalación rápida con script
-
-En Linux y macOS puedes instalar Rustty con el script oficial:
-
-```bash
-curl -sSf https://rustty.es/install.sh | sh
-```
-
-El script consulta la última release publicada, detecta tu sistema y descarga el artefacto adecuado. Internamente invoca `sudo` solo cuando lo necesita el gestor de paquetes; **no** ejecutes `sudo sh` sobre todo el script.
-
-Si prefieres revisarlo antes:
-
-```bash
-curl -sSf https://rustty.es/install.sh -o install.sh
-less install.sh
-sh install.sh
-```
-
-| Sistema detectado | Artefacto usado | Instalación |
+| Platform | File | Format |
 | --- | --- | --- |
-| Arch / Manjaro / EndeavourOS | `.pkg.tar.zst` | `sudo pacman -U` |
-| Debian / Ubuntu / Mint | `.deb` | `sudo apt-get install` |
-| Fedora / RHEL / CentOS / Rocky / AlmaLinux | `.rpm` | `sudo dnf install` |
-| openSUSE / SUSE | `.rpm` | `sudo zypper install` |
-| Otras distribuciones Linux | `AppImage` | copia en `~/.local/bin/rustty` |
-| macOS Apple Silicon | `.app.tar.gz` | extrae en `~/Applications/Rustty.app` |
+| **Windows 10/11 (x64)** | `Rustty_<version>_x64-portable.exe` | Portable executable, no installer |
+| **Debian / Ubuntu (x86_64)** | `Rustty_<version>_amd64.deb` | `.deb` package |
 
-Para actualizar a una nueva versión, vuelve a ejecutar el mismo comando. En Linux reemplazará el paquete mediante el gestor correspondiente; en macOS reemplazará `~/Applications/Rustty.app`.
+Download them from the [Releases](https://github.com/rosdyana/Rustty/releases) page. Other systems are not supported; you can still try [building from source](#development-and-building).
 
-> El instalador automático no está disponible para Windows. Usa el MSI, NSIS o portable de la release.
+Rustty does not update itself: **Preferences → About → Check for updates** (or **Check at startup**) queries the GitHub Releases API and, if there is a newer version, opens its release page so you can download it.
 
-### Linux
+### Windows (portable)
 
-Rustty necesita **WebKitGTK 4.1** y **libayatana-appindicator** en tiempo de ejecución (en la mayoría de distribuciones ya están instalados o se resuelven como dependencia al instalar el paquete).
+Download `Rustty_<version>_x64-portable.exe` and run it: a single executable with no installation and no administrator rights, ideal for USB drives or locked-down machines.
 
-- **AppImage (`Rustty_<version>_amd64.AppImage`)** — portable, no requiere instalación:
+The **Microsoft Edge WebView2 Runtime** is required (already included in Windows 10 22H2 and Windows 11). If your system does not have it, install it manually from [here](https://developer.microsoft.com/microsoft-edge/webview2/).
 
-  ```bash
-  chmod +x Rustty_*_amd64.AppImage
-  ./Rustty_*_amd64.AppImage
-  ```
+> Windows binaries are **not signed yet** (code signing is under evaluation; see [`CODE_SIGNING.md`](CODE_SIGNING.md)). In the meantime SmartScreen or some antivirus may show a warning or a false positive: [verify the download](#integrity-verification).
 
-- **.deb (Debian / Ubuntu / Mint / ...)**:
+To update, download the new `-portable.exe` and put it in the same folder as the previous one (you can delete the old one); it will read the same configuration folder.
 
-  ```bash
-  sudo apt install ./Rustty_*_amd64.deb
-  ```
+#### True portable mode
 
-- **.rpm (Fedora / openSUSE / RHEL / ...)**:
+When Rustty runs as `Rustty_<version>_x64-portable.exe` (filename with the `-portable.exe` suffix), it does **not** use `%APPDATA%`. It stores all configuration in a `.conf\com.rustty.app\` folder created automatically **next to the executable itself**. This includes `profiles.json` and other app data, so the USB drive remains *self-contained*: copy it to another machine and the configuration travels with it.
 
-  ```bash
-  sudo dnf install ./Rustty-*-1.x86_64.rpm        # Fedora
-  sudo zypper install ./Rustty-*-1.x86_64.rpm     # openSUSE
-  ```
+Caveats:
 
-- **.pkg.tar.zst (Arch / Manjaro / EndeavourOS / ...)**:
+- The **Windows keyring** (Credential Manager) still belongs to the user running the binary, not to the USB drive. To move credentials between machines you can use a **KeePass `.kdbx`** database next to the portable build or enable E2E synchronization of saved passwords in **Preferences → Backups**.
+- The window state (size, position) is saved in the user profile (`tauri-plugin-window-state` plugin); the visual session of the USB drive is not 100% portable.
+- If you rename the `.exe` and remove the `-portable.exe` suffix, it returns to normal mode and reads `%APPDATA%\com.rustty.app\`.
 
-  ```bash
-  sudo pacman -U Rustty-*-1-x86_64.pkg.tar.zst
-  ```
+### Debian / Ubuntu (.deb)
 
-- **Flatpak (`Rustty-<version>-x86_64.flatpak`)** — bundle autocontenido, sin añadir remotos:
-
-  ```bash
-  flatpak install ./Rustty-*-x86_64.flatpak
-  flatpak run es.rustty.Rustty
-  ```
-
-  Requiere el runtime `org.gnome.Platform 50` (Flatpak lo descarga la primera vez). WebKitGTK viene dentro del runtime, así que aquí no hace falta instalarlo en el sistema.
-
-### Windows
-
-La forma recomendada es **winget**:
-
-```powershell
-winget install rustty
-```
-
-O descarga un binario directamente del release:
-
-- **MSI (`Rustty_<version>_x64.msi`)** — instalador tradicional. Doble clic y seguir el asistente.
-- **NSIS (`Rustty_<version>_x64-setup.exe`)** — instalador alternativo, más ligero.
-- **Portable (`Rustty_<version>_x64-portable.exe`)** — ejecutable único sin instalar, ideal para memorias USB o equipos bloqueados.
-
-En todos los casos se requiere **Microsoft Edge WebView2 Runtime** (ya incluido en Windows 10 22H2 y Windows 11). Si tu sistema no lo tiene, el instalador MSI/NSIS lo descargará automáticamente; para el portable, instálalo a mano desde [aquí](https://developer.microsoft.com/microsoft-edge/webview2/).
-
-> Los binarios de Windows **aún no están firmados** (la firma de código está en evaluación; ver [`CODE_SIGNING.md`](CODE_SIGNING.md)). Mientras tanto, algún antivirus puede marcar un falso positivo: verifica el `sha256` publicado en el release.
-
-#### Modo portable real
-
-Cuando Rustty se ejecuta como `Rustty_<version>_x64-portable.exe` (filename con sufijo `-portable.exe`), **no usa `%APPDATA%`**. Almacena toda la configuración en una carpeta `.conf\com.rustty.app\` creada automáticamente **junto al propio ejecutable**. Esto incluye `profiles.json` y otros datos de la app, así que el USB queda *self-contained*: cópialo a otro equipo y la configuración viaja con él.
-
-Salvedades:
-
-- El **keyring de Windows** (Credential Manager) sigue siendo del usuario que ejecuta el binario, no del USB. Para mover credenciales entre equipos puedes usar una base **KeePass `.kdbx`** junto al portable o activar la sincronización E2E de contraseñas guardadas en **Preferencias → Copias de seguridad**.
-- El estado de la ventana (tamaño, posición) sí se guarda en el perfil de usuario (plugin `tauri-plugin-window-state`); la sesión visual del USB no es 100% portable.
-- Si renombras el `.exe` y le quitas el sufijo `-portable.exe`, vuelve al modo normal y leerá `%APPDATA%\com.rustty.app\`.
-
-### macOS (Apple Silicon)
-
-Las builds se firman con **Developer ID Application** y se notarizan con el servicio de Apple, así que Gatekeeper no muestra avisos en una instalación limpia.
-
-La forma más rápida es el instalador automático (ver [Instalación rápida con script](#instalación-rápida-con-script)): `curl -sSf https://rustty.es/install.sh | sh`. O descarga un binario directamente del release:
-
-- **DMG (`Rustty_<version>_aarch64.dmg`)**: abrir el `.dmg` y arrastrar `Rustty.app` a `Aplicaciones`.
-- **App bundle (`Rustty_aarch64.app.tar.gz`)**: descomprimir y ejecutar `Rustty.app`.
-
-> Las builds sólo se generan para **aarch64** (Apple Silicon). Para Intel Mac habría que compilar desde fuente.
-
-### Verificación de integridad
-
-Junto a cada artefacto se publica su `.sig` (firma del updater de Tauri) y, desde la v1.68.0, un fichero **`SHA256SUMS.txt`** con la huella de todos los artefactos del release:
+Rustty requires **WebKitGTK 4.1** and **libayatana-appindicator** at runtime; `apt` installs them as dependencies of the package. It works on Ubuntu 22.04 or later, Debian 12 or later and their derivatives (Linux Mint, Pop!_OS…).
 
 ```bash
-# Descarga SHA256SUMS.txt y el artefacto que quieras, en el mismo directorio:
+sudo apt install ./Rustty_*_amd64.deb
+```
+
+To update, download the new `.deb` and install it with the same command: `apt` upgrades the previous version in place and keeps your data.
+
+### Integrity verification
+
+Each release includes a **`SHA256SUMS.txt`** file with the digest of every artifact in the release:
+
+```bash
+# Download SHA256SUMS.txt and the artifact you want, into the same directory:
 sha256sum --check --ignore-missing SHA256SUMS.txt
 ```
 
-Ese manifiesto lleva además una **atestación de procedencia** de GitHub, que lo ata al workflow, al commit y al runner que lo produjeron. Comprobarla no depende de la integridad de la página del release, así que responde a la pregunta que el `sha256` por sí solo no puede responder —«¿y si quien alteró el binario alteró también el número de al lado?»—:
+On Windows (PowerShell), compare `Get-FileHash .\Rustty_*_x64-portable.exe` with the matching line of `SHA256SUMS.txt`.
+
+That manifest also carries a GitHub **build provenance attestation**, tying it to the workflow, the commit and the runner that produced it. Verifying it does not rely on the integrity of the release page, so it answers the question the `sha256` alone cannot — "what if whoever altered the binary also altered the number next to it?":
 
 ```bash
-gh attestation verify SHA256SUMS.txt --repo Aleixenandros/Rustty
+gh attestation verify SHA256SUMS.txt --repo rosdyana/Rustty
 ```
 
-Los binarios de **macOS** están firmados con Apple Developer ID y notarizados, y las **actualizaciones automáticas** van firmadas con minisign y se verifican contra la clave pública embebida. La firma de código de **Windows** está en evaluación. El modelo de firma completo (mecanismos, roles, construcción verificable y cómo verificar una descarga) está en [`CODE_SIGNING.md`](CODE_SIGNING.md).
+**Windows** code signing is under evaluation. The full signing model (mechanisms, roles, verifiable build and how to verify a download) is in [`CODE_SIGNING.md`](CODE_SIGNING.md).
 
-## Tecnologías utilizadas
+## Technologies used
 
-- **Backend**: [Rust](https://www.rust-lang.org/) — 100% puro para SSH/SFTP y FTPS sobre `rustls` (sin dependencia de `libssh2`).
-- **Framework de App**: [Tauri v2](https://tauri.app/)
+- **Backend**: [Rust](https://www.rust-lang.org/) — 100% pure for SSH/SFTP and FTPS over `rustls` (no dependency on `libssh2`).
+- **App framework**: [Tauri v2](https://tauri.app/)
 - **Frontend**: [Vite](https://vitejs.dev/) + Vanilla JavaScript / CSS
 - **Terminal**: [xterm.js](https://xtermjs.org/)
-- **Protocolos**: [russh](https://github.com/warp-tech/russh) (SSH), [russh-sftp](https://github.com/warp-tech/russh-sftp) (SFTP), [`suppaftp`](https://github.com/veeso/suppaftp) (FTP/FTPS)
-- **Seguridad**: [keyring-rs](https://github.com/hwchen/keyring-rs), [keepass-rs](https://github.com/sseemayer/keepass-rs)
+- **Protocols**: [russh](https://github.com/warp-tech/russh) (SSH), [russh-sftp](https://github.com/warp-tech/russh-sftp) (SFTP), [`suppaftp`](https://github.com/veeso/suppaftp) (FTP/FTPS)
+- **Embedded RDP client**: [IronRDP](https://github.com/Devolutions/IronRDP) (RDP protocol, sessions, graphics, input, dynamic channels, shared clipboard and shared folder), [arboard](https://github.com/1Password/arboard) (local clipboard), [tokio-rustls](https://github.com/rustls/tokio-rustls) (TLS) and [x509-cert](https://github.com/RustCrypto/formats/tree/master/x509-cert) (certificates)
+- **Security**: [keyring-rs](https://github.com/hwchen/keyring-rs), [keepass-rs](https://github.com/sseemayer/keepass-rs)
 
-## Copias de seguridad y sincronización
+## Acknowledgments and third-party dependencies
 
-Rustty incluye una pestaña **Preferencias → Copias de seguridad** con tres flujos:
+Rustty is a fork of the original project [Aleixenandros/Rustty](https://github.com/Aleixenandros/Rustty), by Alejandro Soriano. The product attribution is in the [NOTICE](NOTICE) file.
 
-- **Sincronización en la nube**: Google Drive, iCloud Drive, Carpeta local / NAS o WebDAV.
-- **Backup cifrado**: exporta/importa un `.rustty-sync.bin` cifrado con tu passphrase, independiente de cualquier backend.
-- **Datos locales**: export/import JSON de perfiles para interoperabilidad y copias simples.
+The direct Rust dependencies added for the embedded RDP client are all licensed under permissive terms:
 
-La sincronización es opt-in y cifra el estado antes de subirlo. Se sincronizan perfiles, preferencias, temas personalizados, atajos, notas de conexión y snippets. Las **contraseñas/passphrases guardadas** tienen su propio check: si lo activas, Rustty lee los secretos `password:<profile_id>` / `passphrase:<profile_id>` del keyring local, los mete en el blob cifrado E2E y los restaura en el keyring de otros equipos. La base KeePass desbloqueada y rutas locales como `keepassPath` o `keepassKeyfile` nunca se sincronizan.
+| Crate | Used for | License |
+| --- | --- | --- |
+| `ironrdp-connector`, `ironrdp-session`, `ironrdp-tokio`, `ironrdp-dvc`, `ironrdp-displaycontrol`, `ironrdp-pdu`, `ironrdp-graphics`, `ironrdp-input`, `ironrdp-core`, `ironrdp-svc` | RDP connection, sessions, graphics, input and dynamic channels ([IronRDP](https://github.com/Devolutions/IronRDP) by Devolutions) | MIT OR Apache-2.0 |
+| `ironrdp-cliprdr`, `ironrdp-rdpdr`, `ironrdp-rdpdr-native` | Shared clipboard (text and files) and shared folder as a remote drive ([IronRDP](https://github.com/Devolutions/IronRDP)) | MIT OR Apache-2.0 |
+| `arboard` | Reading and writing the local clipboard (text and copied files) ([arboard](https://github.com/1Password/arboard)) | MIT OR Apache-2.0 |
+| `tokio-rustls` | TLS for RDP, with the `ring` crypto provider ([tokio-rustls](https://github.com/rustls/tokio-rustls)) | MIT OR Apache-2.0 |
+| `x509-cert` | X.509 certificate parsing for RDP server certificates ([RustCrypto](https://github.com/RustCrypto/formats)) | Apache-2.0 OR MIT |
 
-Los exports JSON locales de conexiones/carpetas/workspaces preguntan antes de incluir secretos. Si eliges incluirlos, el JSON contiene credenciales legibles; usa preferiblemente el backup cifrado `.rustty-sync.bin` para transportar contraseñas.
+No new npm packages were added for this feature. The full transitive dependency tree is recorded in `src-tauri/Cargo.lock`; you can list the license of each crate with `cargo license` (after `cargo install cargo-license`).
 
-La sincronización comprueba el estado al iniciar la app, se dispara cuando detecta cambios locales (debounce de 1 minuto) y, si lo activas, también de forma **periódica con el intervalo que tú elijas** (1–60 min o desactivada, en Preferencias → Copias de seguridad) para recoger cambios de otros equipos sin reiniciar. Si el contenido lógico local y remoto ya coincide, no reescribe el blob remoto, no crea un snapshot nuevo y no toca la interfaz. Antes de sobrescribir un blob remoto distinto se guarda un snapshot cifrado; desde el desplegable **Restaurar copia** puedes volver a cualquier snapshot anterior disponible en el backend.
+## Contributing
 
-Además: la **primera sincronización** contra un servidor ya poblado muestra una vista previa (qué se añadiría, cambiaría o borraría) y pide confirmación; un **registro de actividad** cuenta qué hizo cada pasada y desde qué equipo (cada equipo puede tener nombre propio); al **cerrar la app** con cambios pendientes se hace una sincronización final rápida (desactivable); los cortes de red se muestran como estado «sin conexión» con reintento automático; la passphrase tiene **medidor de fortaleza, generador local y un asistente de rotación** que re-cifra el estado remoto (y opcionalmente el histórico); y un botón permite **eliminar del servidor** el estado cifrado y todas las copias.
+Rustty is developed in the open, and contributions are welcome.
+
+- **To the original project**: open issues and pull requests at [Aleixenandros/Rustty](https://github.com/Aleixenandros/Rustty). Changes that should be part of the upstream project are best proposed there.
+- **To this fork**: open a pull request against `main` in this repository and fill in the [pull request template](.github/PULL_REQUEST_TEMPLATE.md).
+
+Before opening a pull request:
+
+1. Follow the [Code of Conduct](CODE_OF_CONDUCT.md).
+2. Run the checks: `npm test`, `npm run lint`, `npm run typecheck` and `cargo test` in `src-tauri/`.
+3. Do not commit secrets or credentials. To report a security vulnerability, follow [SECURITY.md](SECURITY.md) instead of opening a public issue.
+4. Update the [CHANGELOG](CHANGELOG.md) if the change is visible to users.
+
+## Backups and synchronization
+
+Rustty includes a **Preferences → Backups** tab with three flows:
+
+- **Cloud synchronization**: Google Drive, local folder / NAS or WebDAV.
+- **Encrypted backup**: export/import a `.rustty-sync.bin` encrypted with your passphrase, independent of any backend.
+- **Local data**: JSON export/import of profiles for interoperability and simple copies.
+
+Synchronization is opt-in and encrypts the state before uploading it. Profiles, preferences, custom themes, shortcuts, connection notes and snippets are synchronized. The **saved passwords/passphrases** have their own checkbox: if you enable it, Rustty reads the `password:<profile_id>` / `passphrase:<profile_id>` secrets from the local keyring, places them in the E2E-encrypted blob and restores them in the keyring of other machines. The unlocked KeePass database and local paths such as `keepassPath` or `keepassKeyfile` are never synchronized.
+
+The local JSON exports of connections/folders/workspaces ask before including secrets. If you choose to include them, the JSON contains readable credentials; prefer the encrypted `.rustty-sync.bin` backup to transport passwords.
+
+Synchronization checks the state when the app starts, is triggered when it detects local changes (1-minute debounce) and, if you enable it, also runs **periodically at the interval you choose** (1–60 min or disabled, in Preferences → Backups) to pick up changes from other machines without restarting. If the local and remote logical content already match, it does not rewrite the remote blob, does not create a new snapshot and leaves the UI untouched. Before overwriting a different remote blob, an encrypted snapshot is saved; from the **Restore backup** dropdown you can revert to any previous snapshot available in the backend.
+
+Also: the **first sync** against an already populated server shows a preview (what would be added, changed or deleted) and asks for confirmation; an **activity log** records what each pass did and from which machine (each machine can have its own name); **closing the app** with pending changes runs a quick final sync (can be disabled); network outages show as an "offline" state with automatic retry; the passphrase gets a **strength meter, a local generator and a rotation assistant** that re-encrypts the remote state (and optionally the history); and a button lets you **delete the encrypted state and all snapshots from the server**.
 
 Backends:
 
-- **Google Drive**: OAuth en navegador con callback local; Rustty usa el espacio `appDataFolder` y guarda el refresh token en el keyring.
-- **iCloud Drive**: escribe en la carpeta local de iCloud Drive en macOS y deja que el sistema sincronice.
-- **Carpeta local / NAS**: útil para Syncthing, carpetas compartidas o clientes cloud externos.
-- **WebDAV**: compatible con Nextcloud, ownCloud y servidores WebDAV genéricos.
+- **Google Drive**: OAuth in the browser with a local callback; Rustty uses the `appDataFolder` space and stores the refresh token in the keyring.
+- **Local folder / NAS**: useful for Syncthing, shared folders or external cloud clients.
+- **WebDAV**: compatible with Nextcloud, ownCloud and generic WebDAV servers.
 
-## Desarrollo y Construcción
+## Development and Building
 
-Si deseas compilar el proyecto desde el código fuente, sigue estos pasos:
+If you want to compile the project from source, follow these steps:
 
-### Requisitos previos
+### Prerequisites
 
-1. **Rust**: [Instalar Rust](https://www.rust-lang.org/tools/install)
-2. **Node.js**: v24 recomendado para igualar el workflow de CI.
-3. **Dependencias de sistema**:
+1. **Rust**: [Install Rust](https://www.rust-lang.org/tools/install)
+2. **Node.js**: v24 recommended to match the CI workflow.
+3. **System dependencies**:
 
-   #### Linux (compilación)
-
-    **Ubuntu / Debian**:
+   #### Debian / Ubuntu (compilation)
 
     ```bash
     sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libdbus-1-dev libssl-dev pkg-config
     ```
 
-    **Fedora**:
+   #### Windows (compilation)
+
+    You need to install the [Visual Studio C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) and have the **WebView2 Runtime** installed (included by default in Windows 10 and 11).
+
+### Steps to run in development
+
+1. Clone the repository:
 
     ```bash
-    sudo dnf install webkit2gtk4.1-devel libayatana-appindicator-devel librsvg2-devel dbus-devel openssl-devel
-    ```
-
-    **Arch Linux**:
-
-    ```bash
-    sudo pacman -S webkit2gtk-4.1 libayatana-appindicator librsvg dbus openssl
-    ```
-
-    **openSUSE**:
-
-    ```bash
-    sudo zypper install webkit2gtk3-devel libayatana-appindicator3-devel librsvg-devel dbus-1-devel libopenssl-devel
-    ```
-
-   #### macOS (compilación)
-
-    Es necesario tener instaladas las **Xcode Command Line Tools** y [Homebrew](https://brew.sh/).
-
-    ```bash
-    brew install openssl pkg-config
-    ```
-
-   #### Windows (compilación)
-
-    Es necesario instalar las [Visual Studio C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) y tener instalado el **WebView2 Runtime** (incluido por defecto en Windows 10 y 11).
-
-### Pasos para ejecutar en desarrollo
-
-1. Clona el repositorio:
-
-    ```bash
-    git clone https://github.com/Aleixenandros/Rustty.git
+    git clone https://github.com/rosdyana/Rustty.git
     cd Rustty
     ```
 
-2. Instala las dependencias de Node.js:
+2. Install the Node.js dependencies:
 
     ```bash
     npm install
     ```
 
-3. Ejecuta la aplicación en modo desarrollo:
+3. Run the application in development mode:
 
     ```bash
     npm run tauri dev
     ```
 
-### Construcción para producción
+### Building for production
 
-Para generar el ejecutable optimizado para tu sistema operativo:
+Build the same artifacts the release publishes:
 
 ```bash
-npm run tauri build
+# Debian / Ubuntu: .deb package
+npm run tauri build -- --bundles deb
+# → src-tauri/target/release/bundle/deb/Rustty_<version>_amd64.deb
+
+# Windows: portable executable (no installer)
+npm run tauri build -- --no-bundle
+# → src-tauri/target/release/rustty.exe
 ```
 
-El binario y los paquetes (`.deb`, `.rpm`, `.AppImage`, `.msi`, `.dmg`, según plataforma) quedan en `src-tauri/target/release/bundle/`.
+Rename `rustty.exe` to something ending in `-portable.exe` if you want the [true portable mode](#true-portable-mode).
 
-### Release automático
+### Automatic release
 
-El workflow de GitHub Actions (`.github/workflows/build.yml`) compila binarios para Linux, Windows y macOS (Apple Silicon) al empujar un tag `v*`:
+The GitHub Actions workflow (`.github/workflows/build.yml`) runs when a `v*` tag is pushed: it verifies the code and the tag, builds the Debian/Ubuntu `.deb` and the Windows portable `.exe`, uploads them to the release together with `SHA256SUMS.txt` and its provenance attestation, and publishes it.
 
-La fuente única de versión es `package.json`. Para preparar una release, cambia sólo el campo `version` ahí y ejecuta:
+The single source of version truth is `package.json`. To prepare a release, change only the `version` field there and run:
 
 ```bash
 npm run sync-version
 ```
 
-Ese comando sincroniza `Cargo.toml`, `Cargo.lock` y `package-lock.json`. La web pública resuelve su versión desde la última release de GitHub, no desde `package.json`. `npm run build`, `npm run tauri dev` y `npm run tauri build` también ejecutan la sincronización automáticamente.
+That command synchronizes `Cargo.toml`, `Cargo.lock` and `package-lock.json`. The public website resolves its version from the latest GitHub release, not from `package.json`. `npm run build`, `npm run tauri dev` and `npm run tauri build` also run the synchronization automatically.
 
 ```bash
 git tag v1.0.0
 git push --tags
 ```
 
-Los artefactos quedan en un release de GitHub en modo borrador.
+The artifacts are uploaded to a draft GitHub release, which the workflow publishes once both builds have finished.
 
-Para que las builds oficiales incluyan Google Drive, define estos secretos en GitHub Actions:
+For the official builds to include Google Drive, define these secrets in GitHub Actions:
 
 ```text
 RUSTTY_GOOGLE_DRIVE_CLIENT_ID
 RUSTTY_GOOGLE_DRIVE_CLIENT_SECRET
 ```
 
-## Rutas de datos
+## Data paths
 
-- **Linux**: `~/.local/share/com.rustty.app/` (perfiles, configuración)
-- **macOS**: `~/Library/Application Support/com.rustty.app/`
-- **Windows**: `%APPDATA%\com.rustty.app\`
+- **Linux**: `~/.local/share/com.rustty.app/` (profiles, configuration)
+- **Windows**: `%APPDATA%\com.rustty.app\` (or `.conf\com.rustty.app\` next to the executable in [true portable mode](#true-portable-mode))
 
-Las contraseñas no se guardan en estos ficheros: viven en el keyring del sistema con el servicio `rustty`, o se resuelven desde una base KeePass referenciada por UUID. Si activas la sync de contraseñas, solo viajan dentro del blob cifrado E2E y se rehidratan de nuevo al keyring local.
+Passwords are not stored in these files: they live in the system keyring under the `rustty` service, or are resolved from a KeePass database referenced by UUID. If you enable password sync, they only travel inside the E2E-encrypted blob and are rehydrated into the local keyring again.
 
-La configuración de sincronización vive en `sync_config.json` y el último snapshot local en `sync_state.json` (que se limpia al desactivar la sincronización). Los secretos de sync (passphrase maestra, contraseña WebDAV y token OAuth y client secret de Google Drive) se guardan en el keyring del sistema.
+The synchronization configuration lives in `sync_config.json` and the last local snapshot in `sync_state.json` (cleared when synchronization is disabled). The sync secrets (master passphrase, WebDAV password, and the Google Drive OAuth token and client secret) are stored in the system keyring.
 
 ---
 
-## 📄 Licencia
+## 📄 License
 
-Rustty se distribuye bajo la licencia [Apache License, Version 2.0](LICENSE).
+Rustty is distributed under the [Apache License, Version 2.0](LICENSE).
 
 ```text
 Copyright 2026 Alejandro Soriano
@@ -411,6 +335,6 @@ You may obtain a copy of the License at
     http://www.apache.org/licenses/LICENSE-2.0
 ```
 
-Ver el fichero [NOTICE](NOTICE) para las atribuciones requeridas al redistribuir.
+See the [NOTICE](NOTICE) file for the attributions required when redistributing.
 
 ---

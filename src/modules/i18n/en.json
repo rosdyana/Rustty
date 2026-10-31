@@ -579,6 +579,41 @@
     "workarea": "Work area",
     "fixed": "Fixed size (legacy servers)"
   },
+  "rdp_mode": {
+    "embedded": "In the tab",
+    "external": "In an external window (mstsc / xfreerdp)"
+  },
+  "rdp_perf": {
+    "speed": "Speed",
+    "balanced": "Balanced",
+    "quality": "Quality"
+  },
+  "rdp_embed": {
+    "err": {
+      "generic": "unexpected session error.",
+      "auth_failed": "wrong user name or password, or the account is not allowed to sign in over remote desktop.",
+      "cert_rejected": "the server certificate was not confirmed.",
+      "cert_changed": "the server certificate has changed and the change was not accepted.",
+      "cert_store": "the certificate fingerprint could not be saved.",
+      "unreachable": "the server could not be reached.",
+      "timeout": "the server did not respond in time.",
+      "tls": "TLS negotiation failed (the server may use a TLS version that is too old).",
+      "unsupported": "the server requires a security mode the built-in client does not support. Try the external client.",
+      "protocol": "RDP protocol error. If it happens again, try the external client.",
+      "network": "the connection to the server was lost.",
+      "redirect": "the server asks to redirect the session to another machine, which the built-in client does not support yet.",
+      "reactivation_timeout": "the server did not finish reactivating the session after a display change.",
+      "internal": "internal error in the built-in client."
+    },
+    "clip_err": {
+      "generic": "unexpected error.",
+      "too_large": "the copy exceeds the 8 GiB limit.",
+      "unsafe_name": "the remote sent an invalid file name.",
+      "remote": "the remote desktop did not deliver the file.",
+      "short_read": "the file changed on the remote during the copy.",
+      "empty": "there was nothing to copy."
+    }
+  },
   "ctx": {
     "key_access": "Passwordless access (SSH key)…",
     "new_conn_here": "New connection here",
@@ -871,7 +906,7 @@
     "disable_paste_confirm": "Don't confirm risky pastes for this profile",
     "disable_paste_confirm_hint": "Skips the confirmation preview when pasting multiline, very long or control-character text in this profile's sessions.",
     "x11_forwarding": "Forward X11",
-    "x11_forwarding_hint": "Requires a local X server at localhost:6000 (DISPLAY=:0). On Windows or macOS you need a dedicated X server.",
+    "x11_forwarding_hint": "Requires a local X server at localhost:6000 (DISPLAY=:0). On Windows you need a dedicated X server.",
     "auto_reconnect": "Reconnect attempts",
     "auto_reconnect_hint": "0 = disabled. Number of automatic reconnect attempts after a drop, with exponential backoff (2s, 4s, 8s…).",
     "persist_session": "Resume persistent session (tmux/screen)",
@@ -1020,7 +1055,16 @@
     "stored": "Recorded:\n{fingerprint}",
     "received": "Received now:\n{fingerprint}",
     "advice": "Accept ONLY if you expected this change and can verify the new fingerprint through a trusted channel. Accepting forgets the stored certificate and the connection is relaunched in this same tab; rejecting changes nothing.",
-    "accept": "Accept the new certificate"
+    "accept": "Accept the new certificate",
+    "advice_embedded": "Accept ONLY if you expected this change and can verify the new fingerprint through a trusted channel. No credentials are sent until you decide. Accepting replaces the stored fingerprint and the connection continues; rejecting changes nothing."
+  },
+  "modal_rdp_cert": {
+    "title": "Unknown RDP server certificate",
+    "intro": "This is the first time you connect to {host}:{port} with the built-in remote desktop and there is no stored certificate for this server.",
+    "via_jump": "The connection goes through a jump host: this is the fingerprint of the destination server, not of the jump host.",
+    "fingerprint": "Certificate fingerprint (SHA-256):\n{fingerprint}",
+    "advice": "Verify it with the server administrator over a trusted channel. No credentials are sent until you accept. If you accept, it will be stored and we’ll warn you if it changes.",
+    "accept": "Trust and connect"
   },
   "key_setup": {
     "title": "Passwordless access",
@@ -1507,7 +1551,7 @@
     "read_only_unlock": "Read-only session: click to unlock it",
     "cwd_seg_nav": "Go to {path} in the SFTP panel",
     "cwd_copy": "Copy full path",
-    "cwd_copy_seg": "Ctrl/Cmd+click to copy the path",
+    "cwd_copy_seg": "Ctrl+click to copy the path",
     "cwd_copied": "Path copied to clipboard",
     "cwd_nav_error": "Could not open the SFTP panel at {path}"
   },
@@ -1542,16 +1586,12 @@
     "backend": "Provider",
     "backend_none": "None",
     "backend_local": "Local folder / NAS",
-    "backend_icloud": "iCloud Drive",
     "backend_webdav": "WebDAV (Nextcloud, ownCloud…)",
     "backend_google_drive": "Google Drive",
     "local_folder": "Local folder",
     "local_folder_label": "local sync folder",
-    "backend_folder_label": "sync folder",
     "local_folder_ph": "/path/to/synced/folder",
     "local_cloud_hint": "You can point this to a local folder, NAS or system-synced folder.",
-    "icloud_folder": "iCloud folder",
-    "icloud_hint": "Uses iCloud Drive as a synced local folder. Available on macOS with iCloud Drive enabled.",
     "browse": "Browse…",
     "open_folder": "Open folder",
     "snapshots": "Restore snapshot",
@@ -1720,19 +1760,15 @@
     "website": "Project website",
     "repo": "Repository",
     "issues": "Report an issue",
+    "original_project": "Original project (Alejandro Soriano)",
     "check_updates": "Check for updates",
     "check_updates_startup": "Check on startup",
     "checking_updates": "Checking…",
     "update_available": "New version {version} available",
     "update_current": "Rustty is up to date",
-    "update_flatpak_managed": "Updates are handled by Flatpak: use your software centre or “flatpak update”.",
     "update_error": "Could not check",
     "update_no_version": "the release doesn't state a version",
-    "open_release": "A new version ({version}) is available. Open the downloads page?",
-    "update_install_prompt": "New version {version} available. Download and install now?",
-    "update_downloading": "Downloading update… {pct}%",
-    "update_installing": "Installing update…",
-    "update_restarting": "Restarting Rustty…"
+    "open_release": "A new version ({version}) is available. Open the downloads page?"
   },
   "prefs_system": {
     "title": "System",
@@ -1741,6 +1777,18 @@
     "autostart_hint": "Adds Rustty to the list of applications that start automatically at login.",
     "rdp_display": "Remote desktop window (RDP)",
     "rdp_display_hint": "Default for RDP sessions; each profile can override it. The resizable window can be maximised and dragged, and the remote desktop follows the size: needs Windows 8 / Server 2012 or newer. «Fixed size» is the previous behaviour, for servers that do not support it.",
+    "rdp_mode": "Open remote desktop (RDP)",
+    "rdp_mode_hint": "In the tab, the desktop is shown inside Rustty with the built-in client. The external window uses mstsc (Windows) or xfreerdp (Linux) and supports whatever that client supports (audio, printers, multiple monitors…).",
+    "rdp_perf": "Remote desktop performance",
+    "rdp_perf_hint": "Applies to new connections. «Speed» hides the wallpaper, themes and animations on the remote and compresses the most: for slow links. «Balanced» hides the wallpaper and animations but keeps smooth fonts. «Quality» shows the desktop as it is, for local networks.",
+    "rdp_clipboard": "Share the clipboard with the remote desktop",
+    "rdp_clipboard_hint": "Copy on one side and paste on the other. What you copy locally is sent to the remote when you return to the tab or paste.",
+    "rdp_clipboard_files": "Also copy and paste files and folders",
+    "rdp_clipboard_files_hint": "Files copied on the remote are downloaded to a temporary folder and, once done, can be pasted locally. Files copied locally are read from disk only when the remote pastes them.",
+    "rdp_shared_folder": "Share a local folder as a drive on the remote",
+    "rdp_shared_folder_pick": "Choose folder…",
+    "rdp_shared_folder_hint": "The folder shows up in the remote's Explorer, read and write. Only that folder: nothing outside it. Applies to new connections.",
+    "rdp_shared_folder_none": "No folder chosen",
     "autostart_minimized": "Start minimized",
     "restore_work_tabs": "Offer to restore last session tabs",
     "restore_work_tabs_hint": "Saves the tab order and their profiles (never terminal contents, secrets or private sessions) and offers to reconnect them in bulk at startup.",
@@ -2057,7 +2105,13 @@
     "transfer_skipped": "Skipped: {name}",
     "transfers_pause_all_failed": "Could not change the global pause: {err}",
     "file_grant_invalid": "The permission for that file is no longer valid (it expired, was already used or the path changed). Choose it again.",
-    "import_failed": "Import failed: {err}"
+    "import_failed": "Import failed: {err}",
+    "rdp_embed_failed": "Could not open remote desktop “{name}”: {reason}",
+    "rdp_shared_folder_failed": "Could not save the shared folder: {error}",
+    "rdp_clip_download_start": "“{name}”: copying {files} file(s) from the remote desktop ({size} MB)…",
+    "rdp_clip_download_done": "“{name}”: {files} file(s) ready to paste",
+    "rdp_clip_download_failed": "“{name}”: could not copy the files: {reason}",
+    "rdp_clip_unavailable": "“{name}”: the system clipboard is not available; copy and paste with the remote desktop will not work."
   },
   "time": {
     "now": "just now",

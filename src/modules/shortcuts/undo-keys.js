@@ -18,8 +18,8 @@
 /**
  * Comando de edición estándar que pide un evento de teclado, si es alguno.
  * `Ctrl+Z` → undo; `Ctrl+Shift+Z` y `Ctrl+Y` → redo. Alt y Meta invalidan
- * (Alt para no comerse AltGr+Z de layouts con tercer nivel; Meta porque esa
- * convención es de macOS, donde el WebView ya trae el atajo nativo).
+ * (Alt para no comerse AltGr+Z de layouts con tercer nivel; Meta porque
+ * Super+Z es otra combinación y no un deshacer).
  * @param {Pick<KeyboardEvent, "key" | "ctrlKey" | "altKey" | "shiftKey" | "metaKey">} e
  * @returns {"undo" | "redo" | null}
  */
