@@ -607,6 +607,7 @@ function loadPrefs() {
     applyTranslations();
     refreshTunnelIndicators();
     updateZenExitTooltip();
+    refreshWorkspaceLabels();
   });
   applyTranslations();
   registerAllCustomThemes();
@@ -4058,6 +4059,7 @@ function savePrefsFromModal() {
       refreshTunnelIndicators();
       renderRoutePill();
       refreshRouteIndicators();
+      refreshWorkspaceLabels();
     });
   }
   // Los snapshots ya no son relevantes: las prefs guardadas son la verdad.
@@ -5052,7 +5054,7 @@ function renderWorkspaceSwitcher() {
     } else if (prefs.sidebarViewMode === "favorites") {
       ctxLabel.textContent = t("sidebar.view_favorites");
     } else {
-      ctxLabel.textContent = activeWorkspace ? activeWorkspace.name : "Default"; // i18n-exempt: nombre guardado del workspace por defecto (dato sincronizado, no texto de la interfaz)
+      ctxLabel.textContent = workspaceLabel(activeWorkspace);
     }
   }
   if (ctxIcon) {
@@ -5347,7 +5349,7 @@ function buildTrayQuickLauncherPayload() {
     .map(({ profile }) => ({ id: profile.id, label: trayProfileLabel(profile) }));
   const workspaces = (Array.isArray(prefs.workspaces) ? prefs.workspaces : [])
     .slice(0, 12)
-    .map((workspace) => ({ id: workspace.id, label: workspace.name || "Default" }));
+    .map((workspace) => ({ id: workspace.id, label: workspaceLabel(workspace) }));
   const wake = profiles
     .filter((profile) => (profile.mac_address || "").trim())
     .slice(0, 8)
@@ -6008,7 +6010,7 @@ function renderDashboardWorkspaceChip() {
     const favCount = (prefs.favorites || []).length;
     label = `${t("sidebar.view_favorites")} · ${favCount}`;
   } else if (ws) {
-    label = `${ws.name || "Default"} · ${totalInWs}`;
+    label = `${workspaceLabel(ws)} · ${totalInWs}`;
   }
   chip.textContent = label;
   chip.classList.toggle("hidden", !label);
@@ -6162,8 +6164,26 @@ function groupedConnectionSearch(query) {
   return groupConnectionSearch({ profiles: scoped, folders, notes: notesIndex, query });
 }
 
+/**
+ * Nombre a mostrar de un workspace. El workspace por defecto guarda el nombre
+ * "Default" como dato (lo compara la sincronización), pero en pantalla se
+ * traduce; el resto muestra su nombre tal cual.
+ */
+function workspaceLabel(ws) {
+  if (!ws || ws.id === "default" && (!ws.name || ws.name === "Default")) {
+    return t("sidebar.workspace_default");
+  }
+  return ws.name || t("sidebar.workspace_default");
+}
+
+/** Repinta las etiquetas de workspace (sidebar y chip del dashboard) con el idioma activo. */
+function refreshWorkspaceLabels() {
+  renderWorkspaceSwitcher();
+  renderDashboardWorkspaceChip();
+}
+
 function workspaceDisplayName(workspaceId) {
-  return prefs.workspaces.find((w) => w.id === workspaceId)?.name || "Default";
+  return workspaceLabel(prefs.workspaces.find((w) => w.id === workspaceId));
 }
 
 /** Ruta de contexto de un resultado: workspace (si no es el activo) › carpeta. */
@@ -17380,7 +17400,7 @@ function isSshProfile(profile) {
 }
 
 function profileTunnelLabel(profile) {
-  const workspace = prefs.workspaces.find((w) => w.id === (profile.workspace_id || "default"))?.name || "Default";
+  const workspace = workspaceLabel(prefs.workspaces.find((w) => w.id === (profile.workspace_id || "default")));
   const folder = profile.group ? ` / ${profile.group}` : "";
   return `${profile.name} · ${workspace}${folder}`;
 }
@@ -20066,7 +20086,7 @@ async function openLocalShell() {
 
 async function getShellName() {
   // Leer $SHELL del entorno no es posible desde JS; usamos un nombre genérico
-  return "Terminal";
+  return t("prefs_terminal.title");
 }
 
 // ═══════════════════════════════════════════════════════════════
