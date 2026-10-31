@@ -579,6 +579,24 @@
     "workarea": "Arbeitsbereich",
     "fixed": "Feste Größe (ältere Server)"
   },
+  "rdp_embed": {
+    "err": {
+      "generic": "unerwarteter Sitzungsfehler.",
+      "auth_failed": "falscher Benutzername oder falsches Passwort, oder das Konto darf sich nicht per Remotedesktop anmelden.",
+      "cert_rejected": "das Serverzertifikat wurde nicht bestätigt.",
+      "cert_changed": "das Serverzertifikat hat sich geändert und die Änderung wurde nicht akzeptiert.",
+      "cert_store": "der Fingerabdruck des Zertifikats konnte nicht gespeichert werden.",
+      "unreachable": "der Server ist nicht erreichbar.",
+      "timeout": "der Server hat nicht rechtzeitig geantwortet.",
+      "tls": "die TLS-Aushandlung ist fehlgeschlagen (der Server verwendet möglicherweise eine zu alte TLS-Version).",
+      "unsupported": "der Server verlangt einen Sicherheitsmodus, den der integrierte Client nicht unterstützt. Versuche den externen Client.",
+      "protocol": "RDP-Protokollfehler. Wenn er erneut auftritt, versuche den externen Client.",
+      "network": "die Verbindung zum Server ist abgebrochen.",
+      "redirect": "der Server möchte die Sitzung auf einen anderen Rechner umleiten, was der integrierte Client noch nicht unterstützt.",
+      "reactivation_timeout": "der Server hat die Sitzung nach einer Bildschirmänderung nicht rechtzeitig reaktiviert.",
+      "internal": "interner Fehler des integrierten Clients."
+    }
+  },
   "ctx": {
     "key_access": "Zugriff ohne Passwort (SSH-Schlüssel)…",
     "new_conn_here": "Neue Verbindung hier",
@@ -1020,7 +1038,16 @@
     "stored": "Gespeichert:\n{fingerprint}",
     "received": "Jetzt empfangen:\n{fingerprint}",
     "advice": "Akzeptiere NUR, wenn du diese Änderung erwartet hast und den neuen Fingerabdruck über einen vertrauenswürdigen Kanal prüfen kannst. Beim Akzeptieren wird das gespeicherte Zertifikat vergessen und die Verbindung im selben Tab neu gestartet; beim Ablehnen wird nichts geändert.",
-    "accept": "Neues Zertifikat akzeptieren"
+    "accept": "Neues Zertifikat akzeptieren",
+    "advice_embedded": "Stimme NUR zu, wenn du diese Änderung erwartet hast und den neuen Fingerabdruck über einen vertrauenswürdigen Kanal prüfen kannst. Bis du entscheidest, werden keine Anmeldedaten gesendet. Zustimmen ersetzt den gespeicherten Fingerabdruck und die Verbindung wird fortgesetzt; Ablehnen ändert nichts."
+  },
+  "modal_rdp_cert": {
+    "title": "Unbekanntes Zertifikat des RDP-Servers",
+    "intro": "Du verbindest dich zum ersten Mal mit dem integrierten Remotedesktop zu {host}:{port}, und für diesen Server ist kein Zertifikat gespeichert.",
+    "via_jump": "Die Verbindung läuft über einen Sprunghost: Das ist der Fingerabdruck des Zielservers, nicht des Sprunghosts.",
+    "fingerprint": "Fingerabdruck des Zertifikats (SHA-256):\n{fingerprint}",
+    "advice": "Prüfe ihn über einen vertrauenswürdigen Kanal mit dem Serveradministrator. Bis du zustimmst, werden keine Anmeldedaten gesendet. Wenn du zustimmst, wird er gespeichert und wir warnen dich, falls er sich ändert.",
+    "accept": "Vertrauen und verbinden"
   },
   "key_setup": {
     "title": "Zugriff ohne Passwort",
@@ -2057,7 +2084,8 @@
     "transfer_skipped": "Übersprungen: {name}",
     "transfers_pause_all_failed": "Die allgemeine Pause ließ sich nicht ändern: {err}",
     "file_grant_invalid": "Die Berechtigung für diese Datei ist nicht mehr gültig (abgelaufen, schon benutzt oder der Pfad hat sich geändert). Wähle sie erneut aus.",
-    "import_failed": "Import fehlgeschlagen: {err}"
+    "import_failed": "Import fehlgeschlagen: {err}",
+    "rdp_embed_failed": "Remotedesktop „{name}“ konnte nicht geöffnet werden: {reason}"
   },
   "time": {
     "now": "gerade eben",

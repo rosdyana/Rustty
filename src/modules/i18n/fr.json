@@ -579,6 +579,24 @@
     "workarea": "Zone de travail",
     "fixed": "Taille fixe (serveurs anciens)"
   },
+  "rdp_embed": {
+    "err": {
+      "generic": "erreur inattendue de la session.",
+      "auth_failed": "nom d’utilisateur ou mot de passe incorrect, ou le compte n’est pas autorisé à ouvrir une session par bureau à distance.",
+      "cert_rejected": "le certificat du serveur n’a pas été confirmé.",
+      "cert_changed": "le certificat du serveur a changé et le changement n’a pas été accepté.",
+      "cert_store": "impossible d’enregistrer l’empreinte du certificat.",
+      "unreachable": "le serveur est injoignable.",
+      "timeout": "le serveur n’a pas répondu à temps.",
+      "tls": "la négociation TLS a échoué (le serveur utilise peut-être une version de TLS trop ancienne).",
+      "unsupported": "le serveur exige un mode de sécurité que le client intégré ne prend pas en charge. Essayez le client externe.",
+      "protocol": "erreur de protocole RDP. Si elle se reproduit, essayez le client externe.",
+      "network": "la connexion au serveur a été perdue.",
+      "redirect": "le serveur demande de rediriger la session vers une autre machine, ce que le client intégré ne prend pas encore en charge.",
+      "reactivation_timeout": "le serveur n’a pas fini de réactiver la session après un changement d’affichage.",
+      "internal": "erreur interne du client intégré."
+    }
+  },
   "ctx": {
     "key_access": "Accès sans mot de passe (clé SSH)…",
     "new_conn_here": "Nouvelle connexion ici",
@@ -1020,7 +1038,16 @@
     "stored": "Enregistrée :\n{fingerprint}",
     "received": "Reçue maintenant :\n{fingerprint}",
     "advice": "Acceptez SEULEMENT si vous attendiez ce changement et pouvez vérifier la nouvelle empreinte par un canal de confiance. Accepter oublie le certificat enregistré et la connexion est relancée dans cet onglet ; refuser ne modifie rien.",
-    "accept": "Accepter le nouveau certificat"
+    "accept": "Accepter le nouveau certificat",
+    "advice_embedded": "N’acceptez QUE si vous attendiez ce changement et pouvez vérifier la nouvelle empreinte par un canal de confiance. Aucun identifiant n’est envoyé tant que vous n’avez pas décidé. Accepter remplace l’empreinte enregistrée et la connexion continue ; refuser ne modifie rien."
+  },
+  "modal_rdp_cert": {
+    "title": "Certificat du serveur RDP inconnu",
+    "intro": "C’est la première fois que vous vous connectez à {host}:{port} avec le bureau à distance intégré et aucun certificat n’est enregistré pour ce serveur.",
+    "via_jump": "La connexion passe par un rebond : il s’agit de l’empreinte du serveur de destination, pas de celle du rebond.",
+    "fingerprint": "Empreinte du certificat (SHA-256) :\n{fingerprint}",
+    "advice": "Vérifiez-la auprès de l’administrateur du serveur par un canal de confiance. Aucun identifiant n’est envoyé tant que vous n’acceptez pas. Si vous acceptez, elle sera enregistrée et nous vous avertirons si elle change.",
+    "accept": "Faire confiance et se connecter"
   },
   "key_setup": {
     "title": "Accès sans mot de passe",
@@ -2063,7 +2090,8 @@
     "transfer_skipped": "Ignoré : {name}",
     "transfers_pause_all_failed": "Impossible de changer la pause générale : {err}",
     "file_grant_invalid": "L'autorisation pour ce fichier n'est plus valable (elle a expiré, a déjà servi ou le chemin a changé). Choisissez-le à nouveau.",
-    "import_failed": "Échec de l'importation : {err}"
+    "import_failed": "Échec de l'importation : {err}",
+    "rdp_embed_failed": "Impossible d’ouvrir le bureau à distance « {name} » : {reason}"
   },
   "sftp": {
     "symlinks_skipped": "{n} liens symboliques ignorés (non copiés)",

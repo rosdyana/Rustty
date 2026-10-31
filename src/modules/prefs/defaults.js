@@ -161,8 +161,9 @@ export const DEFAULT_PREFS = {
   keepassAutoLockMinutes: 0,
   // Bloquear la base si el equipo se suspende (se detecta por el salto de reloj).
   keepassLockOnSuspend: true,
-  // Idioma de la interfaz: "es" | "en" | "fr" | "pt"
-  lang:            null, // null → usar detectLanguage() en loadPrefs
+  // Idioma de la interfaz: "en" | "es" | "fr" | "pt" | "de" | null.
+  // Por defecto, inglés. null = «Sistema» → detectLanguage() en loadPrefs.
+  lang:            "en",
   // Overrides de atajos: { [actionId]: accelerator | null }
   // Solo se almacenan los atajos que el usuario ha modificado respecto al default.
   shortcuts:       {},

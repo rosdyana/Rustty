@@ -125,6 +125,7 @@ import { QUICK_SELECT_MAX_PATTERNS, QUICK_SELECT_MAX_PATTERN_LENGTH, quickSelect
 import { createQuickSelect } from "./modules/terminal/quick-select-ui.js";
 import { createPromptQueue } from "./modules/dialogs/prompt-queue.js";
 import { reconnectRoute, runReconnectOnce } from "./modules/sessions/reconnect.js";
+import { createRdpCanvasView } from "./modules/rdp/canvas-view.js";
 import {
   MAX_JUMPS, allowsTextBastion, bastionChoices, bastionLinksOf, bastionReferrers, clampIdleSecs, relinkRestoredBastion,
   withBastionOverride, describeRoute, detachDeletedBastions, filterJumpProfiles,
@@ -173,6 +174,8 @@ import {
 /** @typedef {import("./modules/ipc/events.js").SshReconnectingEvent} SshReconnectingEvent */
 /** @typedef {import("./modules/ipc/events.js").TrayAction} TrayAction */
 /** @typedef {import("./modules/ipc/events.js").HostKeyPromptEvent} HostKeyPromptEvent */
+/** @typedef {import("./modules/ipc/events.js").RdpCertPromptEvent} RdpCertPromptEvent */
+/** @typedef {import("./modules/ipc/events.js").RdpEmbedStatusEvent} RdpEmbedStatusEvent */
 
 // ═══════════════════════════════════════════════════════════════
 // ESTADO DE LA APLICACIÓN
@@ -4113,7 +4116,7 @@ function readPrefsFromModal() {
     keepassKeyfile:  document.getElementById("pref-keepass-keyfile").value.trim(),
     keepassAutoLockMinutes: Number(document.getElementById("pref-keepass-autolock")?.value) || 0,
     keepassLockOnSuspend:   !!document.getElementById("pref-keepass-lock-on-suspend")?.checked,
-    lang:            newLang === null ? null : (SUPPORTED_LANGS.includes(newLang) ? newLang : "es"),
+    lang:            newLang === null ? null : (SUPPORTED_LANGS.includes(newLang) ? newLang : "en"),
     checkUpdatesOnStartup: document.getElementById("pref-check-updates-startup")?.checked ?? true,
     // Retención de logs de sesión: vacío / inválido → null (sin límite).
     sessionLogMaxAgeDays: readSessionLogLimit("pref-session-log-max-age"),
@@ -4585,6 +4588,8 @@ async function initMain() {
     .catch((e) => console.debug("[transfer] pause-all state", e));
   await initHostKeyPrompt().catch((e) => console.error("[hostkey] init", e));
   await initFtpsCertPrompt().catch((e) => console.error("[ftpscert] init", e));
+  await initRdpCertPrompt().catch((e) => console.error("[rdpcert] init", e));
+  rdpEmbedAvailable = await invoke("rdp_embed_available").catch(() => false) === true;
   await initAuthPrompt().catch((e) => console.error("[auth-prompt] init", e));
   // La interfaz está montada, responde y ya sabe preguntar por host keys,
   // certificados y segundo factor: fuera la pantalla de carga. Lo que sigue
@@ -5709,6 +5714,59 @@ async function initFtpsCertPrompt() {
       // `false` = la pregunta caducó mientras esperaba (en la cola o a la vista).
       if (accept && delivered === false) toast(t("toast.prompt_expired", { host: p.host }), "warning");
       else if (!accept) toast(t("toast.ftpscert_rejected", { host: p.host }), "warning");
+    }
+  );
+}
+
+/**
+ * Atiende `rdp-cert-prompt`: el servidor de una sesión RDP **integrada**
+ * presentó un certificado desconocido o distinto del guardado. El backend
+ * espera la respuesta tras el handshake TLS y **antes** de enviar credenciales.
+ */
+async function initRdpCertPrompt() {
+  await listen(
+    EVENT.rdpCertPrompt,
+    async (/** @type {{ payload: RdpCertPromptEvent }} */ event) => {
+      const p = event.payload || /** @type {RdpCertPromptEvent} */ ({});
+      const accept = p.changed
+        ? await confirmThemed({
+          title: t("modal_rdp_cert_changed.title"),
+          message: [
+            t("modal_rdp_cert_changed.intro", { host: p.host, port: p.port }),
+            "",
+            t("modal_rdp_cert_changed.stored", { fingerprint: p.previous || "?" }),
+            "",
+            t("modal_rdp_cert_changed.received", { fingerprint: p.fingerprint }),
+            "",
+            t("modal_rdp_cert_changed.advice_embedded"),
+          ].join("\n"),
+          submitLabel: t("modal_rdp_cert_changed.accept"),
+          danger: true,
+          armSubmit: true,
+          expiresAt: Date.now() + BACKEND_TRUST_PROMPT_MS,
+        })
+        : await confirmThemed({
+          title: t("modal_rdp_cert.title"),
+          message: [
+            t("modal_rdp_cert.intro", { host: p.host, port: p.port }),
+            ...(p.viaJump ? ["", t("modal_rdp_cert.via_jump")] : []),
+            "",
+            t("modal_rdp_cert.fingerprint", { fingerprint: p.fingerprint }),
+            "",
+            t("modal_rdp_cert.advice"),
+          ].join("\n"),
+          submitLabel: t("modal_rdp_cert.accept"),
+          danger: true,
+          armSubmit: true,
+          expiresAt: Date.now() + BACKEND_TRUST_PROMPT_MS,
+        });
+      let delivered = true;
+      try {
+        delivered = await invoke("rdp_cert_response", { promptId: p.promptId, accept });
+      } catch (e) {
+        console.error("[rdpcert] response", e);
+      }
+      if (accept && delivered === false) toast(t("toast.prompt_expired", { host: p.host }), "warning");
     }
   );
 }
@@ -11707,6 +11765,10 @@ async function connectRdp(profileId, { passwordOverride = null, credId = null, r
     }
   }
 
+  if (useEmbeddedRdp(profile)) {
+    return connectRdpEmbedded(profileId, { credId, reuse, routeOverride });
+  }
+
   const cred = getProfileCredential(profile, credId);
   const view = identityView(profile, cred);
   const promptProfile = { ...profile, username: view.username };
@@ -11841,6 +11903,171 @@ async function connectRdp(profileId, { passwordOverride = null, credId = null, r
   }
 }
 
+/** El backend trae el cliente RDP integrado (feature `embedded-rdp`). */
+let rdpEmbedAvailable = false;
+
+/**
+ * ¿Abrir este perfil RDP en la pestaña (IronRDP) en vez de en el cliente
+ * externo? Fase 1: interruptor de desarrollo, sin interfaz todavía —
+ * `localStorage["rustty.dev.rdpEmbedded"] = "1"` en la consola.
+ * @param {any} _profile
+ */
+function useEmbeddedRdp(_profile) {
+  if (!rdpEmbedAvailable) return false;
+  try {
+    return localStorage.getItem("rustty.dev.rdpEmbedded") === "1";
+  } catch {
+    return false;
+  }
+}
+
+/** Texto del motivo de fallo de una sesión integrada (código estable del backend). */
+function rdpEmbedErrorText(code) {
+  const key = `rdp_embed.err.${String(code || "generic").replace(/-/g, "_")}`;
+  const text = t(key);
+  return text === key ? t("rdp_embed.err.generic") : text;
+}
+
+/**
+ * Conecta un perfil RDP **dentro de la pestaña** (cliente integrado).
+ *
+ * El frontend solo pasa el id del perfil (y la identidad elegida): el backend
+ * resuelve la contraseña (keyring, KeePass, credencial maestra, `${…}`). Solo
+ * si no hay ninguna guardada se pide aquí, y viaja una única vez.
+ *
+ * @param {string} profileId
+ * @param {{ credId?: string|null, reuse?: string|null, routeOverride?: any }} opts
+ */
+async function connectRdpEmbedded(profileId, { credId = null, reuse = null, routeOverride = null } = {}) {
+  const profile = profiles.find((p) => p.id === profileId);
+  if (!profile) return;
+  const cred = getProfileCredential(profile, credId);
+  const identity = identityView(profile, cred);
+  if (identity.keepassEntryUuid && !keepassUnlocked) {
+    toast(t("toast.keepass_locked"), "warning");
+    return;
+  }
+
+  const prepared = await prepareConnectionRoute(profile, reuse
+    ? { replay: sessions.get(reuse)?.route ?? null }
+    : { override: routeOverride });
+  if (!prepared) return;
+
+  const sessionId = reuse || `rdp-${crypto.randomUUID()}`;
+  const sessionObj = sessions.get(sessionId) || {
+    profileId,
+    id: sessionId,
+    type: "rdp",
+    embedded: true,
+    status: "connecting",
+    unlisteners: [],
+    credentialId: credId,
+    terminal: null,
+    fitAddon: null,
+  };
+  if (reuse) {
+    for (const ul of sessionObj.unlisteners) { try { ul(); } catch {} }
+    sessionObj.unlisteners = [];
+    sessionObj.status = "connecting";
+    sessionObj.rdpView?.dispose();
+    sessionObj.rdpView = null;
+    updateTabStatus(sessionId, "connecting");
+    setExternalPaneState(sessionId, "connecting", connectionProtocolMeta("rdp").label);
+  } else {
+    sessions.set(sessionId, sessionObj);
+    createRdpTab(sessionId, profile, "connecting");
+    setExternalPaneState(sessionId, "connecting", connectionProtocolMeta("rdp").label);
+  }
+  sessionObj.embedded = true;
+  sessionObj.route = prepared.route;
+  updateTabRoute(sessionId);
+
+  const pane = sessionObj.pane;
+  const rdpView = createRdpCanvasView({ sessionId, invoke, Channel });
+  sessionObj.rdpView = rdpView;
+  pane?.appendChild(rdpView.element);
+
+  const markClosed = () => {
+    sessionObj.status = "closed";
+    rdpView.setActive(false);
+    pane?.classList.remove("rdp-embedded-live");
+    updateTabStatus(sessionId, "error");
+    setExternalPaneState(sessionId, "closed", connectionProtocolMeta("rdp").label);
+    renderConnectionList();
+  };
+
+  const unlisten = await listen(eventName("rdpEmbedStatus", sessionId), (event) => {
+    if (sessionObj.rdpView !== rdpView) return;
+    const info = /** @type {RdpEmbedStatusEvent} */ (event?.payload) || {};
+    if (info.state === "connected") {
+      sessionObj.status = "connected";
+      updateTabStatus(sessionId, "connected");
+      pane?.classList.add("rdp-embedded-live");
+      rdpView.setActive(true);
+      if (activeSessionId === sessionId) rdpView.focus();
+      if (!sessionObj.private) recordRecentConnection(profileId);
+      renderConnectionList();
+    } else if (info.state === "closed") {
+      markClosed();
+      toast(t("toast.rdp_closed", { name: profile.name }), "info");
+    } else if (info.state === "error") {
+      markClosed();
+      toast(t("toast.rdp_embed_failed", { name: profile.name, reason: rdpEmbedErrorText(info.code) }), "error", 10000);
+    }
+  });
+  sessionObj.unlisteners.push(unlisten);
+
+  const fail = (err) => {
+    for (const ul of sessionObj.unlisteners) { try { ul(); } catch {} }
+    sessionObj.unlisteners = [];
+    if (reuse) {
+      markClosed();
+    } else {
+      rdpView.dispose();
+      sessions.delete(sessionId);
+      removeTab(sessionId);
+    }
+    if (err) toast(t("external.toast_error", { proto: "RDP", err }), "error");
+  };
+
+  try {
+    const size = rdpView.measure();
+    const args = {
+      sessionId,
+      profileId,
+      credentialId: credId || null,
+      password: null,
+      jumps: prepared.jumps,
+      overrides: overridesWithRoute(null, prepared.route),
+      width: size.width,
+      height: size.height,
+      scale: size.scale,
+      onFrame: rdpView.channel,
+    };
+    const reply = await invoke("rdp_embed_connect", args);
+    if (reply?.needsPassword) {
+      const password = await promptProfileSecret({ ...profile, username: identity.username }, {
+        titleKey: "modal_credential.rdp_password_title",
+        messageKey: "modal_credential.rdp_message",
+        labelKey: "modal_credential.password_label",
+        rememberKey: "modal_credential.remember_password",
+        secretKey: identity.pwKey,
+        secretLabel: t("toast.secret_password"),
+      });
+      if (password === null) {
+        fail(null);
+        return;
+      }
+      // La contraseña tecleada va directa al comando y no se guarda en ningún
+      // estado del frontend; el backend la borra de memoria tras autenticar.
+      await invoke("rdp_embed_connect", { ...args, password });
+    }
+    setActiveTab(sessionId);
+  } catch (err) {
+    fail(err);
+  }
+}
+
 /**
  * Conecta un protocolo que se lanza en un cliente externo sin autenticación por
  * parte de Rustty (VNC, Telnet): el visor/cliente pide sus credenciales. Crea la
@@ -11963,8 +12190,11 @@ async function closeExternalSession(sessionId, kind = "rdp") {
   for (const ul of s.unlisteners) { try { ul(); } catch {} }
   const cmd = kind === "vnc" ? "vnc_disconnect"
     : kind === "telnet" ? "telnet_disconnect"
+    : s.embedded ? "rdp_embed_disconnect"
     : "rdp_disconnect";
   await invoke(cmd, { sessionId }).catch(() => {});
+  s.rdpView?.dispose();
+  s.rdpView = null;
   sessions.delete(sessionId);
   removeTab(sessionId);
   renderConnectionList();
@@ -14020,6 +14250,7 @@ function focusPaneByOffset(delta) {
   updateStatusBar();
   syncSidebarToActiveSession({ scroll: true });
   sessions.get(activeSessionId)?.terminal?.focus();
+  sessions.get(activeSessionId)?.rdpView?.focus();
 }
 
 function selectHomeTab() {
@@ -14963,6 +15194,8 @@ function renderView() {
       }
     });
     sessions.get(activeSessionId)?.terminal?.focus();
+    // RDP integrado: el teclado va al escritorio remoto al elegir su pestaña.
+    sessions.get(activeSessionId)?.rdpView?.focus();
   });
 }
 
@@ -27799,7 +28032,9 @@ function handleEditUndoRedo(e) {
   const cmd = undoRedoCommand(e);
   if (!cmd) return;
   const el = e.target;
-  if (!(el instanceof HTMLElement) || el.closest(".xterm")) return;
+  // El escritorio remoto integrado (su textarea de teclado) tampoco: Ctrl+Z es
+  // del remoto.
+  if (!(el instanceof HTMLElement) || el.closest(".xterm, .rdp-canvas-host")) return;
   const editable = el.tagName === "INPUT" || el.tagName === "TEXTAREA"
     ? !el.readOnly && !el.disabled
     : el.isContentEditable;

@@ -579,6 +579,24 @@
     "workarea": "Área de trabajo",
     "fixed": "Tamaño fijo (servidores antiguos)"
   },
+  "rdp_embed": {
+    "err": {
+      "generic": "error inesperado de la sesión.",
+      "auth_failed": "usuario o contraseña incorrectos, o la cuenta no puede iniciar sesión por escritorio remoto.",
+      "cert_rejected": "no se confirmó el certificado del servidor.",
+      "cert_changed": "el certificado del servidor ha cambiado y no se aceptó el cambio.",
+      "cert_store": "no se pudo guardar la huella del certificado.",
+      "unreachable": "no se pudo llegar al servidor.",
+      "timeout": "el servidor no respondió a tiempo.",
+      "tls": "falló la negociación TLS (el servidor puede usar una versión de TLS demasiado antigua).",
+      "unsupported": "el servidor exige un modo de seguridad que el cliente integrado no soporta. Prueba con el cliente externo.",
+      "protocol": "error de protocolo RDP. Si se repite, prueba con el cliente externo.",
+      "network": "se perdió la conexión con el servidor.",
+      "redirect": "el servidor pide redirigir la sesión a otro equipo, y el cliente integrado aún no lo soporta.",
+      "reactivation_timeout": "el servidor no terminó de reactivar la sesión tras un cambio de pantalla.",
+      "internal": "error interno del cliente integrado."
+    }
+  },
   "ctx": {
     "key_access": "Acceso sin contraseña (clave SSH)…",
     "new_conn_here": "Nueva conexión aquí",
@@ -1020,7 +1038,16 @@
     "stored": "Registrada:\n{fingerprint}",
     "received": "Recibida ahora:\n{fingerprint}",
     "advice": "Acepta SOLO si esperabas este cambio y puedes verificar la huella nueva por un canal de confianza. Al aceptar, se olvida el certificado guardado y la conexión se relanza en esta misma pestaña; al rechazar, no se modifica nada.",
-    "accept": "Aceptar el certificado nuevo"
+    "accept": "Aceptar el certificado nuevo",
+    "advice_embedded": "Acepta SOLO si esperabas este cambio y puedes verificar la huella nueva por un canal de confianza. Hasta que decidas no se envía ninguna credencial. Al aceptar, la huella nueva sustituye a la guardada y la conexión continúa; al rechazar, no se modifica nada."
+  },
+  "modal_rdp_cert": {
+    "title": "Certificado del servidor RDP desconocido",
+    "intro": "Es la primera vez que te conectas a {host}:{port} con el escritorio remoto integrado y no hay ningún certificado guardado para este servidor.",
+    "via_jump": "La conexión va por un salto: la huella es la del servidor de destino, no la del salto.",
+    "fingerprint": "Huella del certificado (SHA-256):\n{fingerprint}",
+    "advice": "Compruébala con el administrador del servidor por un canal de confianza. Hasta que la aceptes no se envía ninguna credencial. Si aceptas, se guardará y en adelante te avisaremos si cambia.",
+    "accept": "Confiar y conectar"
   },
   "key_setup": {
     "title": "Acceso sin contraseña",
@@ -2057,7 +2084,8 @@
     "transfer_skipped": "Omitido: {name}",
     "transfers_pause_all_failed": "No se pudo cambiar la pausa general: {err}",
     "file_grant_invalid": "El permiso para ese fichero ya no es válido (caducó, ya se usó o la ruta cambió). Vuelve a elegirlo.",
-    "import_failed": "Error al importar: {err}"
+    "import_failed": "Error al importar: {err}",
+    "rdp_embed_failed": "No se pudo abrir el escritorio remoto «{name}»: {reason}"
   },
   "time": {
     "now": "ahora",

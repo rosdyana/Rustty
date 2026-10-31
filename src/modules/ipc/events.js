@@ -44,6 +44,8 @@ export const EVENT_PREFIX = Object.freeze({
   sftpProgress: "sftp-progress-",
   /** `rdp-closed-{sessionId}` → {@link RdpClosedEvent} */
   rdpClosed: "rdp-closed-",
+  /** `rdp-embed-status-{sessionId}` → {@link RdpEmbedStatusEvent} */
+  rdpEmbedStatus: "rdp-embed-status-",
   /** `vnc-closed-{sessionId}` → payload: null */
   vncClosed: "vnc-closed-",
   /** `telnet-closed-{sessionId}` → payload: null */
@@ -96,6 +98,14 @@ export const EVENT = Object.freeze({
    * desconocido (TOFU). La respuesta vuelve por el comando `ftps_cert_response`.
    */
   ftpsCertPrompt: "ftps-cert-prompt",
+  /**
+   * `rdp-cert-prompt` → {@link RdpCertPromptEvent}
+   *
+   * Certificado del servidor de una sesión RDP **integrada** desconocido o
+   * cambiado (TOFU). Se pregunta tras el handshake TLS y antes de enviar
+   * credenciales. La respuesta vuelve por el comando `rdp_cert_response`.
+   */
+  rdpCertPrompt: "rdp-cert-prompt",
   /**
    * `ssh-auth-prompt` → {@link SshAuthPromptEvent}
    *
@@ -200,6 +210,30 @@ export function eventName(kind, suffix) {
  * @property {number} [skippedSymlinks] Enlaces simbólicos omitidos (solo en el
  *   evento final de una carpeta): no se transfieren en ninguna dirección, pero
  *   se cuentan para poder avisar de que la copia no los incluye.
+ */
+
+/**
+ * @typedef {object} RdpEmbedStatusEvent Estado de una sesión RDP integrada.
+ * @property {"connecting"|"connected"|"closed"|"error"} state
+ * @property {string} [code] Con `error` (y `closed` por el servidor): motivo
+ *   estable (`auth-failed`, `cert-rejected`, `cert-changed`, `unreachable`,
+ *   `timeout`, `tls`, `unsupported`, `protocol`, `network`, `redirect`,
+ *   `reactivation-timeout`, `server-closed`…).
+ * @property {string} [message] Detalle técnico (no se traduce).
+ * @property {number} [width] Con `connected`: ancho del escritorio remoto.
+ * @property {number} [height] Con `connected`: alto del escritorio remoto.
+ */
+
+/**
+ * Payload de `rdp-cert-prompt`.
+ * @typedef {object} RdpCertPromptEvent
+ * @property {string} promptId
+ * @property {string} host Destino real (también cuando se va por un salto).
+ * @property {number} port
+ * @property {string} fingerprint Huella SHA-256 del certificado presentado.
+ * @property {boolean} changed `true` = distinto del guardado: diálogo de peligro.
+ * @property {string|null} previous Con `changed`: la huella guardada.
+ * @property {boolean} viaJump
  */
 
 /**

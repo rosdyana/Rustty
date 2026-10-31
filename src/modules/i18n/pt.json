@@ -579,6 +579,24 @@
     "workarea": "Área de trabalho",
     "fixed": "Tamanho fixo (servidores antigos)"
   },
+  "rdp_embed": {
+    "err": {
+      "generic": "erro inesperado da sessão.",
+      "auth_failed": "nome de utilizador ou palavra-passe incorretos, ou a conta não pode iniciar sessão por ambiente de trabalho remoto.",
+      "cert_rejected": "o certificado do servidor não foi confirmado.",
+      "cert_changed": "o certificado do servidor mudou e a alteração não foi aceite.",
+      "cert_store": "não foi possível guardar a impressão digital do certificado.",
+      "unreachable": "não foi possível chegar ao servidor.",
+      "timeout": "o servidor não respondeu a tempo.",
+      "tls": "a negociação TLS falhou (o servidor pode usar uma versão de TLS demasiado antiga).",
+      "unsupported": "o servidor exige um modo de segurança que o cliente integrado não suporta. Experimente o cliente externo.",
+      "protocol": "erro do protocolo RDP. Se se repetir, experimente o cliente externo.",
+      "network": "a ligação ao servidor perdeu-se.",
+      "redirect": "o servidor pede para redirecionar a sessão para outra máquina, o que o cliente integrado ainda não suporta.",
+      "reactivation_timeout": "o servidor não terminou de reativar a sessão após uma mudança de ecrã.",
+      "internal": "erro interno do cliente integrado."
+    }
+  },
   "ctx": {
     "key_access": "Acesso sem palavra-passe (chave SSH)…",
     "new_conn_here": "Nova conexão aqui",
@@ -1020,7 +1038,16 @@
     "stored": "Registada:\n{fingerprint}",
     "received": "Recebida agora:\n{fingerprint}",
     "advice": "Aceita APENAS se esperavas esta mudança e podes verificar a nova impressão digital por um canal de confiança. Ao aceitar, o certificado guardado é esquecido e a ligação é relançada neste mesmo separador; ao rejeitar, nada é alterado.",
-    "accept": "Aceitar o certificado novo"
+    "accept": "Aceitar o certificado novo",
+    "advice_embedded": "Aceite APENAS se esperava esta alteração e pode verificar a nova impressão digital por um canal de confiança. Nenhuma credencial é enviada até decidir. Aceitar substitui a impressão guardada e a ligação continua; rejeitar não altera nada."
+  },
+  "modal_rdp_cert": {
+    "title": "Certificado do servidor RDP desconhecido",
+    "intro": "É a primeira vez que se liga a {host}:{port} com o ambiente de trabalho remoto integrado e não há nenhum certificado guardado para este servidor.",
+    "via_jump": "A ligação passa por um salto: esta é a impressão digital do servidor de destino, não a do salto.",
+    "fingerprint": "Impressão digital do certificado (SHA-256):\n{fingerprint}",
+    "advice": "Confirme-a com o administrador do servidor por um canal de confiança. Nenhuma credencial é enviada até aceitar. Se aceitar, será guardada e passaremos a avisar se mudar.",
+    "accept": "Confiar e ligar"
   },
   "key_setup": {
     "title": "Acesso sem palavra-passe",
@@ -2063,7 +2090,8 @@
     "transfer_skipped": "Omitido: {name}",
     "transfers_pause_all_failed": "Não foi possível mudar a pausa geral: {err}",
     "file_grant_invalid": "A permissão para esse ficheiro já não é válida (expirou, já foi usada ou o caminho mudou). Escolha-o de novo.",
-    "import_failed": "Erro ao importar: {err}"
+    "import_failed": "Erro ao importar: {err}",
+    "rdp_embed_failed": "Não foi possível abrir o ambiente de trabalho remoto «{name}»: {reason}"
   },
   "sftp": {
     "symlinks_skipped": "{n} ligações simbólicas ignoradas (não são copiadas)",

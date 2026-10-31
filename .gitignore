@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+
+# Frontend build output (Vite)
+dist/
+*.local
+
+# Rust / Tauri build output
+src-tauri/target/
+src-tauri/WixTools/
+
+# Test and coverage output
+coverage/
+*.lcov
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.log
+
+# Environment files that may contain secrets
+.env
+.env.*
+!.env.example
+
+# Editors and IDEs
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini

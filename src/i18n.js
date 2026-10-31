@@ -32,7 +32,7 @@ const LAZY_LOADERS = {
 /** Catálogos ya disponibles en memoria. */
 const loaded = { es, en };
 
-let currentLang = "es";
+let currentLang = "en";
 
 /** Devuelve un valor anidado por clave con notación "a.b.c" */
 function resolve(obj, key) {
@@ -59,7 +59,7 @@ export function t(key, params = null) {
  * @returns {Promise<string>} El idioma efectivamente activado.
  */
 export async function setLanguage(lang) {
-  if (!SUPPORTED_LANGS.includes(lang)) lang = "es";
+  if (!SUPPORTED_LANGS.includes(lang)) lang = "en";
   currentLang = lang;
   document.documentElement.setAttribute("lang", lang);
   if (!loaded[lang] && LAZY_LOADERS[lang]) {
@@ -75,11 +75,11 @@ export function getLanguage() {
 
 /**
  * Detecta el idioma más cercano a navigator.language entre los soportados.
- * Devuelve "es" si no hay coincidencia.
+ * Devuelve "en" (idioma por defecto de la interfaz) si no hay coincidencia.
  */
 export function detectLanguage() {
-  const nav = (navigator.language || "es").toLowerCase().slice(0, 2);
-  return SUPPORTED_LANGS.includes(nav) ? nav : "es";
+  const nav = (navigator.language || "en").toLowerCase().slice(0, 2);
+  return SUPPORTED_LANGS.includes(nav) ? nav : "en";
 }
 
 /**
