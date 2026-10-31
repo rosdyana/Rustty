@@ -7,7 +7,7 @@
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use ironrdp_connector::{
     self as connector, ClientConnector, ConnectionResult, Credentials, DesktopSize,
@@ -17,9 +17,9 @@ use ironrdp_displaycontrol::pdu::MonitorLayoutEntry;
 use ironrdp_dvc::DrdynvcClient;
 use ironrdp_graphics::image_processing::PixelFormat;
 use ironrdp_input::Database;
-use ironrdp_pdu::gcc::{ConnectionType, KeyboardType};
+use ironrdp_pdu::gcc::KeyboardType;
 use ironrdp_pdu::rdp::capability_sets::{client_codecs_capabilities, MajorPlatformType};
-use ironrdp_pdu::rdp::client_info::{PerformanceFlags, TimezoneInfo};
+use ironrdp_pdu::rdp::client_info::TimezoneInfo;
 use ironrdp_session::image::DecodedImage;
 use ironrdp_session::{ActiveStage, ActiveStageBuilder, ActiveStageOutput};
 use ironrdp_tokio::{FramedWrite as _, TokioFramed};
@@ -29,14 +29,22 @@ use tokio::sync::{mpsc, Notify};
 use zeroize::Zeroizing;
 
 use super::certs;
+use super::clipboard::{self, ClipNotifier, ClipboardChannel, ClipboardOptions};
+use super::drive;
 use super::frames::{self, Damage, Flow, Rect};
 use super::input::InputEvent;
+use super::perf::PerfProfile;
 use super::tls;
 
 /// Plazo para abrir el TCP y para cada etapa de la negociación.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 /// Plazo de la secuencia de reactivación tras un `DeactivateAll`.
 const REACTIVATION_TIMEOUT: Duration = Duration::from_secs(10);
+/// Cadencia del temporizador de canales: completa las E/S diferidas de la
+/// carpeta compartida.
+const CHANNEL_TICK: Duration = Duration::from_millis(100);
+/// Cada cuántos ticks se revisan los plazos del portapapeles (~5 s).
+const CLIPBOARD_TIMEOUT_TICKS: u32 = 50;
 
 /// Órdenes del frontend hacia la sesión.
 #[derive(Debug)]
@@ -47,6 +55,8 @@ pub enum SessionCmd {
         height: u32,
         scale: Option<u32>,
     },
+    /// El frontend pide comparar el portapapeles local con el remoto.
+    ClipboardSync,
     Close,
 }
 
@@ -76,6 +86,15 @@ pub struct ConnectParams {
     /// Escala del escritorio en % (100..=500), del `devicePixelRatio`.
     pub scale: Option<u32>,
     pub cert_store: PathBuf,
+    /// Portapapeles compartido (`None` = desactivado).
+    pub clipboard: Option<ClipboardOptions>,
+    /// Carpeta de las descargas del portapapeles de esta sesión.
+    pub clipboard_temp: PathBuf,
+    pub clipboard_notifier: Arc<dyn ClipNotifier>,
+    /// Carpeta local que se ve en el remoto como unidad.
+    pub shared_folder: Option<PathBuf>,
+    /// Lo que se pide al servidor para ahorrar ancho de banda.
+    pub perf: PerfProfile,
 }
 
 /// Fallo de la sesión con un código estable para el frontend.
@@ -154,6 +173,7 @@ fn build_config(p: &ConnectParams) -> Result<connector::Config, SessionError> {
     let codecs = client_codecs_capabilities(&[])
         .map_err(|e| SessionError::new("internal", format!("códecs: {e}")))?;
     let scale = p.scale.filter(|s| (100..=500).contains(s));
+    let perf = p.perf.settings();
     Ok(connector::Config {
         credentials: Credentials::UsernamePassword {
             username,
@@ -170,7 +190,7 @@ fn build_config(p: &ConnectParams) -> Result<connector::Config, SessionError> {
         // 0 = la distribución del servidor: los scancodes son posicionales.
         keyboard_layout: 0,
         keyboard_functional_keys_count: 12,
-        connection_type: ConnectionType::Lan,
+        connection_type: perf.connection_type,
         ime_file_name: String::new(),
         dig_product_id: String::new(),
         desktop_size: DesktopSize {
@@ -192,11 +212,14 @@ fn build_config(p: &ConnectParams) -> Result<connector::Config, SessionError> {
         autologon: false,
         enable_audio_playback: false,
         enable_audio_capture: false,
-        compression_type: None,
-        pointer_software_rendering: true,
+        compression_type: perf.compression,
+        // El puntero lo pinta el webview como cursor CSS (`PointerBitmap`): se
+        // mueve sin esperar al servidor y no ensucia el framebuffer. Con `true`
+        // IronRDP lo dibujaría en la imagen y cada movimiento sería un fotograma.
+        pointer_software_rendering: false,
         multitransport_flags: None,
         support_dyn_vc_gfx_protocol: false,
-        performance_flags: PerformanceFlags::default(),
+        performance_flags: perf.flags,
         desktop_scale_factor: scale.unwrap_or(0),
         desktop_physical_size: None,
         desktop_orientation: None,
@@ -262,7 +285,15 @@ async fn with_timeout<T, E>(
 }
 
 /// Conecta, comprueba el certificado (TOFU) y autentica.
-async fn connect(params: ConnectParams) -> Result<(ConnectionResult, Framed), SessionError> {
+/// Canales opcionales abiertos en esta sesión.
+struct Channels {
+    clipboard: Option<ClipboardChannel>,
+    drive: bool,
+}
+
+async fn connect(
+    params: ConnectParams,
+) -> Result<(ConnectionResult, Framed, Channels), SessionError> {
     let tcp = with_timeout(
         "Conexión TCP",
         TcpStream::connect((params.dial_host.as_str(), params.dial_port)),
@@ -278,6 +309,29 @@ async fn connect(params: ConnectParams) -> Result<(ConnectionResult, Framed), Se
     let drdynvc =
         DrdynvcClient::new().with_dynamic_channel(DisplayControlClient::new(|_| Ok(Vec::new())));
     let mut connector = ClientConnector::new(config, client_addr).with_static_channel(drdynvc);
+    let mut channels = Channels {
+        clipboard: None,
+        drive: false,
+    };
+    if let Some(options) = params.clipboard {
+        let (cliprdr, channel) = clipboard::start(
+            options,
+            params.clipboard_temp.clone(),
+            params.clipboard_notifier.clone(),
+        );
+        connector = connector.with_static_channel(cliprdr);
+        channels.clipboard = Some(channel);
+    }
+    if let Some(folder) = params.shared_folder.as_deref() {
+        // Una carpeta que ya no vale no impide conectar: la sesión sigue sin ella.
+        match drive::build(folder, "rustty") {
+            Ok(rdpdr) => {
+                connector = connector.with_static_channel(rdpdr);
+                channels.drive = true;
+            }
+            Err(e) => log::warn!("RDP integrado: carpeta compartida desactivada: {e}"),
+        }
+    }
 
     let mut framed = TokioFramed::new(tcp);
     let should_upgrade = with_timeout(
@@ -328,7 +382,56 @@ async fn connect(params: ConnectParams) -> Result<(ConnectionResult, Framed), Se
     let result = outcome
         .into_connected()
         .map_err(|e| SessionError::new("redirect", e.to_string()))?;
-    Ok((result, framed))
+    Ok((result, framed, channels))
+}
+
+/// Cada cuánto se escriben las estadísticas de envío (nivel `debug`).
+const STATS_INTERVAL: Duration = Duration::from_secs(5);
+
+/// Contadores de lo enviado al canvas, para saber dónde se va el tiempo.
+struct SinkStats {
+    since: Instant,
+    bytes: u64,
+    messages: u32,
+    rects: u32,
+    encode: Duration,
+    /// Veces que había daños pero el frontend no había confirmado.
+    stalled: u32,
+}
+
+impl Default for SinkStats {
+    fn default() -> Self {
+        Self {
+            since: Instant::now(),
+            bytes: 0,
+            messages: 0,
+            rects: 0,
+            encode: Duration::ZERO,
+            stalled: 0,
+        }
+    }
+}
+
+impl SinkStats {
+    fn maybe_log(&mut self) {
+        let elapsed = self.since.elapsed();
+        if elapsed < STATS_INTERVAL {
+            return;
+        }
+        if self.messages > 0 {
+            let secs = elapsed.as_secs_f64();
+            #[allow(clippy::cast_precision_loss)]
+            let mib_s = self.bytes as f64 / secs / (1024.0 * 1024.0);
+            log::debug!(
+                "RDP integrado: {mib_s:.1} MiB/s, {:.1} msg/s, {:.1} rects/msg, codificar {:.2} ms/msg, {} esperas al canvas",
+                f64::from(self.messages) / secs,
+                f64::from(self.rects) / f64::from(self.messages),
+                self.encode.as_secs_f64() * 1000.0 / f64::from(self.messages),
+                self.stalled,
+            );
+        }
+        *self = Self::default();
+    }
 }
 
 /// Emisor de fotogramas con contrapresión.
@@ -336,10 +439,14 @@ struct Sink {
     channel: Channel<Response>,
     flow: Flow,
     damage: Damage,
+    stats: SinkStats,
 }
 
 impl Sink {
     fn send(&mut self, bytes: Vec<u8>) -> bool {
+        self.stats.bytes += bytes.len() as u64;
+        self.stats.messages += 1;
+        self.stats.maybe_log();
         self.channel.send(Response::new(bytes)).is_ok()
     }
 
@@ -350,7 +457,11 @@ impl Sink {
 
     /// Manda lo pendiente si el frontend va al día. `false` = canal cerrado.
     fn flush(&mut self, image: &DecodedImage) -> bool {
-        if self.damage.is_empty() || !self.flow.can_send() {
+        if self.damage.is_empty() {
+            return true;
+        }
+        if !self.flow.can_send() {
+            self.stats.stalled += 1;
             return true;
         }
         let rects = self.damage.take(image.width(), image.height());
@@ -358,7 +469,10 @@ impl Sink {
             return true;
         }
         let seq = self.flow.next_seq();
+        let started = Instant::now();
         let msg = frames::encode_rects(seq, &rects, image.data(), image.stride());
+        self.stats.encode += started.elapsed();
+        self.stats.rects += u32::try_from(rects.len()).unwrap_or(u32::MAX);
         self.send(msg)
     }
 }
@@ -373,7 +487,7 @@ pub async fn run(
 ) -> Result<Ended, SessionError> {
     // Una orden de cierre durante la conexión (incluido el diálogo del
     // certificado) la corta en seco.
-    let (result, mut framed) = tokio::select! {
+    let (result, mut framed, mut channels) = tokio::select! {
         r = connect(params) => r?,
         cmd = wait_close(&mut cmds) => {
             let () = cmd;
@@ -403,6 +517,7 @@ pub async fn run(
         channel,
         flow: Flow::default(),
         damage: Damage::default(),
+        stats: SinkStats::default(),
     };
     let mut input_db = Database::new();
 
@@ -413,6 +528,11 @@ pub async fn run(
         image.height(),
     ));
     reporter.connected(image.width(), image.height());
+
+    let mut tick = tokio::time::interval(CHANNEL_TICK);
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut ticks: u32 = 0;
+    let has_timers = channels.drive || channels.clipboard.is_some();
 
     loop {
         if !sink.flush(&image) {
@@ -442,7 +562,27 @@ pub async fn run(
                     // Fase 2: Display Control. Hasta entonces el canvas escala.
                     let _ = (width, height, scale);
                 }
+                Some(SessionCmd::ClipboardSync) => {
+                    if let Some(clip) = channels.clipboard.as_ref() {
+                        let _ = clip.input.send(clipboard::ClipIn::Sync);
+                    }
+                }
             },
+            Some(out) = recv_clip(&mut channels.clipboard) => {
+                let frame = apply_clipboard(&mut stage, out);
+                write_frame(&mut framed, frame).await?;
+            }
+            _ = tick.tick(), if has_timers => {
+                ticks = ticks.wrapping_add(1);
+                if channels.drive {
+                    let frame = poll_drive(&mut stage);
+                    write_frame(&mut framed, frame).await?;
+                }
+                if channels.clipboard.is_some() && ticks.is_multiple_of(CLIPBOARD_TIMEOUT_TICKS) {
+                    let frame = clipboard_timeouts(&mut stage);
+                    write_frame(&mut framed, frame).await?;
+                }
+            }
             () = shared.ack_notify.notified() => {
                 sink.flow.ack(shared.acked.load(Ordering::Acquire));
             }
@@ -464,6 +604,78 @@ pub async fn run(
             }
         }
     }
+}
+
+/// Siguiente orden del hilo del portapapeles (nunca vuelve si no hay canal).
+async fn recv_clip(clip: &mut Option<ClipboardChannel>) -> Option<clipboard::ClipOut> {
+    match clip {
+        Some(c) => c.output.recv().await,
+        None => std::future::pending().await,
+    }
+}
+
+/// Un fallo del portapapeles o de la carpeta no tumba la sesión: se registra y
+/// se sigue sin enviar nada.
+fn apply_clipboard(stage: &mut ActiveStage, out: clipboard::ClipOut) -> Vec<u8> {
+    let Some(cliprdr) = stage.get_svc_processor_mut::<ironrdp_cliprdr::CliprdrClient>() else {
+        return Vec::new();
+    };
+    let messages = match clipboard::apply(cliprdr, out) {
+        Ok(m) => m,
+        Err(e) => {
+            log::debug!("RDP integrado: portapapeles: {e}");
+            return Vec::new();
+        }
+    };
+    stage
+        .process_svc_processor_messages(messages)
+        .unwrap_or_else(|e| {
+            log::debug!("RDP integrado: portapapeles: {e}");
+            Vec::new()
+        })
+}
+
+fn clipboard_timeouts(stage: &mut ActiveStage) -> Vec<u8> {
+    let Some(cliprdr) = stage.get_svc_processor_mut::<ironrdp_cliprdr::CliprdrClient>() else {
+        return Vec::new();
+    };
+    match cliprdr.drive_timeouts() {
+        Ok(messages) => stage
+            .process_svc_processor_messages(messages)
+            .unwrap_or_default(),
+        Err(_) => Vec::new(),
+    }
+}
+
+fn poll_drive(stage: &mut ActiveStage) -> Vec<u8> {
+    let Some(rdpdr) = stage.get_svc_processor_mut::<ironrdp_rdpdr::Rdpdr>() else {
+        return Vec::new();
+    };
+    match rdpdr.poll_deferred_messages() {
+        Ok(messages) if !messages.is_empty() => stage
+            .process_svc_processor_messages(
+                ironrdp_svc::SvcProcessorMessages::<ironrdp_rdpdr::Rdpdr>::new(messages),
+            )
+            .unwrap_or_else(|e| {
+                log::debug!("RDP integrado: carpeta compartida: {e}");
+                Vec::new()
+            }),
+        Ok(_) => Vec::new(),
+        Err(e) => {
+            log::debug!("RDP integrado: carpeta compartida: {e}");
+            Vec::new()
+        }
+    }
+}
+
+async fn write_frame(framed: &mut Framed, frame: Vec<u8>) -> Result<(), SessionError> {
+    if frame.is_empty() {
+        return Ok(());
+    }
+    framed
+        .write_all(&frame)
+        .await
+        .map_err(|e| SessionError::new("network", e.to_string()))
 }
 
 async fn wait_close(cmds: &mut mpsc::Receiver<SessionCmd>) {
@@ -661,6 +873,11 @@ async fn reactivate(
 mod tests {
     use super::*;
 
+    struct NoNotice;
+    impl ClipNotifier for NoNotice {
+        fn notice(&self, _: clipboard::ClipNotice) {}
+    }
+
     #[test]
     fn separa_dominio_del_usuario() {
         assert_eq!(
@@ -707,8 +924,16 @@ mod tests {
             height: 700,
             scale: Some(150),
             cert_store: PathBuf::new(),
+            clipboard: None,
+            clipboard_temp: PathBuf::new(),
+            clipboard_notifier: Arc::new(NoNotice),
+            shared_folder: None,
+            perf: PerfProfile::Speed,
         };
         let c = build_config(&p).unwrap();
+        assert!(!c.pointer_software_rendering);
+        assert_eq!(c.performance_flags, PerfProfile::Speed.settings().flags);
+        assert_eq!(c.compression_type, PerfProfile::Speed.settings().compression);
         assert_eq!(c.desktop_size.width, 1000);
         assert_eq!(c.domain.as_deref(), Some("DOM"));
         assert_eq!(c.desktop_scale_factor, 150);

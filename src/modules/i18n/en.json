@@ -579,6 +579,15 @@
     "workarea": "Work area",
     "fixed": "Fixed size (legacy servers)"
   },
+  "rdp_mode": {
+    "embedded": "In the tab",
+    "external": "In an external window (mstsc / xfreerdp)"
+  },
+  "rdp_perf": {
+    "speed": "Speed",
+    "balanced": "Balanced",
+    "quality": "Quality"
+  },
   "rdp_embed": {
     "err": {
       "generic": "unexpected session error.",
@@ -595,6 +604,14 @@
       "redirect": "the server asks to redirect the session to another machine, which the built-in client does not support yet.",
       "reactivation_timeout": "the server did not finish reactivating the session after a display change.",
       "internal": "internal error in the built-in client."
+    },
+    "clip_err": {
+      "generic": "unexpected error.",
+      "too_large": "the copy exceeds the 8 GiB limit.",
+      "unsafe_name": "the remote sent an invalid file name.",
+      "remote": "the remote desktop did not deliver the file.",
+      "short_read": "the file changed on the remote during the copy.",
+      "empty": "there was nothing to copy."
     }
   },
   "ctx": {
@@ -1760,6 +1777,18 @@
     "autostart_hint": "Adds Rustty to the list of applications that start automatically at login.",
     "rdp_display": "Remote desktop window (RDP)",
     "rdp_display_hint": "Default for RDP sessions; each profile can override it. The resizable window can be maximised and dragged, and the remote desktop follows the size: needs Windows 8 / Server 2012 or newer. «Fixed size» is the previous behaviour, for servers that do not support it.",
+    "rdp_mode": "Open remote desktop (RDP)",
+    "rdp_mode_hint": "In the tab, the desktop is shown inside Rustty with the built-in client. The external window uses mstsc (Windows) or xfreerdp (Linux) and supports whatever that client supports (audio, printers, multiple monitors…).",
+    "rdp_perf": "Remote desktop performance",
+    "rdp_perf_hint": "Applies to new connections. «Speed» hides the wallpaper, themes and animations on the remote and compresses the most: for slow links. «Balanced» hides the wallpaper and animations but keeps smooth fonts. «Quality» shows the desktop as it is, for local networks.",
+    "rdp_clipboard": "Share the clipboard with the remote desktop",
+    "rdp_clipboard_hint": "Copy on one side and paste on the other. What you copy locally is sent to the remote when you return to the tab or paste.",
+    "rdp_clipboard_files": "Also copy and paste files and folders",
+    "rdp_clipboard_files_hint": "Files copied on the remote are downloaded to a temporary folder and, once done, can be pasted locally. Files copied locally are read from disk only when the remote pastes them.",
+    "rdp_shared_folder": "Share a local folder as a drive on the remote",
+    "rdp_shared_folder_pick": "Choose folder…",
+    "rdp_shared_folder_hint": "The folder shows up in the remote's Explorer, read and write. Only that folder: nothing outside it. Applies to new connections.",
+    "rdp_shared_folder_none": "No folder chosen",
     "autostart_minimized": "Start minimized",
     "restore_work_tabs": "Offer to restore last session tabs",
     "restore_work_tabs_hint": "Saves the tab order and their profiles (never terminal contents, secrets or private sessions) and offers to reconnect them in bulk at startup.",
@@ -2077,7 +2106,12 @@
     "transfers_pause_all_failed": "Could not change the global pause: {err}",
     "file_grant_invalid": "The permission for that file is no longer valid (it expired, was already used or the path changed). Choose it again.",
     "import_failed": "Import failed: {err}",
-    "rdp_embed_failed": "Could not open remote desktop “{name}”: {reason}"
+    "rdp_embed_failed": "Could not open remote desktop “{name}”: {reason}",
+    "rdp_shared_folder_failed": "Could not save the shared folder: {error}",
+    "rdp_clip_download_start": "“{name}”: copying {files} file(s) from the remote desktop ({size} MB)…",
+    "rdp_clip_download_done": "“{name}”: {files} file(s) ready to paste",
+    "rdp_clip_download_failed": "“{name}”: could not copy the files: {reason}",
+    "rdp_clip_unavailable": "“{name}”: the system clipboard is not available; copy and paste with the remote desktop will not work."
   },
   "time": {
     "now": "just now",

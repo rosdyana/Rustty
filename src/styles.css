@@ -4899,6 +4899,11 @@ select option {
   cursor: not-allowed;
 }
 
+/* Ajustes del RDP en la pestaña cuando se usa la ventana externa. */
+.settings-row.is-disabled {
+  opacity: 0.5;
+}
+
 input[type="checkbox"] {
   width: 15px;
   height: 15px;

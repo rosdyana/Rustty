@@ -579,6 +579,15 @@
     "workarea": "Área de trabajo",
     "fixed": "Tamaño fijo (servidores antiguos)"
   },
+  "rdp_mode": {
+    "embedded": "En la pestaña",
+    "external": "En una ventana externa (mstsc / xfreerdp)"
+  },
+  "rdp_perf": {
+    "speed": "Velocidad",
+    "balanced": "Equilibrado",
+    "quality": "Calidad"
+  },
   "rdp_embed": {
     "err": {
       "generic": "error inesperado de la sesión.",
@@ -595,6 +604,14 @@
       "redirect": "el servidor pide redirigir la sesión a otro equipo, y el cliente integrado aún no lo soporta.",
       "reactivation_timeout": "el servidor no terminó de reactivar la sesión tras un cambio de pantalla.",
       "internal": "error interno del cliente integrado."
+    },
+    "clip_err": {
+      "generic": "error inesperado.",
+      "too_large": "la copia supera el máximo de 8 GiB.",
+      "unsafe_name": "el remoto envió un nombre de fichero no válido.",
+      "remote": "el escritorio remoto no entregó el fichero.",
+      "short_read": "el fichero cambió en el remoto durante la copia.",
+      "empty": "no había nada que copiar."
     }
   },
   "ctx": {
@@ -1760,6 +1777,18 @@
     "autostart_hint": "Añade Rustty a los programas que se lanzan automáticamente al iniciar sesión.",
     "rdp_display": "Ventana del escritorio remoto (RDP)",
     "rdp_display_hint": "Valor por defecto de las sesiones RDP; cada perfil puede llevar el suyo. La ventana redimensionable deja maximizar y arrastrar, y el escritorio remoto sigue el tamaño: necesita Windows 8 / Server 2012 o superior. «Tamaño fijo» es el comportamiento anterior, para servidores que no lo admiten.",
+    "rdp_mode": "Abrir el escritorio remoto (RDP)",
+    "rdp_mode_hint": "En la pestaña, el escritorio se ve dentro de Rustty con el cliente integrado. La ventana externa usa mstsc (Windows) o xfreerdp (Linux) y admite lo que ese cliente admita (audio, impresoras, varios monitores…).",
+    "rdp_perf": "Rendimiento del escritorio remoto",
+    "rdp_perf_hint": "Se aplica a las conexiones nuevas. «Velocidad» quita en el remoto el fondo, los temas y las animaciones, y comprime al máximo: para enlaces lentos. «Equilibrado» quita el fondo y las animaciones pero mantiene las fuentes suavizadas. «Calidad» muestra el escritorio tal cual, para redes locales.",
+    "rdp_clipboard": "Compartir el portapapeles con el escritorio remoto",
+    "rdp_clipboard_hint": "Copiar en un lado y pegar en el otro. Lo copiado en local se envía al remoto al volver a la pestaña o al pegar.",
+    "rdp_clipboard_files": "Copiar y pegar también ficheros y carpetas",
+    "rdp_clipboard_files_hint": "Los ficheros copiados en el remoto se descargan a una carpeta temporal y, al terminar, se pueden pegar en local. Los copiados en local se leen del disco solo cuando el remoto pega.",
+    "rdp_shared_folder": "Compartir una carpeta local como unidad del remoto",
+    "rdp_shared_folder_pick": "Elegir carpeta…",
+    "rdp_shared_folder_hint": "La carpeta aparece en el Explorador del remoto, con lectura y escritura. Solo esa carpeta: nada fuera de ella. Se aplica a las conexiones nuevas.",
+    "rdp_shared_folder_none": "Ninguna carpeta elegida",
     "autostart_minimized": "Arrancar minimizado",
     "restore_work_tabs": "Ofrecer restaurar las pestañas de la última sesión",
     "restore_work_tabs_hint": "Guarda el orden de pestañas y sus perfiles (nunca el contenido del terminal, ni secretos, ni sesiones privadas) y al arrancar ofrece reconectarlas en lote.",
@@ -2077,7 +2106,12 @@
     "transfers_pause_all_failed": "No se pudo cambiar la pausa general: {err}",
     "file_grant_invalid": "El permiso para ese fichero ya no es válido (caducó, ya se usó o la ruta cambió). Vuelve a elegirlo.",
     "import_failed": "Error al importar: {err}",
-    "rdp_embed_failed": "No se pudo abrir el escritorio remoto «{name}»: {reason}"
+    "rdp_embed_failed": "No se pudo abrir el escritorio remoto «{name}»: {reason}",
+    "rdp_shared_folder_failed": "No se pudo guardar la carpeta compartida: {error}",
+    "rdp_clip_download_start": "«{name}»: copiando {files} fichero(s) del escritorio remoto ({size} MB)…",
+    "rdp_clip_download_done": "«{name}»: {files} fichero(s) listos para pegar",
+    "rdp_clip_download_failed": "«{name}»: no se pudieron copiar los ficheros: {reason}",
+    "rdp_clip_unavailable": "«{name}»: el portapapeles del sistema no está disponible; copiar y pegar con el escritorio remoto no funcionará."
   },
   "time": {
     "now": "ahora",

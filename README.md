@@ -172,7 +172,7 @@ gh attestation verify SHA256SUMS.txt --repo rosdyana/Rustty
 - **Frontend**: [Vite](https://vitejs.dev/) + Vanilla JavaScript / CSS
 - **Terminal**: [xterm.js](https://xtermjs.org/)
 - **Protocols**: [russh](https://github.com/warp-tech/russh) (SSH), [russh-sftp](https://github.com/warp-tech/russh-sftp) (SFTP), [`suppaftp`](https://github.com/veeso/suppaftp) (FTP/FTPS)
-- **Embedded RDP client**: [IronRDP](https://github.com/Devolutions/IronRDP) (RDP protocol, sessions, graphics, input and dynamic channels), [tokio-rustls](https://github.com/rustls/tokio-rustls) (TLS) and [x509-cert](https://github.com/RustCrypto/formats/tree/master/x509-cert) (certificates)
+- **Embedded RDP client**: [IronRDP](https://github.com/Devolutions/IronRDP) (RDP protocol, sessions, graphics, input, dynamic channels, shared clipboard and shared folder), [arboard](https://github.com/1Password/arboard) (local clipboard), [tokio-rustls](https://github.com/rustls/tokio-rustls) (TLS) and [x509-cert](https://github.com/RustCrypto/formats/tree/master/x509-cert) (certificates)
 - **Security**: [keyring-rs](https://github.com/hwchen/keyring-rs), [keepass-rs](https://github.com/sseemayer/keepass-rs)
 
 ## Acknowledgments and third-party dependencies
@@ -183,7 +183,9 @@ The direct Rust dependencies added for the embedded RDP client are all licensed 
 
 | Crate | Used for | License |
 | --- | --- | --- |
-| `ironrdp-connector`, `ironrdp-session`, `ironrdp-tokio`, `ironrdp-dvc`, `ironrdp-displaycontrol`, `ironrdp-pdu`, `ironrdp-graphics`, `ironrdp-input`, `ironrdp-core` | RDP connection, sessions, graphics, input and dynamic channels ([IronRDP](https://github.com/Devolutions/IronRDP) by Devolutions) | MIT OR Apache-2.0 |
+| `ironrdp-connector`, `ironrdp-session`, `ironrdp-tokio`, `ironrdp-dvc`, `ironrdp-displaycontrol`, `ironrdp-pdu`, `ironrdp-graphics`, `ironrdp-input`, `ironrdp-core`, `ironrdp-svc` | RDP connection, sessions, graphics, input and dynamic channels ([IronRDP](https://github.com/Devolutions/IronRDP) by Devolutions) | MIT OR Apache-2.0 |
+| `ironrdp-cliprdr`, `ironrdp-rdpdr`, `ironrdp-rdpdr-native` | Shared clipboard (text and files) and shared folder as a remote drive ([IronRDP](https://github.com/Devolutions/IronRDP)) | MIT OR Apache-2.0 |
+| `arboard` | Reading and writing the local clipboard (text and copied files) ([arboard](https://github.com/1Password/arboard)) | MIT OR Apache-2.0 |
 | `tokio-rustls` | TLS for RDP, with the `ring` crypto provider ([tokio-rustls](https://github.com/rustls/tokio-rustls)) | MIT OR Apache-2.0 |
 | `x509-cert` | X.509 certificate parsing for RDP server certificates ([RustCrypto](https://github.com/RustCrypto/formats)) | Apache-2.0 OR MIT |
 

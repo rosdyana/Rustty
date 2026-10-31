@@ -56,12 +56,16 @@ export function createRdpCanvasView({ sessionId, invoke, Channel, onDesktopSize 
   let queue = [];
   let scheduled = false;
   let lastSeq = 0;
+  /** @type {Map<string, string>} cursores ya convertidos a PNG */
+  const cursorCache = new Map();
+  const stats = { since: performance.now(), frames: 0, messages: 0, bytes: 0, paintMs: 0, worstMs: 0 };
 
   const draw = () => {
     scheduled = false;
     if (disposed) return;
     const pending = queue;
     queue = [];
+    const started = performance.now();
     let maxSeq = lastSeq;
     for (const bytes of pending) {
       // El `seq` se confirma aunque el mensaje no se entienda: si no, un
@@ -85,7 +89,7 @@ export function createRdpCanvasView({ sessionId, invoke, Channel, onDesktopSize 
           onDesktopSize?.({ width: frame.width, height: frame.height });
           break;
         case "pointer-bitmap":
-          setCursorBitmap(canvas, frame);
+          setCursorBitmap(canvas, frame, cursorCache);
           break;
         case "pointer-default":
           canvas.style.cursor = "default";
@@ -99,6 +103,7 @@ export function createRdpCanvasView({ sessionId, invoke, Channel, onDesktopSize 
       lastSeq = maxSeq;
       invoke("rdp_embed_ack", { sessionId, seq: maxSeq }).catch(() => {});
     }
+    recordPaint(stats, pending, performance.now() - started);
   };
 
   const channel = new Channel();
@@ -115,6 +120,25 @@ export function createRdpCanvasView({ sessionId, invoke, Channel, onDesktopSize 
       requestAnimationFrame(draw);
     }
   };
+
+  // Portapapeles: lo copiado en local se anuncia al remoto al entrar en el
+  // escritorio y justo antes de un atajo de pegar (el backend no hace nada si
+  // no cambió desde lo último anunciado). El aviso sale antes que la tecla:
+  // la entrada se agrupa y se envía en el siguiente frame.
+  const syncClipboard = () => {
+    if (!active || disposed) return;
+    invoke("rdp_embed_clipboard_sync", { sessionId }).catch(() => {});
+  };
+  const onPasteKey = (/** @type {KeyboardEvent} */ e) => {
+    const k = e.key.toLowerCase();
+    if (((e.ctrlKey || e.metaKey) && k === "v") || (e.shiftKey && k === "insert")) syncClipboard();
+  };
+  const onWindowFocus = () => {
+    if (document.activeElement === keyTarget) syncClipboard();
+  };
+  keyTarget.addEventListener("focus", syncClipboard);
+  keyTarget.addEventListener("keydown", onPasteKey, true);
+  window.addEventListener("focus", onWindowFocus);
 
   const detachInput = attachInput({
     canvas,
@@ -149,20 +173,73 @@ export function createRdpCanvasView({ sessionId, invoke, Channel, onDesktopSize 
       active = false;
       queue = [];
       detachInput();
+      keyTarget.removeEventListener("focus", syncClipboard);
+      keyTarget.removeEventListener("keydown", onPasteKey, true);
+      window.removeEventListener("focus", onWindowFocus);
       channel.onmessage = () => {};
       element.remove();
     },
   };
 }
 
+const STATS_INTERVAL_MS = 5000;
+const CURSOR_CACHE_MAX = 64;
+
+/**
+ * Acumula el coste de pintar y lo escribe en la consola (nivel debug) cada
+ * pocos segundos: junto con las estadísticas del backend dice si el cuello de
+ * botella está en el canvas o antes.
+ * @param {{ since: number, frames: number, messages: number, bytes: number, paintMs: number, worstMs: number }} stats
+ * @param {Uint8Array[]} batch
+ * @param {number} ms
+ */
+function recordPaint(stats, batch, ms) {
+  stats.frames += 1;
+  stats.messages += batch.length;
+  for (const b of batch) stats.bytes += b.byteLength;
+  stats.paintMs += ms;
+  stats.worstMs = Math.max(stats.worstMs, ms);
+  const now = performance.now();
+  const elapsed = now - stats.since;
+  if (elapsed < STATS_INTERVAL_MS) return;
+  const secs = elapsed / 1000;
+  console.debug(
+    `[rdp] ${(stats.frames / secs).toFixed(1)} pintados/s, ${(stats.messages / secs).toFixed(1)} msg/s, `
+      + `${(stats.bytes / secs / 1048576).toFixed(1)} MiB/s, pintar ${(stats.paintMs / stats.frames).toFixed(2)} ms `
+      + `(peor ${stats.worstMs.toFixed(1)} ms)`,
+  );
+  Object.assign(stats, { since: now, frames: 0, messages: 0, bytes: 0, paintMs: 0, worstMs: 0 });
+}
+
+/**
+ * Clave de un cursor: tamaño, punto activo y un FNV-1a de sus píxeles (unos
+ * pocos KB): el servidor repite las mismas formas a menudo.
+ * @param {{ width: number, height: number, hotspotX: number, hotspotY: number, data: Uint8ClampedArray }} p
+ */
+function cursorKey(p) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < p.data.length; i++) {
+    h ^= p.data[i];
+    h = Math.imul(h, 0x01000193);
+  }
+  return `${p.width}x${p.height}@${p.hotspotX},${p.hotspotY}#${(h >>> 0).toString(16)}`;
+}
+
 /**
  * Pone el puntero remoto como cursor CSS del canvas.
  * @param {HTMLCanvasElement} canvas
  * @param {{ width: number, height: number, hotspotX: number, hotspotY: number, data: Uint8ClampedArray }} p
+ * @param {Map<string, string>} cache
  */
-function setCursorBitmap(canvas, p) {
+function setCursorBitmap(canvas, p, cache) {
   if (p.width === 0 || p.height === 0) {
     canvas.style.cursor = "none";
+    return;
+  }
+  const key = cursorKey(p);
+  const cached = cache.get(key);
+  if (cached) {
+    canvas.style.cursor = cached;
     return;
   }
   const c = document.createElement("canvas");
@@ -172,5 +249,8 @@ function setCursorBitmap(canvas, p) {
   if (!cctx) return;
   // Copia: el buffer del mensaje se recicla tras pintar.
   cctx.putImageData(new ImageData(new Uint8ClampedArray(p.data), p.width, p.height), 0, 0);
-  canvas.style.cursor = `url(${c.toDataURL("image/png")}) ${p.hotspotX} ${p.hotspotY}, default`;
+  const css = `url(${c.toDataURL("image/png")}) ${p.hotspotX} ${p.hotspotY}, default`;
+  if (cache.size >= CURSOR_CACHE_MAX) cache.delete(/** @type {string} */ (cache.keys().next().value));
+  cache.set(key, css);
+  canvas.style.cursor = css;
 }

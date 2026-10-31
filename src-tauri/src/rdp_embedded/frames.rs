@@ -24,15 +24,20 @@
 //! El frontend confirma (`rdp_embed_ack`) el `seq` más alto que ha **pintado**.
 //! Con [`MAX_IN_FLIGHT`] mensajes sin confirmar, el backend deja de enviar y
 //! sigue acumulando daños en [`Damage`], que está acotado: pasado
-//! [`MAX_PENDING_RECTS`] rectángulos los funde en su envolvente, y si el área
+//! [`MAX_PENDING_RECTS`] rectángulos funde la pareja que menos área añade, y si el área
 //! pendiente supera [`FULL_FRAME_RATIO`] de la pantalla manda la pantalla
 //! entera. Así la memoria no crece aunque el webview vaya lento: como mucho un
 //! framebuffer y la copia de lo pendiente.
 
 /// Mensajes de fotogramas sin confirmar a partir de los cuales se deja de enviar.
 pub const MAX_IN_FLIGHT: u32 = 2;
-/// Rectángulos pendientes a partir de los cuales se funden en uno.
+/// Rectángulos pendientes a partir de los cuales se funden por parejas.
 pub const MAX_PENDING_RECTS: usize = 64;
+/// Dos rectángulos se funden al llegar si su envolvente no pasa de esta
+/// proporción de la suma de sus áreas (×10: 13 = 1,3). Junta las teselas
+/// vecinas de RemoteFX en bandas sin arrastrar píxeles que no cambiaron.
+const CHEAP_MERGE_NUM: u64 = 13;
+const CHEAP_MERGE_DEN: u64 = 10;
 /// Fracción del área de pantalla a partir de la cual se manda la pantalla entera.
 pub const FULL_FRAME_RATIO: f64 = 0.6;
 
@@ -108,6 +113,18 @@ impl Rect {
         }
     }
 
+    /// Área que se copiaría de más al fundir los dos (0 si encajan justos).
+    fn merge_waste(self, other: Self) -> u64 {
+        self.union(other)
+            .area()
+            .saturating_sub(self.area() + other.area())
+    }
+
+    fn cheap_merge(self, other: Self) -> bool {
+        self.union(other).area() * CHEAP_MERGE_DEN
+            <= (self.area() + other.area()) * CHEAP_MERGE_NUM
+    }
+
     fn contains(self, other: Self) -> bool {
         other.x >= self.x
             && other.y >= self.y
@@ -133,23 +150,40 @@ impl Damage {
         self.rects.clear();
     }
 
-    /// Añade un rectángulo. Ignora los que ya cubre otro pendiente y, pasado el
-    /// límite, funde todo en la envolvente para que la lista no crezca.
+    /// Añade un rectángulo. Ignora los que ya cubre otro pendiente, funde los
+    /// vecinos que encajan casi justos y, pasado el límite, funde la pareja que
+    /// menos área añade. Nunca junta dos esquinas lejanas en la pantalla entera
+    /// mientras haya parejas más baratas.
     pub fn add(&mut self, rect: Rect) {
         if rect.w == 0 || rect.h == 0 || self.rects.iter().any(|r| r.contains(rect)) {
             return;
         }
+        let mut rect = rect;
+        while let Some(i) = self.rects.iter().position(|r| r.cheap_merge(rect)) {
+            rect = self.rects.swap_remove(i).union(rect);
+        }
         self.rects.retain(|r| !rect.contains(*r));
         self.rects.push(rect);
-        if self.rects.len() > MAX_PENDING_RECTS {
-            let merged = self
-                .rects
-                .iter()
-                .copied()
-                .reduce(Rect::union)
-                .unwrap_or(rect);
-            self.rects.clear();
-            self.rects.push(merged);
+        while self.rects.len() > MAX_PENDING_RECTS {
+            self.merge_cheapest_pair();
+        }
+    }
+
+    fn merge_cheapest_pair(&mut self) {
+        let mut best: Option<(usize, usize, u64)> = None;
+        for i in 0..self.rects.len() {
+            for j in (i + 1)..self.rects.len() {
+                let waste = self.rects[i].merge_waste(self.rects[j]);
+                if best.is_none_or(|(_, _, w)| waste < w) {
+                    best = Some((i, j, waste));
+                }
+            }
+        }
+        if let Some((i, j, _)) = best {
+            let other = self.rects.swap_remove(j);
+            let merged = self.rects[i].union(other);
+            self.rects[i] = merged;
+            self.rects.retain(|r| r == &merged || !merged.contains(*r));
         }
     }
 
@@ -332,16 +366,46 @@ mod tests {
         assert_eq!(d.take(1000, 1000), vec![r(0, 0, 50, 50)]);
     }
 
+    fn covered(rects: &[Rect], x: u16, y: u16) -> bool {
+        rects.iter().any(|q| q.contains(r(x, y, 1, 1)))
+    }
+
     #[test]
-    fn danos_acotados_se_funden_en_envolvente() {
+    fn danos_acotados_no_pasan_del_limite_ni_pierden_nada() {
         let mut d = Damage::default();
-        for i in 0..=u16::try_from(MAX_PENDING_RECTS).unwrap() {
-            d.add(r(i * 2, 0, 1, 1));
+        let n = u16::try_from(MAX_PENDING_RECTS).unwrap() * 2;
+        for i in 0..n {
+            d.add(r(i * 3, 0, 1, 1));
         }
         let out = d.take(4000, 4000);
-        assert_eq!(out.len(), 1);
-        assert_eq!(out[0].x, 0);
-        assert_eq!(out[0].w, u16::try_from(MAX_PENDING_RECTS).unwrap() * 2 + 1);
+        assert!(out.len() <= MAX_PENDING_RECTS);
+        for i in 0..n {
+            assert!(covered(&out, i * 3, 0), "falta ({}, 0)", i * 3);
+        }
+    }
+
+    #[test]
+    fn teselas_vecinas_se_funden_en_banda() {
+        let mut d = Damage::default();
+        for i in 0..4 {
+            d.add(r(i * 64, 0, 64, 64));
+        }
+        assert_eq!(d.take(1000, 1000), vec![r(0, 0, 256, 64)]);
+    }
+
+    #[test]
+    fn dos_esquinas_no_se_funden_en_la_pantalla_entera() {
+        // Muchos cambios pequeños en dos esquinas opuestas: al pasar del límite
+        // se funden dentro de cada esquina, no en una envolvente de 1000×1000.
+        let mut d = Damage::default();
+        for i in 0..40u16 {
+            d.add(r((i % 8) * 4, (i / 8) * 4, 2, 2));
+            d.add(r(960 + (i % 8) * 4, 960 + (i / 8) * 4, 2, 2));
+        }
+        let out = d.take(1000, 1000);
+        let area: u64 = out.iter().map(|q| q.area()).sum();
+        assert!(area < 10_000, "área enviada {area}");
+        assert!(covered(&out, 0, 0) && covered(&out, 960, 960));
     }
 
     #[test]

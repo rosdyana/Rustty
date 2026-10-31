@@ -579,6 +579,15 @@
     "workarea": "Arbeitsbereich",
     "fixed": "Feste Größe (ältere Server)"
   },
+  "rdp_mode": {
+    "embedded": "Im Tab",
+    "external": "In einem externen Fenster (mstsc / xfreerdp)"
+  },
+  "rdp_perf": {
+    "speed": "Geschwindigkeit",
+    "balanced": "Ausgewogen",
+    "quality": "Qualität"
+  },
   "rdp_embed": {
     "err": {
       "generic": "unerwarteter Sitzungsfehler.",
@@ -595,6 +604,14 @@
       "redirect": "der Server möchte die Sitzung auf einen anderen Rechner umleiten, was der integrierte Client noch nicht unterstützt.",
       "reactivation_timeout": "der Server hat die Sitzung nach einer Bildschirmänderung nicht rechtzeitig reaktiviert.",
       "internal": "interner Fehler des integrierten Clients."
+    },
+    "clip_err": {
+      "generic": "unerwarteter Fehler.",
+      "too_large": "die Kopie überschreitet das Limit von 8 GiB.",
+      "unsafe_name": "der Remote hat einen ungültigen Dateinamen gesendet.",
+      "remote": "der Remotedesktop hat die Datei nicht geliefert.",
+      "short_read": "die Datei hat sich während des Kopierens auf dem Remote geändert.",
+      "empty": "es gab nichts zu kopieren."
     }
   },
   "ctx": {
@@ -1760,6 +1777,18 @@
     "autostart_hint": "Fügt Rustty zur Liste der Programme hinzu, die beim Anmelden automatisch gestartet werden.",
     "rdp_display": "Fenster des Remotedesktops (RDP)",
     "rdp_display_hint": "Standard für RDP-Sitzungen; jedes Profil kann davon abweichen. Das größenveränderbare Fenster lässt sich maximieren und ziehen, und der Remotedesktop folgt der Größe: benötigt Windows 8 / Server 2012 oder neuer. «Feste Größe» ist das bisherige Verhalten, für Server, die das nicht unterstützen.",
+    "rdp_mode": "Remotedesktop (RDP) öffnen",
+    "rdp_mode_hint": "Im Tab wird der Desktop mit dem integrierten Client in Rustty angezeigt. Das externe Fenster nutzt mstsc (Windows) oder xfreerdp (Linux) und unterstützt, was dieser Client unterstützt (Audio, Drucker, mehrere Monitore…).",
+    "rdp_perf": "Leistung des Remotedesktops",
+    "rdp_perf_hint": "Gilt für neue Verbindungen. „Geschwindigkeit“ blendet auf dem Remote Hintergrundbild, Designs und Animationen aus und komprimiert am stärksten: für langsame Verbindungen. „Ausgewogen“ blendet Hintergrundbild und Animationen aus, behält aber die Schriftglättung. „Qualität“ zeigt den Desktop unverändert, für lokale Netze.",
+    "rdp_clipboard": "Zwischenablage mit dem Remotedesktop teilen",
+    "rdp_clipboard_hint": "Auf einer Seite kopieren, auf der anderen einfügen. Lokal Kopiertes wird an den Remote gesendet, sobald du zum Tab zurückkehrst oder einfügst.",
+    "rdp_clipboard_files": "Auch Dateien und Ordner kopieren und einfügen",
+    "rdp_clipboard_files_hint": "Auf dem Remote kopierte Dateien werden in einen temporären Ordner heruntergeladen und können danach lokal eingefügt werden. Lokal kopierte Dateien werden erst gelesen, wenn der Remote sie einfügt.",
+    "rdp_shared_folder": "Einen lokalen Ordner als Laufwerk auf dem Remote freigeben",
+    "rdp_shared_folder_pick": "Ordner wählen…",
+    "rdp_shared_folder_hint": "Der Ordner erscheint im Explorer des Remotes, mit Lese- und Schreibzugriff. Nur dieser Ordner, nichts außerhalb. Gilt für neue Verbindungen.",
+    "rdp_shared_folder_none": "Kein Ordner gewählt",
     "autostart_minimized": "Minimiert starten",
     "restore_work_tabs": "Wiederherstellen der Tabs der letzten Sitzung anbieten",
     "restore_work_tabs_hint": "Speichert die Tab-Reihenfolge und ihre Profile (nie Terminalinhalte, Geheimnisse oder private Sitzungen) und bietet beim Start an, sie gesammelt neu zu verbinden.",
@@ -2077,7 +2106,12 @@
     "transfers_pause_all_failed": "Die allgemeine Pause ließ sich nicht ändern: {err}",
     "file_grant_invalid": "Die Berechtigung für diese Datei ist nicht mehr gültig (abgelaufen, schon benutzt oder der Pfad hat sich geändert). Wähle sie erneut aus.",
     "import_failed": "Import fehlgeschlagen: {err}",
-    "rdp_embed_failed": "Remotedesktop „{name}“ konnte nicht geöffnet werden: {reason}"
+    "rdp_embed_failed": "Remotedesktop „{name}“ konnte nicht geöffnet werden: {reason}",
+    "rdp_shared_folder_failed": "Freigegebener Ordner konnte nicht gespeichert werden: {error}",
+    "rdp_clip_download_start": "„{name}“: {files} Datei(en) werden vom Remotedesktop kopiert ({size} MB)…",
+    "rdp_clip_download_done": "„{name}“: {files} Datei(en) bereit zum Einfügen",
+    "rdp_clip_download_failed": "„{name}“: Dateien konnten nicht kopiert werden: {reason}",
+    "rdp_clip_unavailable": "„{name}“: Die System-Zwischenablage ist nicht verfügbar; Kopieren und Einfügen mit dem Remotedesktop funktioniert nicht."
   },
   "time": {
     "now": "gerade eben",

@@ -360,6 +360,14 @@ pub fn run() {
                 dirs::home_dir().as_deref(),
             ));
             app.manage(DataDir(data_dir));
+            // Descargas del portapapeles RDP de sesiones de hace más de un día.
+            {
+                let base = rdp_embedded::clipboard_downloads_base(
+                    app.handle(),
+                    &app.state::<DataDir>().0,
+                );
+                std::thread::spawn(move || rdp_embedded::clipboard::cleanup_stale_downloads(&base));
+            }
             // Señal de arranque minimizado: el frontend la consulta al inicio
             // para decidir si ocultar la ventana en lugar de mostrarla.
             app.manage(LaunchMinimized(launched_minimized));
@@ -514,6 +522,10 @@ pub fn run() {
             rdp_embedded::rdp_cert_response,
             rdp_embedded::rdp_known_certs_list,
             rdp_embedded::rdp_known_cert_remove,
+            rdp_embedded::rdp_embed_clipboard_sync,
+            rdp_embedded::drive::rdp_shared_folder_get,
+            rdp_embedded::drive::rdp_shared_folder_pick,
+            rdp_embedded::drive::rdp_shared_folder_clear,
             // ── Sesiones VNC / Telnet (lanzador externo)
             commands::vnc_connect,
             commands::vnc_disconnect,

@@ -3614,6 +3614,55 @@
               </div>
               <p class="settings-hint" data-i18n="prefs_system.rdp_display_hint">Valor por defecto de las sesiones RDP; cada perfil puede llevar el suyo. La ventana redimensionable deja maximizar y arrastrar, y el escritorio remoto sigue el tamaño: necesita Windows 8 / Server 2012 o superior. «Tamaño fijo» es el comportamiento anterior, para servidores que no lo admiten.</p>
 
+              <div class="settings-row settings-row-inline">
+                <label for="pref-rdp-mode" data-i18n="prefs_system.rdp_mode">Abrir el escritorio remoto (RDP)</label>
+                <select id="pref-rdp-mode">
+                  <option value="embedded" data-i18n="rdp_mode.embedded">En la pestaña</option>
+                  <option value="external" data-i18n="rdp_mode.external">En una ventana externa (mstsc / xfreerdp)</option>
+                </select>
+              </div>
+              <p class="settings-hint" data-i18n="prefs_system.rdp_mode_hint">En la pestaña, el escritorio se ve dentro de Rustty con el cliente integrado. La ventana externa usa mstsc (Windows) o xfreerdp (Linux) y admite lo que ese cliente admita (audio, impresoras, varios monitores…).</p>
+
+              <div class="settings-row" data-rdp-embedded-only>
+                <div class="settings-row-inline">
+                  <label for="pref-rdp-perf" data-i18n="prefs_system.rdp_perf">Rendimiento del escritorio remoto</label>
+                  <select id="pref-rdp-perf">
+                    <option value="speed" data-i18n="rdp_perf.speed">Velocidad</option>
+                    <option value="balanced" data-i18n="rdp_perf.balanced">Equilibrado</option>
+                    <option value="quality" data-i18n="rdp_perf.quality">Calidad</option>
+                  </select>
+                </div>
+                <p class="settings-hint" data-i18n="prefs_system.rdp_perf_hint">Se aplica a las conexiones nuevas. «Velocidad» quita en el remoto el fondo, los temas y las animaciones, y comprime al máximo: para enlaces lentos. «Equilibrado» quita el fondo y las animaciones pero mantiene las fuentes suavizadas. «Calidad» muestra el escritorio tal cual, para redes locales.</p>
+              </div>
+
+              <div class="settings-row" data-rdp-embedded-only>
+                <label class="checkbox-label">
+                  <input type="checkbox" id="pref-rdp-clipboard" />
+                  <span data-i18n="prefs_system.rdp_clipboard">Compartir el portapapeles con el escritorio remoto</span>
+                </label>
+                <p class="settings-hint" data-i18n="prefs_system.rdp_clipboard_hint">Copiar en un lado y pegar en el otro. Lo copiado en local se envía al remoto al volver a la pestaña o al pegar.</p>
+              </div>
+
+              <div class="settings-row" data-rdp-embedded-only>
+                <label class="checkbox-label">
+                  <input type="checkbox" id="pref-rdp-clipboard-files" />
+                  <span data-i18n="prefs_system.rdp_clipboard_files">Copiar y pegar también ficheros y carpetas</span>
+                </label>
+                <p class="settings-hint" data-i18n="prefs_system.rdp_clipboard_files_hint">Los ficheros copiados en el remoto se descargan a una carpeta temporal y, al terminar, se pueden pegar en local. Los copiados en local se leen del disco solo cuando el remoto pega.</p>
+              </div>
+
+              <div class="settings-row" data-rdp-embedded-only>
+                <label class="checkbox-label">
+                  <input type="checkbox" id="pref-rdp-shared-folder" />
+                  <span data-i18n="prefs_system.rdp_shared_folder">Compartir una carpeta local como unidad del remoto</span>
+                </label>
+                <div class="data-actions">
+                  <code id="rdp-shared-folder-path" class="settings-hint"></code>
+                  <button type="button" class="btn-secondary" id="btn-rdp-shared-folder-pick" data-i18n="prefs_system.rdp_shared_folder_pick">Elegir carpeta…</button>
+                </div>
+                <p class="settings-hint" data-i18n="prefs_system.rdp_shared_folder_hint">La carpeta aparece en el Explorador del remoto, con lectura y escritura. Solo esa carpeta: nada fuera de ella. Se aplica a las conexiones nuevas.</p>
+              </div>
+
               <div class="settings-row">
                 <label class="checkbox-label">
                   <input type="checkbox" id="pref-restore-work-tabs" />

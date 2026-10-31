@@ -2,6 +2,16 @@
 
 Todas las novedades reseñables del proyecto Rustty.
 
+## [Sin publicar]
+
+### Añadido
+
+- El escritorio remoto (RDP) se abre ahora dentro de la pestaña por defecto, con el cliente integrado. Preferencias → Sistema → «Abrir el escritorio remoto» permite volver a la ventana externa (mstsc / xfreerdp).
+- Portapapeles compartido con el escritorio remoto en la pestaña: texto en los dos sentidos y también ficheros y carpetas. Lo copiado en el remoto se descarga a una carpeta temporal y queda listo para pegar en local; lo copiado en local se lee del disco solo cuando el remoto pega.
+- Carpeta compartida: una carpeta local elegida en Preferencias aparece como unidad en el Explorador del remoto, con lectura y escritura.
+- Rendimiento del escritorio remoto en la pestaña: «Velocidad», «Equilibrado» (por defecto) o «Calidad». Quita en el remoto el fondo, las animaciones y, en «Velocidad», los temas, y comprime lo que llega, para que vaya fluido en enlaces lentos.
+- En el escritorio remoto de la pestaña, el puntero se mueve al instante: lo pinta Rustty con la forma que manda el remoto, sin esperar a que el servidor redibuje la pantalla.
+
 ## [2.22.0] - 2026-10-26
 
 ### Añadido

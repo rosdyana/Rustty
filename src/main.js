@@ -1900,6 +1900,7 @@ function openSettingsModal() {
   if (_tmuxScroll) _tmuxScroll.value = String(Number(prefs.tmuxScrollbackLines) ?? 2000);
   document.getElementById("pref-bell").value                = prefs.bell;
   document.getElementById("pref-rdp-display").value         = prefs.rdpDisplay || "window";
+  loadRdpEmbeddedPrefs();
   const _metEnabled = document.getElementById("pref-metrics-enabled");
   if (_metEnabled) _metEnabled.checked = !!prefs.metricsEnabled;
   const _metSecs = document.getElementById("pref-metrics-secs");
@@ -3931,6 +3932,11 @@ function readPrefsFromModal() {
     })(),
     bell:            document.getElementById("pref-bell").value,
     rdpDisplay:      document.getElementById("pref-rdp-display").value,
+    rdpMode:         document.getElementById("pref-rdp-mode")?.value === "external" ? "external" : "embedded",
+    rdpPerfProfile:  normalizeRdpPerfProfile(document.getElementById("pref-rdp-perf")?.value),
+    rdpClipboard:    document.getElementById("pref-rdp-clipboard")?.checked ?? true,
+    rdpClipboardFiles: document.getElementById("pref-rdp-clipboard-files")?.checked ?? true,
+    rdpSharedFolder: !!document.getElementById("pref-rdp-shared-folder")?.checked,
     metricsEnabled:  !!document.getElementById("pref-metrics-enabled")?.checked,
     metricsSecs:     parseInt(document.getElementById("pref-metrics-secs")?.value, 10) || DEFAULT_PREFS.metricsSecs,
     metricsPanelVertical: document.getElementById("pref-metrics-orientation")?.value === "vertical",
@@ -11774,16 +11780,118 @@ let rdpEmbedAvailable = false;
 
 /**
  * ¿Abrir este perfil RDP en la pestaña (IronRDP) en vez de en el cliente
- * externo? Fase 1: interruptor de desarrollo, sin interfaz todavía —
- * `localStorage["rustty.dev.rdpEmbedded"] = "1"` en la consola.
+ * externo? En la pestaña por defecto; Ajustes › Sistema lo cambia a la ventana
+ * externa (`prefs.rdpMode`). Sin cliente integrado en la build, siempre externo.
  * @param {any} _profile
  */
 function useEmbeddedRdp(_profile) {
-  if (!rdpEmbedAvailable) return false;
+  return rdpEmbedAvailable && prefs.rdpMode !== "external";
+}
+
+/** Canales extra de una sesión integrada, según Ajustes. */
+const RDP_PERF_PROFILES = ["speed", "balanced", "quality"];
+
+/** @param {unknown} v */
+function normalizeRdpPerfProfile(v) {
+  return RDP_PERF_PROFILES.includes(/** @type {string} */ (v)) ? /** @type {string} */ (v) : "balanced";
+}
+
+function rdpEmbedOptions() {
+  const clipboard = prefs.rdpClipboard !== false;
+  return {
+    clipboard,
+    clipboardFiles: clipboard && prefs.rdpClipboardFiles !== false,
+    sharedFolder: !!prefs.rdpSharedFolder,
+    perfProfile: normalizeRdpPerfProfile(prefs.rdpPerfProfile),
+  };
+}
+
+/** Rellena los ajustes del RDP integrado (y la carpeta guardada en el backend). */
+function loadRdpEmbeddedPrefs() {
+  const modeEl = /** @type {HTMLSelectElement|null} */ (document.getElementById("pref-rdp-mode"));
+  if (modeEl) {
+    modeEl.value = prefs.rdpMode === "external" ? "external" : "embedded";
+    // Sin cliente integrado en la build no hay nada que elegir.
+    modeEl.disabled = !rdpEmbedAvailable;
+    if (!rdpEmbedAvailable) modeEl.value = "external";
+  }
+  const perfEl = /** @type {HTMLSelectElement|null} */ (document.getElementById("pref-rdp-perf"));
+  if (perfEl) perfEl.value = normalizeRdpPerfProfile(prefs.rdpPerfProfile);
+  const clipEl = /** @type {HTMLInputElement|null} */ (document.getElementById("pref-rdp-clipboard"));
+  if (clipEl) clipEl.checked = prefs.rdpClipboard !== false;
+  const filesEl = /** @type {HTMLInputElement|null} */ (document.getElementById("pref-rdp-clipboard-files"));
+  if (filesEl) filesEl.checked = prefs.rdpClipboardFiles !== false;
+  const folderEl = /** @type {HTMLInputElement|null} */ (document.getElementById("pref-rdp-shared-folder"));
+  if (folderEl) folderEl.checked = !!prefs.rdpSharedFolder;
+  syncRdpEmbeddedPrefsUi();
+  invoke("rdp_shared_folder_get")
+    .then((/** @type {{ path?: string|null }} */ r) => showRdpSharedFolder(r?.path ?? null))
+    .catch(() => showRdpSharedFolder(null));
+}
+
+/** Habilita lo que solo tiene sentido en la pestaña y con sus dependencias. */
+function syncRdpEmbeddedPrefsUi() {
+  const embedded = rdpEmbedAvailable
+    && /** @type {HTMLSelectElement|null} */ (document.getElementById("pref-rdp-mode"))?.value !== "external";
+  for (const row of document.querySelectorAll("[data-rdp-embedded-only]")) {
+    row.classList.toggle("is-disabled", !embedded);
+    for (const el of row.querySelectorAll("input, button, select")) {
+      /** @type {HTMLInputElement|HTMLButtonElement|HTMLSelectElement} */ (el).disabled = !embedded;
+    }
+  }
+  const clip = /** @type {HTMLInputElement|null} */ (document.getElementById("pref-rdp-clipboard"));
+  const files = /** @type {HTMLInputElement|null} */ (document.getElementById("pref-rdp-clipboard-files"));
+  if (files) files.disabled = !embedded || !clip?.checked;
+}
+
+/** @param {string|null} path */
+function showRdpSharedFolder(path) {
+  const el = document.getElementById("rdp-shared-folder-path");
+  if (el) el.textContent = path || t("prefs_system.rdp_shared_folder_none");
+}
+
+async function pickRdpSharedFolder() {
   try {
-    return localStorage.getItem("rustty.dev.rdpEmbedded") === "1";
-  } catch {
-    return false;
+    const r = await invoke("rdp_shared_folder_pick", { title: t("prefs_system.rdp_shared_folder_pick") });
+    if (!r) return;
+    showRdpSharedFolder(r.path ?? null);
+    const folderEl = /** @type {HTMLInputElement|null} */ (document.getElementById("pref-rdp-shared-folder"));
+    if (folderEl) folderEl.checked = true;
+  } catch (err) {
+    toast(t("toast.rdp_shared_folder_failed", { error: String(err) }), "error");
+  }
+}
+
+/**
+ * Avisos del portapapeles de una sesión integrada (ficheros copiados en el
+ * remoto que se descargan para poder pegarlos en local).
+ * @param {string} name nombre del perfil
+ * @param {import("./modules/ipc/events.js").RdpEmbedClipEvent} info
+ */
+function onRdpEmbedClip(name, info) {
+  const mb = (/** @type {number|undefined} */ b) => ((b || 0) / (1024 * 1024)).toFixed(1);
+  switch (info.kind) {
+    case "download-start":
+      // Lo pequeño termina antes de que el aviso se lea: solo se anuncia lo grande.
+      if ((info.total || 0) >= 8 * 1024 * 1024) {
+        toast(t("toast.rdp_clip_download_start", { name, files: info.files ?? 0, size: mb(info.total) }), "info");
+      }
+      break;
+    case "download-done":
+      toast(t("toast.rdp_clip_download_done", { name, files: info.files ?? 0 }), "success");
+      break;
+    case "download-error": {
+      const key = `rdp_embed.clip_err.${String(info.reason || "generic").replace(/-/g, "_")}`;
+      const text = t(key);
+      toast(t("toast.rdp_clip_download_failed", {
+        name,
+        reason: text === key ? (info.reason || t("rdp_embed.clip_err.generic")) : text,
+      }), "error", 10000);
+      break;
+    }
+    case "unavailable":
+      toast(t("toast.rdp_clip_unavailable", { name }), "warning", 8000);
+      break;
   }
 }
 
@@ -11882,6 +11990,11 @@ async function connectRdpEmbedded(profileId, { credId = null, reuse = null, rout
     }
   });
   sessionObj.unlisteners.push(unlisten);
+  const unlistenClip = await listen(eventName("rdpEmbedClip", sessionId), (event) => {
+    if (sessionObj.rdpView !== rdpView) return;
+    onRdpEmbedClip(profile.name, /** @type {any} */ (event?.payload) || {});
+  });
+  sessionObj.unlisteners.push(unlistenClip);
 
   const fail = (err) => {
     for (const ul of sessionObj.unlisteners) { try { ul(); } catch {} }
@@ -11908,6 +12021,7 @@ async function connectRdpEmbedded(profileId, { credId = null, reuse = null, rout
       width: size.width,
       height: size.height,
       scale: size.scale,
+      options: rdpEmbedOptions(),
       onFrame: rdpView.channel,
     };
     const reply = await invoke("rdp_embed_connect", args);
@@ -25511,6 +25625,13 @@ function bindUIEvents() {
     .addEventListener("click", () => importConnections());
   document.getElementById("btn-import-ssh-config")
     ?.addEventListener("click", () => importFromSshConfig());
+
+  // RDP en la pestaña: carpeta compartida (la elige y guarda el backend).
+  document.getElementById("btn-rdp-shared-folder-pick")
+    ?.addEventListener("click", () => pickRdpSharedFolder());
+  for (const id of ["pref-rdp-mode", "pref-rdp-clipboard", "pref-rdp-shared-folder"]) {
+    document.getElementById(id)?.addEventListener("change", () => syncRdpEmbeddedPrefsUi());
+  }
 
   // Asistente de importación (mRemoteNG, Ásbrú, …)
   document.getElementById("btn-import-external")

@@ -3264,6 +3264,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f69800329d37810d4d9e493d254646fd8d5ce8e63435cdc7593dd994cde3fa01"
 
 [[package]]
+name = "ironrdp-cliprdr"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "56772c18e4bceb03aa81157cd663080f5b88bc0983c8a4eae6a5784fbce33e85"
+dependencies = [
+ "bitflags 2.13.2",
+ "ironrdp-core",
+ "ironrdp-pdu",
+ "ironrdp-svc",
+ "tracing",
+]
+
+[[package]]
 name = "ironrdp-connector"
 version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3390,6 +3403,36 @@ dependencies = [
  "sha1 0.11.0",
  "tap",
  "x509-cert",
+]
+
+[[package]]
+name = "ironrdp-rdpdr"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5bc4a7412d2939a0e7cd3430d0287508a68728870d1f01934fb5b38ee304ebac"
+dependencies = [
+ "bitflags 2.13.2",
+ "getrandom 0.3.4",
+ "ironrdp-core",
+ "ironrdp-error",
+ "ironrdp-pdu",
+ "ironrdp-svc",
+ "tracing",
+]
+
+[[package]]
+name = "ironrdp-rdpdr-native"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "269375ea762cb2c998ea483d389ba77e91d4eace6d454fb167f35b60bd32ba9f"
+dependencies = [
+ "ironrdp-core",
+ "ironrdp-pdu",
+ "ironrdp-rdpdr",
+ "ironrdp-svc",
+ "nix 0.31.3",
+ "tracing",
+ "windows 0.62.2",
 ]
 
 [[package]]
@@ -6121,6 +6164,7 @@ name = "rustty"
 version = "2.22.0"
 dependencies = [
  "age",
+ "arboard",
  "async-trait",
  "auto-launch",
  "base64 0.23.1",
@@ -6132,6 +6176,7 @@ dependencies = [
  "fontdb",
  "futures",
  "hex",
+ "ironrdp-cliprdr",
  "ironrdp-connector",
  "ironrdp-core",
  "ironrdp-displaycontrol",
@@ -6139,7 +6184,10 @@ dependencies = [
  "ironrdp-graphics",
  "ironrdp-input",
  "ironrdp-pdu",
+ "ironrdp-rdpdr",
+ "ironrdp-rdpdr-native",
  "ironrdp-session",
+ "ironrdp-svc",
  "ironrdp-tokio",
  "keepass",
  "keyring",

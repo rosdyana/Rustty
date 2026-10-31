@@ -28,6 +28,7 @@ describe("contrato de prefijos", () => {
       [
         "rdpClosed",
         "rdpEmbedStatus",
+        "rdpEmbedClip",
         "vncClosed",
         "telnetClosed",
         "sftpLog",

@@ -119,7 +119,7 @@ Si tu shell remoto emite las marcas semánticas **OSC 133** (bash, zsh y fish mo
 - **FTP**: panel de ficheros para servidores FTP heredados.
 - **FTPS**: FTP explícito sobre TLS para servidores que no ofrecen SFTP.
 
-RDP, VNC y Telnet no se embeben dentro de Rustty: se abren como [clientes externos](?page=ClientesExternos), con una pestaña de estado en la app.
+RDP se abre por defecto **dentro de la pestaña**, con el cliente integrado: comparte el portapapeles (texto, ficheros y carpetas) y, si la eliges en Preferencias → Sistema, una carpeta local que aparece como unidad en el remoto. En esa misma sección puedes volver a abrirlo en una ventana externa (mstsc / xfreerdp). VNC y Telnet se abren siempre como [clientes externos](?page=ClientesExternos), con una pestaña de estado en la app.
 
 ## Credenciales
 

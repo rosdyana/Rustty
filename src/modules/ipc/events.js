@@ -46,6 +46,8 @@ export const EVENT_PREFIX = Object.freeze({
   rdpClosed: "rdp-closed-",
   /** `rdp-embed-status-{sessionId}` → {@link RdpEmbedStatusEvent} */
   rdpEmbedStatus: "rdp-embed-status-",
+  /** `rdp-embed-clip-{sessionId}` → {@link RdpEmbedClipEvent} */
+  rdpEmbedClip: "rdp-embed-clip-",
   /** `vnc-closed-{sessionId}` → payload: null */
   vncClosed: "vnc-closed-",
   /** `telnet-closed-{sessionId}` → payload: null */
@@ -222,6 +224,18 @@ export function eventName(kind, suffix) {
  * @property {string} [message] Detalle técnico (no se traduce).
  * @property {number} [width] Con `connected`: ancho del escritorio remoto.
  * @property {number} [height] Con `connected`: alto del escritorio remoto.
+ */
+
+/**
+ * @typedef {object} RdpEmbedClipEvent Portapapeles de una sesión RDP integrada.
+ * @property {"download-start"|"download-progress"|"download-done"|"download-error"|"unavailable"} kind
+ *   Los ficheros copiados en el remoto se descargan a una carpeta temporal y,
+ *   al terminar (`download-done`), quedan en el portapapeles local.
+ * @property {number} [files] Ficheros de la copia (`download-start`, `download-done`).
+ * @property {number} [bytes] Bytes descargados hasta ahora.
+ * @property {number} [total] Bytes totales previstos.
+ * @property {string} [reason] Con `download-error`/`unavailable`: `too-large`,
+ *   `unsafe-name`, `remote`, `short-read`, `empty` o un texto del sistema.
  */
 
 /**

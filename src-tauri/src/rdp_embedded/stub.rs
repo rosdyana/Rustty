@@ -76,3 +76,46 @@ pub fn rdp_embed_available() -> bool {
 pub mod certs {
     pub fn register_app(_app: tauri::AppHandle) {}
 }
+
+#[allow(unused_variables)]
+#[tauri::command]
+pub fn rdp_embed_clipboard_sync(session_id: String) {}
+
+#[must_use]
+pub fn clipboard_downloads_base(
+    _app: &tauri::AppHandle,
+    data_dir: &std::path::Path,
+) -> std::path::PathBuf {
+    data_dir.join("cache").join("rdp-clipboard")
+}
+
+pub mod clipboard {
+    pub fn cleanup_stale_downloads(_root: &std::path::Path) {}
+}
+
+pub mod drive {
+    use super::UNAVAILABLE;
+
+    #[derive(serde::Serialize)]
+    pub struct SharedFolder {
+        path: Option<String>,
+    }
+
+    #[tauri::command]
+    pub fn rdp_shared_folder_get() -> SharedFolder {
+        SharedFolder { path: None }
+    }
+
+    #[allow(clippy::unused_async, unused_variables)]
+    #[tauri::command]
+    pub async fn rdp_shared_folder_pick(
+        title: Option<String>,
+    ) -> Result<Option<SharedFolder>, String> {
+        Err(UNAVAILABLE.into())
+    }
+
+    #[tauri::command]
+    pub fn rdp_shared_folder_clear() -> Result<(), String> {
+        Ok(())
+    }
+}

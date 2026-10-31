@@ -40,6 +40,9 @@ pub enum EventKind {
     /// `rdp-embed-status-{sessionId}` — estado de una sesión RDP **integrada**
     /// (`connecting` / `connected` / `closed` / `error` con `code`).
     RdpEmbedStatus,
+    /// `rdp-embed-clip-{sessionId}` — portapapeles de una sesión RDP integrada
+    /// (progreso de la descarga de ficheros copiados en el remoto, errores).
+    RdpEmbedClip,
     /// `vnc-closed-{sessionId}` — visor VNC externo terminado.
     VncClosed,
     /// `telnet-closed-{sessionId}` — cliente Telnet externo terminado.
@@ -94,6 +97,7 @@ impl EventKind {
             EventKind::SftpProgress => "sftp-progress-",
             EventKind::RdpClosed => "rdp-closed-",
             EventKind::RdpEmbedStatus => "rdp-embed-status-",
+            EventKind::RdpEmbedClip => "rdp-embed-clip-",
             EventKind::VncClosed => "vnc-closed-",
             EventKind::TelnetClosed => "telnet-closed-",
             EventKind::ScriptProgress => "script-progress-",
@@ -208,6 +212,7 @@ mod tests {
             EventKind::SftpProgress,
             EventKind::RdpClosed,
             EventKind::RdpEmbedStatus,
+            EventKind::RdpEmbedClip,
             EventKind::VncClosed,
             EventKind::TelnetClosed,
             EventKind::ScriptProgress,

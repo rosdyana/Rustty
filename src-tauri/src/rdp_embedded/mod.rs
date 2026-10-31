@@ -1,8 +1,11 @@
 //! Escritorio remoto RDP **dentro de la pestaña** (cliente integrado IronRDP).
 //!
-//! Convive con el lanzador de cliente externo (`rdp_manager`): cada perfil
-//! elige uno u otro. Aquí viven el gestor de sesiones y los comandos Tauri,
-//! todos acotados a una sesión que el gestor conoce:
+//! Es el modo por defecto; el lanzador de cliente externo (`rdp_manager`)
+//! queda para quien lo elija en Preferencias (`prefs.rdpMode`). Además de la
+//! imagen y la entrada, la sesión puede llevar portapapeles compartido
+//! ([`clipboard`], texto y ficheros) y una carpeta local como unidad
+//! ([`drive`]). Aquí viven el gestor de sesiones y los comandos Tauri, todos
+//! acotados a una sesión que el gestor conoce:
 //!
 //! | Comando                 | Para qué                                                   |
 //! |-------------------------|------------------------------------------------------------|
@@ -11,6 +14,8 @@
 //! | `rdp_embed_resize`      | Pide un tamaño nuevo del escritorio                        |
 //! | `rdp_embed_ack`         | Confirma el último fotograma pintado (contrapresión)       |
 //! | `rdp_embed_disconnect`  | Cierra la sesión                                           |
+//! | `rdp_embed_clipboard_sync` | Anuncia al remoto el portapapeles local si cambió       |
+//! | `rdp_shared_folder_*`   | Carpeta local compartida como unidad (la elige el backend) |
 //! | `rdp_cert_response`     | Respuesta al diálogo de certificado (TOFU)                 |
 //! | `rdp_known_certs_list`  | Gestor: huellas guardadas                                  |
 //! | `rdp_known_cert_remove` | Gestor: olvidar una huella                                 |
@@ -19,8 +24,11 @@
 //! ficheros ni a la red más allá de la conexión RDP que abre el propio backend.
 
 pub mod certs;
+pub mod clipboard;
+pub mod drive;
 pub mod frames;
 pub mod input;
+mod perf;
 mod session;
 mod tls;
 
@@ -132,6 +140,50 @@ impl session::Reporter for EventReporter {
     }
 }
 
+/// Base de las descargas del portapapeles: la caché de la app (por usuario).
+/// En la build portable, junto a sus datos, para no dejar rastro fuera.
+#[must_use]
+pub fn clipboard_downloads_base(app: &AppHandle, data_dir: &std::path::Path) -> std::path::PathBuf {
+    use tauri::Manager as _;
+    let cache = if crate::is_portable() {
+        None
+    } else {
+        app.path().app_cache_dir().ok()
+    };
+    cache
+        .unwrap_or_else(|| data_dir.join("cache"))
+        .join("rdp-clipboard")
+}
+
+struct ClipEventNotifier {
+    app: AppHandle,
+    event: String,
+}
+
+impl clipboard::ClipNotifier for ClipEventNotifier {
+    fn notice(&self, notice: clipboard::ClipNotice) {
+        let _ = self.app.emit(&self.event, notice);
+    }
+}
+
+/// Canales extra de la sesión, según los ajustes del frontend.
+#[derive(Debug, Default, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EmbedOptions {
+    /// Portapapeles compartido (texto).
+    #[serde(default)]
+    pub clipboard: bool,
+    /// Además, ficheros por el portapapeles.
+    #[serde(default)]
+    pub clipboard_files: bool,
+    /// Compartir la carpeta elegida en Ajustes (la ruta la guarda el backend).
+    #[serde(default)]
+    pub shared_folder: bool,
+    /// Perfil de rendimiento (`speed`, `balanced`, `quality`).
+    #[serde(default)]
+    pub perf_profile: perf::PerfProfile,
+}
+
 /// Respuesta de `rdp_embed_connect`.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -176,6 +228,7 @@ pub async fn rdp_embed_connect(
     width: u32,
     height: u32,
     scale: Option<u32>,
+    options: Option<EmbedOptions>,
     on_frame: Channel<Response>,
 ) -> Result<ConnectReply, String> {
     if !valid_session_id(&session_id) {
@@ -227,6 +280,7 @@ pub async fn rdp_embed_connect(
         None => (profile.host.clone(), profile.port),
     };
 
+    let options = options.unwrap_or_default();
     let params = ConnectParams {
         host: profile.host.clone(),
         port: profile.port,
@@ -240,6 +294,23 @@ pub async fn rdp_embed_connect(
         height,
         scale,
         cert_store: certs::store_path(&data_dir.0),
+        clipboard: options.clipboard.then_some(clipboard::ClipboardOptions {
+            files: options.clipboard_files,
+        }),
+        clipboard_temp: clipboard::session_temp_root(
+            &clipboard_downloads_base(&app, &data_dir.0),
+            &session_id,
+        ),
+        clipboard_notifier: Arc::new(ClipEventNotifier {
+            app: app.clone(),
+            event: event_name(EventKind::RdpEmbedClip, &session_id),
+        }),
+        shared_folder: if options.shared_folder {
+            drive::configured(&data_dir.0)
+        } else {
+            None
+        },
+        perf: options.perf_profile,
     };
 
     let (tx, rx) = mpsc::channel(CMD_QUEUE);
@@ -357,6 +428,15 @@ pub fn rdp_embed_ack(manager: State<'_, EmbeddedRdpManager>, session_id: String,
 pub fn rdp_embed_disconnect(manager: State<'_, EmbeddedRdpManager>, session_id: String) {
     if let Some((cmds, _)) = manager.get(&session_id) {
         let _ = cmds.try_send(SessionCmd::Close);
+    }
+}
+
+/// El escritorio recibió el foco (o va a pegar): si el portapapeles local
+/// cambió desde lo último anunciado, se anuncia al remoto.
+#[tauri::command]
+pub fn rdp_embed_clipboard_sync(manager: State<'_, EmbeddedRdpManager>, session_id: String) {
+    if let Some((cmds, _)) = manager.get(&session_id) {
+        let _ = cmds.try_send(SessionCmd::ClipboardSync);
     }
 }
 

@@ -579,6 +579,15 @@
     "workarea": "Zone de travail",
     "fixed": "Taille fixe (serveurs anciens)"
   },
+  "rdp_mode": {
+    "embedded": "Dans l’onglet",
+    "external": "Dans une fenêtre externe (mstsc / xfreerdp)"
+  },
+  "rdp_perf": {
+    "speed": "Vitesse",
+    "balanced": "Équilibré",
+    "quality": "Qualité"
+  },
   "rdp_embed": {
     "err": {
       "generic": "erreur inattendue de la session.",
@@ -595,6 +604,14 @@
       "redirect": "le serveur demande de rediriger la session vers une autre machine, ce que le client intégré ne prend pas encore en charge.",
       "reactivation_timeout": "le serveur n’a pas fini de réactiver la session après un changement d’affichage.",
       "internal": "erreur interne du client intégré."
+    },
+    "clip_err": {
+      "generic": "erreur inattendue.",
+      "too_large": "la copie dépasse la limite de 8 Gio.",
+      "unsafe_name": "le distant a envoyé un nom de fichier non valide.",
+      "remote": "le bureau à distance n’a pas fourni le fichier.",
+      "short_read": "le fichier a changé sur le distant pendant la copie.",
+      "empty": "il n’y avait rien à copier."
     }
   },
   "ctx": {
@@ -1766,6 +1783,18 @@
     "autostart_hint": "Ajoute Rustty à la liste des applications lancées automatiquement à l'ouverture de session.",
     "rdp_display": "Fenêtre du bureau distant (RDP)",
     "rdp_display_hint": "Valeur par défaut des sessions RDP ; chaque profil peut la remplacer. La fenêtre redimensionnable peut être agrandie et déplacée, et le bureau distant suit la taille : nécessite Windows 8 / Server 2012 ou plus récent. « Taille fixe » correspond au comportement précédent, pour les serveurs qui ne le prennent pas en charge.",
+    "rdp_mode": "Ouvrir le bureau à distance (RDP)",
+    "rdp_mode_hint": "Dans l’onglet, le bureau s’affiche dans Rustty avec le client intégré. La fenêtre externe utilise mstsc (Windows) ou xfreerdp (Linux) et prend en charge ce que ce client prend en charge (audio, imprimantes, plusieurs écrans…).",
+    "rdp_perf": "Performances du bureau à distance",
+    "rdp_perf_hint": "S’applique aux nouvelles connexions. « Vitesse » masque sur le distant le fond d’écran, les thèmes et les animations, et compresse au maximum : pour les liaisons lentes. « Équilibré » masque le fond d’écran et les animations mais garde le lissage des polices. « Qualité » affiche le bureau tel quel, pour les réseaux locaux.",
+    "rdp_clipboard": "Partager le presse-papiers avec le bureau à distance",
+    "rdp_clipboard_hint": "Copier d’un côté, coller de l’autre. Ce qui est copié en local est envoyé au distant quand vous revenez à l’onglet ou collez.",
+    "rdp_clipboard_files": "Copier-coller aussi les fichiers et dossiers",
+    "rdp_clipboard_files_hint": "Les fichiers copiés sur le distant sont téléchargés dans un dossier temporaire et, une fois terminés, peuvent être collés en local. Les fichiers copiés en local ne sont lus que lorsque le distant les colle.",
+    "rdp_shared_folder": "Partager un dossier local comme lecteur du distant",
+    "rdp_shared_folder_pick": "Choisir un dossier…",
+    "rdp_shared_folder_hint": "Le dossier apparaît dans l’Explorateur du distant, en lecture et écriture. Seulement ce dossier, rien en dehors. S’applique aux nouvelles connexions.",
+    "rdp_shared_folder_none": "Aucun dossier choisi",
     "autostart_minimized": "Démarrer réduit",
     "restore_work_tabs": "Proposer de restaurer les onglets de la dernière session",
     "restore_work_tabs_hint": "Enregistre l'ordre des onglets et leurs profils (jamais le contenu du terminal, ni secrets, ni sessions privées) et propose de les reconnecter en bloc au démarrage.",
@@ -2083,7 +2112,12 @@
     "transfers_pause_all_failed": "Impossible de changer la pause générale : {err}",
     "file_grant_invalid": "L'autorisation pour ce fichier n'est plus valable (elle a expiré, a déjà servi ou le chemin a changé). Choisissez-le à nouveau.",
     "import_failed": "Échec de l'importation : {err}",
-    "rdp_embed_failed": "Impossible d’ouvrir le bureau à distance « {name} » : {reason}"
+    "rdp_embed_failed": "Impossible d’ouvrir le bureau à distance « {name} » : {reason}",
+    "rdp_shared_folder_failed": "Impossible d’enregistrer le dossier partagé : {error}",
+    "rdp_clip_download_start": "« {name} » : copie de {files} fichier(s) depuis le bureau à distance ({size} Mo)…",
+    "rdp_clip_download_done": "« {name} » : {files} fichier(s) prêt(s) à coller",
+    "rdp_clip_download_failed": "« {name} » : impossible de copier les fichiers : {reason}",
+    "rdp_clip_unavailable": "« {name} » : le presse-papiers du système n’est pas disponible ; le copier-coller avec le bureau à distance ne fonctionnera pas."
   },
   "sftp": {
     "symlinks_skipped": "{n} liens symboliques ignorés (non copiés)",
