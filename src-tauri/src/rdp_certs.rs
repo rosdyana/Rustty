@@ -16,9 +16,9 @@
 //!   estilo `known_hosts` de OpenSSH: `host puerto huella [subject issuer]`.
 //!
 //! Se atienden los dos: el binario que haya en la máquina lo decide el usuario,
-//! no nosotros. Y `<config>` tampoco es uno solo: bajo Flatpak el cliente corre
-//! en el **host** heredando nuestro entorno, así que el certificado puede acabar
-//! tanto en el `XDG_CONFIG_HOME` del sandbox como en el `~/.config` real.
+//! no nosotros. Y `<config>` tampoco es uno solo: el cliente respeta
+//! `XDG_CONFIG_HOME` si está definido, así que el certificado puede acabar
+//! tanto ahí como en el `~/.config` clásico.
 
 use std::path::{Path, PathBuf};
 
@@ -41,9 +41,8 @@ const PRESENTED_MARKER: &str = "sent by the remote host is";
 /// Directorios `freerdp` candidatos, en orden y sin repetidos.
 ///
 /// `XDG_CONFIG_HOME` primero (es el que respeta el propio cliente) y el
-/// `~/.config` clásico después. Suelen ser el mismo sitio; dejan de serlo dentro
-/// de Flatpak, donde `XDG_CONFIG_HOME` apunta al sandbox y `HOME` al directorio
-/// real del usuario.
+/// `~/.config` clásico después. Suelen ser el mismo sitio; dejan de serlo
+/// cuando el usuario fija un `XDG_CONFIG_HOME` propio.
 fn freerdp_dirs() -> Vec<PathBuf> {
     let mut dirs: Vec<PathBuf> = Vec::new();
     if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME").filter(|v| !v.is_empty()) {

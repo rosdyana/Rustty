@@ -1,6 +1,5 @@
 // @ts-check
 import { escHtml } from "../html.js";
-import { formatAccelerator } from "../platform.js";
 import { comboFromEvent } from "./combo.js";
 import { SHORTCUT_ACTIONS, SHORTCUT_IDS, SHORTCUT_PRESETS } from "./catalog.js";
 import { dispatchShortcut, getShortcut, normalizeShortcutMap, replaceShortcuts, setShortcut } from "./model.js";
@@ -34,7 +33,7 @@ export function createShortcutController({ getPrefs, save, actions, toast, confi
       const label = t(`prefs_shortcuts.action_${id}`);
       return `<div class="shortcut-row" data-shortcut-id="${id}">
         <div class="shortcut-label">${escHtml(label)}</div>
-        <kbd class="shortcut-combo">${current ? escHtml(formatAccelerator(current)) : `<em>${escHtml(t("prefs_shortcuts.disabled"))}</em>`}</kbd>
+        <kbd class="shortcut-combo">${current ? escHtml(current) : `<em>${escHtml(t("prefs_shortcuts.disabled"))}</em>`}</kbd>
         <div class="shortcut-row-actions">
           <button type="button" class="btn-secondary btn-shortcut-edit" data-i18n="prefs_shortcuts.edit"></button>
           <button type="button" class="btn-secondary btn-shortcut-clear" data-i18n="prefs_shortcuts.disable"></button>

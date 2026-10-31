@@ -46,10 +46,6 @@ const POLL_INTERVAL: Duration = Duration::from_millis(50);
 /// que los lectores lleguen al EOF en milisegundos; si no, es que un proceso
 /// en segundo plano conserva las tuberías y no se le espera.
 const READER_GRACE: Duration = Duration::from_millis(500);
-/// Descriptor por el que `flatpak-spawn` lee los valores de los marcadores
-/// (`--env-fd`): el primero libre tras stdin/stdout/stderr.
-#[cfg(unix)]
-const ENV_FD: i32 = 3;
 
 /// Resultado de un comando local acotado.
 #[derive(serde::Serialize)]
@@ -302,9 +298,7 @@ fn read_capped<R: Read>(reader: R, cap: usize) -> (Vec<u8>, bool) {
 /// y stdin cerrado (no es interactivo: un comando que pregunte no debe quedarse
 /// esperando a un teclado que no existe).
 fn spawn_shell(command: &str, env: &[(String, String)]) -> std::io::Result<std::process::Child> {
-    #[cfg(windows)]
-    use std::process::Command;
-    use std::process::Stdio;
+    use std::process::{Command, Stdio};
     #[cfg(windows)]
     let mut cmd = {
         let mut c = Command::new("cmd");
@@ -316,45 +310,15 @@ fn spawn_shell(command: &str, env: &[(String, String)]) -> std::io::Result<std::
         c.envs(env.iter().map(|(k, v)| (k.as_str(), v.as_str())));
         c
     };
-    // Bajo Flatpak, los valores de los marcadores (`RUSTTY_ARG_n`) llegan al
-    // host por `--env-fd`: un `cmd.env` se quedaría en `flatpak-spawn` (el
-    // comando correría con los valores vacíos) y `--env=` los dejaría a la
-    // vista en su línea de órdenes (`ps`) mientras dura el comando. El `memfd`
-    // vive hasta el final de la función, después del `spawn`.
-    #[cfg(target_os = "linux")]
-    let env_file = if crate::sandbox::in_flatpak() && !env.is_empty() {
-        Some(crate::sandbox::env_memfd(env)?)
-    } else {
-        None
-    };
-    #[cfg(all(unix, not(target_os = "linux")))]
-    let env_file: Option<std::fs::File> = None;
     #[cfg(not(windows))]
     let mut cmd = {
-        // Bajo Flatpak el comando se ejecuta en el host: el catálogo es «su
-        // shell», y las órdenes que el usuario guarda (`ping`, `scp`, abrir su
-        // editor…) son herramientas de su sistema, no del runtime.
-        let mut c = crate::sandbox::host_command(
-            "sh",
-            crate::sandbox::HostSpawn {
-                env: if env_file.is_some() { &[] } else { env },
-                env_fd: env_file.as_ref().map(|_| ENV_FD),
-                ..Default::default()
-            },
-        );
-        #[cfg(target_os = "linux")]
-        if let Some(file) = &env_file {
-            crate::sandbox::inherit_fd(&mut c, file, ENV_FD);
-        }
+        let mut c = Command::new("sh");
         c.arg("-c").arg(command);
+        // Los valores de los marcadores (`RUSTTY_ARG_n`) van por el entorno del
+        // hijo, nunca interpolados en la orden.
+        c.envs(env.iter().map(|(k, v)| (k.as_str(), v.as_str())));
         // Grupo de procesos propio: así la señal de terminación alcanza también
         // a los nietos (pipelines, procesos en segundo plano del shell).
-        //
-        // Dentro del sandbox el grupo es el de `flatpak-spawn`, no el del árbol
-        // real: la terminación llega porque `flatpak-spawn` reenvía la señal al
-        // proceso del host, y `--watch-bus` lo mata igualmente si Rustty muere.
-        // Un nieto que el shell haya dejado suelto en el host puede sobrevivir
-        // a la cancelación; fuera de Flatpak el comportamiento es el de antes.
         use std::os::unix::process::CommandExt;
         c.process_group(0);
         c

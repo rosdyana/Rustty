@@ -98,7 +98,7 @@ Telnet no cifra el tráfico. Úsalo solo cuando el dispositivo o la red lo exija
 
 Cuando activas sincronización o exportas un backup cifrado, Rustty genera `rustty-sync.bin` con `age` y tu passphrase maestra. El backend remoto recibe ese fichero ya cifrado.
 
-Rustty puede conectar con Google Drive, WebDAV, iCloud Drive o una carpeta local/NAS solo cuando lo configuras expresamente en **Preferencias → Copias de seguridad**.
+Rustty puede conectar con Google Drive, WebDAV o una carpeta local/NAS solo cuando lo configuras expresamente en **Preferencias → Copias de seguridad**.
 
 Antes de sobrescribir el estado remoto, Rustty crea snapshots históricos cifrados. Esto ayuda a recuperar estados anteriores si una sincronización no era la esperada.
 
@@ -106,9 +106,9 @@ Si marcas **Contraseñas guardadas (cifradas E2E)**, Rustty lee del keyring loca
 
 ## Firma de código y actualizaciones
 
-Los binarios de **macOS** se firman con **Apple Developer ID** y se **notarizan** con Apple, así que Gatekeeper no muestra avisos en una instalación limpia. La firma de código de **Windows** está en evaluación; hasta entonces los instaladores de Windows se publican sin firma Authenticode y conviene verificar su `sha256`. Los detalles (mecanismos, roles, construcción verificable y cómo verificar una descarga) están en la [política de firma de código](?page=Firma).
+Rustty publica dos artefactos por versión: el ejecutable portable de **Windows** y el paquete **`.deb`** para Debian/Ubuntu. La firma de código de Windows está en evaluación; hasta entonces el `.exe` se publica sin firma Authenticode. Cada release incluye un `SHA256SUMS.txt` con el hash de todos los artefactos, respaldado por una **attestation de procedencia** de GitHub, para que puedas comprobar que tu descarga es la que generó el CI del proyecto. Los detalles (mecanismos, roles, construcción verificable y cómo verificar una descarga) están en la [política de firma de código](?page=Firma).
 
-La auto-actualización (Windows, macOS y AppImage de Linux) está **firmada criptográficamente**. Cada artefacto publicado lleva una firma generada con una clave privada que solo vive en los secretos del CI del proyecto; la app incluye embebida la **clave pública** correspondiente. Antes de instalar una actualización, Rustty descarga el artefacto y su firma y la **verifica contra la clave pública**: si no cuadra (descarga manipulada o de origen no fiable), la actualización se rechaza. Por eso los ficheros `.sig` aparecen junto a cada binario en la página de releases: son firmas públicas, no exponen ningún secreto.
+Rustty **no descarga ni instala actualizaciones por su cuenta**: solo consulta la API de releases de GitHub para saber si hay una versión nueva y, si la hay, abre la página del release en el navegador. La descarga la haces tú, y puedes verificarla con el `SHA256SUMS.txt` del release.
 
 ## Verificación de host SSH
 
@@ -169,7 +169,7 @@ Los exports JSON locales sí pueden incluir una sección `secrets`, pero solo de
 
 ## Reporte de vulnerabilidades
 
-Si encuentras un fallo de seguridad, repórtalo de forma privada: usa el formulario «Report a vulnerability» de la pestaña *Security* del [repositorio en GitHub](https://github.com/Aleixenandros/Rustty/security/advisories/new) o el correo de contacto del proyecto. Evita abrir un issue público hasta que exista una corrección. Los detalles completos (versiones soportadas y modelo de seguridad) están en el fichero [`SECURITY.md`](https://github.com/Aleixenandros/Rustty/blob/main/SECURITY.md) del repositorio.
+Si encuentras un fallo de seguridad, repórtalo de forma privada: usa el formulario «Report a vulnerability» de la pestaña *Security* del [repositorio en GitHub](https://github.com/rosdyana/Rustty/security/advisories/new) o el correo de contacto del proyecto. Evita abrir un issue público hasta que exista una corrección. Los detalles completos (versiones soportadas y modelo de seguridad) están en el fichero [`SECURITY.md`](https://github.com/rosdyana/Rustty/blob/main/SECURITY.md) del repositorio.
 
 ## Sitio web
 

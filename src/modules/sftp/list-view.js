@@ -104,7 +104,7 @@ export function filterEntries(entries, term) {
 /**
  * Selección resultante de pulsar sobre una fila.
  *
- * `toggle` (Ctrl/Cmd/Alt) suma o resta esa fila; sin modificador la selección
+ * `toggle` (Ctrl/Alt) suma o resta esa fila; sin modificador la selección
  * pasa a ser solo esa fila. Devuelve un `Set` nuevo — el llamador decide si
  * repinta, y comparar identidades es más barato que comparar contenidos.
  *

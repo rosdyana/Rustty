@@ -1634,12 +1634,6 @@ body.sidebar-collapsed #btn-toggle-sidebar .chevron { transform: rotate(180deg);
   -webkit-app-region: no-drag;
 }
 
-/* En macOS los traffic lights nativos están a la izquierda:
-   ocultamos nuestros controles y dejamos un hueco a la izquierda
-   del tab-bar para que no se solapen con ellos. */
-body.platform-macos #window-controls { display: none; }
-body.platform-macos #tab-bar { padding-left: 76px; }
-
 .win-ctrl {
   flex: 0 0 auto;
   width: 44px;
@@ -6331,19 +6325,6 @@ body.overlay-scrollbars:not(.native-scrollbars) ::-webkit-scrollbar-thumb:hover 
   font-size: 11px;
   color: var(--subtext0);
   margin: 0;
-}
-
-.sync-path-code {
-  display: block;
-  padding: 7px 8px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--border-radius);
-  background: var(--surface-sunken);
-  color: var(--subtext1);
-  font-size: 11px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 /* ─── Sincronización en la nube ──────────────────────────────── */

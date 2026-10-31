@@ -18,7 +18,7 @@ Las bases KeePass desbloqueadas, rutas locales como `keepassPath` o `keepassKeyf
 
 ## Cifrado
 
-La sincronización usa un fichero `rustty-sync.bin` cifrado localmente con `age` y una passphrase maestra. Google Drive, WebDAV, iCloud Drive o la carpeta compartida solo reciben ese blob cifrado.
+La sincronización usa un fichero `rustty-sync.bin` cifrado localmente con `age` y una passphrase maestra. Google Drive, WebDAV o la carpeta compartida solo reciben ese blob cifrado.
 
 Si pierdes la passphrase, Rustty no puede descifrar el backup remoto.
 
@@ -85,16 +85,6 @@ Rustty abre el navegador para autorizar el acceso con Google. Usa el espacio pri
 La app no pide Client ID ni Client secret al usuario. Esas credenciales vienen integradas en las builds oficiales.
 
 Los snapshots históricos se guardan también en `appDataFolder` y se podan automáticamente según el límite configurado.
-
-### iCloud Drive
-
-En macOS, Rustty puede usar una carpeta dentro de iCloud Drive:
-
-```text
-~/Library/Mobile Documents/com~apple~CloudDocs/Rustty/
-```
-
-Rustty escribe el fichero cifrado ahí y macOS se encarga de sincronizarlo.
 
 ### Carpeta local / NAS
 

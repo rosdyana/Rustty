@@ -18,7 +18,6 @@ export default [
       "dist/**",
       "node_modules/**",
       "web/**",
-      "packaging/**",
       "public/**",
       "src-tauri/**",
     ],

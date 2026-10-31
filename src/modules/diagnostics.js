@@ -147,7 +147,7 @@ export function sanitizePrefsForDiagnostics(prefs, options = {}) {
 /**
  * @typedef {object} DiagnosticsInput
  * @property {string} appVersion
- * @property {string} [platform] SO (`linux`, `windows`, `macos`).
+ * @property {string} [platform] SO (`linux`, `windows`).
  * @property {string} [osVersion]
  * @property {string} [arch]
  * @property {string} [locale] Idioma activo de la interfaz.

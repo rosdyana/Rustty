@@ -5,8 +5,6 @@
 
 import { invoke, Channel } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { check as checkUpdate } from "@tauri-apps/plugin-updater";
-import { relaunch } from "@tauri-apps/plugin-process";
 import { readText as readClipboardText, writeText as writeClipboardText } from "@tauri-apps/plugin-clipboard-manager";
 import { isPermissionGranted as notifPermissionGranted, requestPermission as requestNotifPermission, sendNotification } from "@tauri-apps/plugin-notification";
 import * as sync from "./sync.js";
@@ -81,7 +79,6 @@ import { createShortcutController } from "./modules/shortcuts/controller.js";
 import { createDialogController } from "./modules/dialogs/controller.js";
 import { undoRedoCommand } from "./modules/shortcuts/undo-keys.js";
 import { buildCheatsheet, filterCheatsheet } from "./modules/shortcuts/cheatsheet.js";
-import { formatAccelerator } from "./modules/platform.js";
 import { buildQuickProfile, findQuickTargetProfile, formatQuickTarget, paletteQuickTarget, parseQuickTarget } from "./modules/quick-connect.js";
 import { firstBlockPerAlias, linkSshConfigJumps, sshConfigJumpFields } from "./modules/ssh-config-jumps.js";
 import {
@@ -262,8 +259,8 @@ const RECENT_CONNECTIONS_STORAGE_KEY = "rustty-recent-connections";
 const TERMINAL_OUTPUT_CHUNK_CHARS = 64 * 1024;
 const TERMINAL_OUTPUT_QUEUE_LIMIT_CHARS = 16 * 1024 * 1024;
 let _trayQuickLauncherTimer = null;
-const RELEASES_API_URL = "https://api.github.com/repos/Aleixenandros/Rustty/releases/latest";
-const RELEASES_PAGE_URL = "https://github.com/Aleixenandros/Rustty/releases/latest";
+const RELEASES_API_URL = "https://api.github.com/repos/rosdyana/Rustty/releases/latest";
+const RELEASES_PAGE_URL = "https://github.com/rosdyana/Rustty/releases/latest";
 const DEFAULT_SYNC_HISTORY_KEEP = 30;
 // Espejo de `WINDOW_STATE_FLAGS` en `lib.rs`: el plugin window-state restaura y
 // guarda con los mismos flags por los dos caminos. La visibilidad (8) se deja
@@ -2036,7 +2033,6 @@ const SYNC_PULL_INTERVALS = [0, 60, 300, 900, 1800, 3600];
 function syncDevicePlatform() {
   const ua = navigator.userAgent || "";
   if (ua.includes("Windows")) return "Windows";
-  if (ua.includes("Mac")) return "macOS";
   return "Linux";
 }
 
@@ -2153,7 +2149,7 @@ async function populateSyncTab() {
   }));
   _syncConfigCache = config;
 
-  const allowedBackends = ["none", "local", "icloud", "webdav", "google_drive"];
+  const allowedBackends = ["none", "local", "webdav", "google_drive"];
   const backend = allowedBackends.includes(config.backend) ? config.backend : "none";
   document.getElementById("sync-enabled").checked = !!config.enabled;
   document.getElementById("sync-backend").value = backend;
@@ -2225,9 +2221,6 @@ function syncUpdateBackendVisibility() {
   document.querySelectorAll(".sync-local-only").forEach((el) =>
     el.classList.toggle("hidden", v !== "local")
   );
-  document.querySelectorAll(".sync-icloud-only").forEach((el) =>
-    el.classList.toggle("hidden", v !== "icloud")
-  );
   document.querySelectorAll(".sync-webdav-only").forEach((el) =>
     el.classList.toggle("hidden", v !== "webdav")
   );
@@ -2257,7 +2250,6 @@ function syncBackendLabel(backend) {
   const map = {
     none: "prefs_sync.backend_none",
     local: "prefs_sync.backend_local",
-    icloud: "prefs_sync.backend_icloud",
     webdav: "prefs_sync.backend_webdav",
     google_drive: "prefs_sync.backend_google_drive",
   };
@@ -2318,7 +2310,6 @@ function renderSyncBackendCards() {
   if (!grid) return;
   const backends = [
     { id: "local",        icon: SYNC_ICON_LOCAL,  labelKey: "prefs_sync.backend_local" },
-    { id: "icloud",       icon: SYNC_ICON_ICLOUD, labelKey: "prefs_sync.backend_icloud" },
     { id: "webdav",       icon: SYNC_ICON_WEBDAV, labelKey: "prefs_sync.backend_webdav" },
     { id: "google_drive", icon: SYNC_ICON_DRIVE,  labelKey: "prefs_sync.backend_google_drive" },
   ];
@@ -3245,15 +3236,6 @@ async function sessionLogsOpenFolder() {
   }
 }
 
-async function syncOpenBackendFolder() {
-  await persistSyncConfig().catch((err) => console.error("[sync] save before open backend", err));
-  const path = await invoke("sync_get_backend_folder").catch((err) => {
-    toast(`${t("rail.sync")}: ${err}`, "error", 6000, { category: "sync" });
-    return null;
-  });
-  await openPathInFileManager(path, t("prefs_sync.backend_folder_label"));
-}
-
 // Diálogos que sync.js usa en export/import/restore: wry no implementa
 // window.prompt/confirm, así que se le inyectan los tematizados de main.js.
 const syncDialogs = {
@@ -3508,7 +3490,6 @@ async function populateAboutVersion() {
 function diagnosticsPlatform() {
   const ua = navigator.userAgent || "";
   if (/Windows/.test(ua)) return "windows";
-  if (/Mac OS X|Macintosh/.test(ua)) return "macos";
   if (/Linux/.test(ua)) return "linux";
   return "unknown";
 }
@@ -3614,123 +3595,8 @@ function setAboutUpdateStatus(text, type = "") {
   el.textContent = text;
 }
 
-/**
- * El updater de Tauri autoinstala en Windows y macOS (formato único, in-place
- * fiable) y en Linux **solo cuando la app es un AppImage** (único formato que el
- * updater sabe reemplazar). En el resto de formatos de Linux (deb/rpm/Flatpak/
- * Arch) se mantiene el aviso clásico que abre la página de releases, porque la
- * actualización corresponde al gestor de paquetes.
- */
-async function platformSupportsUpdater() {
-  const ua = navigator.userAgent || "";
-  if (/Windows/.test(ua) || /Mac OS X|Macintosh/.test(ua)) return true;
-  if (/Linux/.test(ua)) {
-    try {
-      return await invoke("is_appimage");
-    } catch {
-      return false;
-    }
-  }
-  return false;
-}
-
-/** Caché de `runningInFlatpak`: no cambia en toda la sesión. */
-let _isFlatpak = null;
-
-/**
- * Dentro de Flatpak la versión instalada la gobierna el remote (Flathub), no
- * las releases de GitHub: comprobar allí llevaría al usuario a descargar un
- * paquete distinto del que tiene.
- * @returns {Promise<boolean>}
- */
-async function runningInFlatpak() {
-  if (_isFlatpak === null) {
-    try {
-      _isFlatpak = await invoke("is_flatpak");
-    } catch {
-      _isFlatpak = false;
-    }
-  }
-  return _isFlatpak;
-}
-
 async function checkForUpdates({ interactive = true } = {}) {
-  if (await runningInFlatpak()) {
-    if (interactive) setAboutUpdateStatus(t("prefs_about.update_flatpak_managed"));
-    return;
-  }
-  if (await platformSupportsUpdater()) {
-    const handled = await checkForUpdatesViaUpdater({ interactive });
-    if (handled) return;
-    // Si el updater no estaba disponible (p. ej. ejecutando fuera del bundle),
-    // caemos al aviso clásico por la API de GitHub.
-  }
   await checkForUpdatesViaGithub({ interactive });
-}
-
-/**
- * Comprueba e instala una actualización con el updater de Tauri.
- * @returns {Promise<boolean>} true si gestionó el flujo (con o sin actualización);
- *   false si el updater no está disponible y conviene usar el fallback.
- */
-async function checkForUpdatesViaUpdater({ interactive }) {
-  const btn = document.getElementById("btn-about-check-updates");
-  if (btn) btn.disabled = true;
-  if (interactive) setAboutUpdateStatus(t("prefs_about.checking_updates"));
-  try {
-    const update = await checkUpdate();
-    if (!update) {
-      if (interactive) {
-        recordActivity({ kind: "update", status: "ok", title: t("prefs_about.update_current") });
-        setAboutUpdateStatus(t("prefs_about.update_current"), "success");
-      }
-      return true;
-    }
-
-    const version = `v${normalizeVersion(update.version) || update.version}`;
-    recordActivity({
-      kind: "update",
-      status: "warning",
-      title: t("prefs_about.update_available", { version }),
-    });
-    setAboutUpdateStatus(t("prefs_about.update_available", { version }), "warning");
-
-    const doInstall = await confirmThemed({
-      title: t("prefs_about.check_updates"),
-      message: t("prefs_about.update_install_prompt", { version }),
-      submitLabel: t("modal_credential.accept"),
-    });
-    if (!doInstall) {
-      try { await update.close(); } catch {}
-      return true;
-    }
-
-    let total = 0;
-    let received = 0;
-    await update.downloadAndInstall((event) => {
-      if (event.event === "Started") {
-        total = event.data.contentLength || 0;
-        setAboutUpdateStatus(t("prefs_about.update_downloading", { pct: 0 }), "warning");
-      } else if (event.event === "Progress") {
-        received += event.data.chunkLength || 0;
-        const pct = total > 0 ? Math.min(100, Math.round((received / total) * 100)) : 0;
-        setAboutUpdateStatus(t("prefs_about.update_downloading", { pct }), "warning");
-      } else if (event.event === "Finished") {
-        setAboutUpdateStatus(t("prefs_about.update_installing"), "warning");
-      }
-    });
-
-    setAboutUpdateStatus(t("prefs_about.update_restarting"), "success");
-    await relaunch();
-    return true;
-  } catch (err) {
-    console.warn("[updates] updater failed", err);
-    // El updater no está disponible (ejecución fuera del bundle, plugin no
-    // inicializado, etc.): deja que el caller use el fallback de GitHub.
-    return false;
-  } finally {
-    if (btn) btn.disabled = false;
-  }
 }
 
 async function checkForUpdatesViaGithub({ interactive = true } = {}) {
@@ -5400,7 +5266,7 @@ async function handleWorkspaceMenuClick(action, wsId) {
   if (action === "delete") {
     toggleWorkspaceMenu(false);
     // La vía común: diálogos tematizados (wry no implementa `window.confirm`:
-    // en Linux y macOS no mostraba nada), confirmación tecleada si tiene
+    // en Linux no mostraba nada), confirmación tecleada si tiene
     // conexiones y papelera con Deshacer también para un workspace vacío.
     await deleteWorkspaceById(getActiveWorkspaceId());
     return;
@@ -6776,7 +6642,7 @@ function handleSidebarConnectionClick(e, el, container) {
     }
   }
 
-  if (e.ctrlKey || e.metaKey) {
+  if (e.ctrlKey) {
     if (sidebarSelectedConnectionIds.has(id)) {
       sidebarSelectedConnectionIds.delete(id);
     } else {
@@ -7420,7 +7286,7 @@ let menuReturnFocus = null;
 /**
  * Cuándo se cerró por última vez un menú visible. Un diálogo que se abre con
  * el foco en `body` justo después viene de ese menú; pasado el margen, el foco
- * en `body` es otra cosa (en macOS un clic no enfoca los botones) y volver al
+ * en `body` es otra cosa (un clic no siempre enfoca los botones) y volver al
  * disparador de un menú antiguo movería la barra lateral hasta él.
  */
 let menuHiddenAt = -Infinity;
@@ -12917,16 +12783,16 @@ function createTab(sessionId, profile, initialStatus, { sftp = true, private: is
     if (e.target.classList.contains("tab-sftp")) return;
     if (e.target.classList.contains("tab-tunnels")) return;
     if (e.target.classList.contains("tab-notes")) return;
-    selectSession(tab.dataset.session, e.ctrlKey || e.metaKey);
+    selectSession(tab.dataset.session, e.ctrlKey);
   });
-  // Teclado: Enter/Espacio sobre la propia pestaña la selecciona (Ctrl/Cmd la
+  // Teclado: Enter/Espacio sobre la propia pestaña la selecciona (Ctrl la
   // añade a la vista múltiple). No interceptamos las teclas de los botones
   // internos (cerrar/SFTP/túneles/notas), que se activan de forma nativa.
   tab.addEventListener("keydown", (e) => {
     if (e.target !== tab) return;
     if (e.key === "Enter" || e.key === " " || e.key === "Spacebar") {
       e.preventDefault();
-      selectSession(tab.dataset.session, e.ctrlKey || e.metaKey);
+      selectSession(tab.dataset.session, e.ctrlKey);
     }
   });
   tab.querySelector(".tab-close").addEventListener("click", () => closeSession(tab.dataset.session));
@@ -14841,7 +14707,7 @@ function collapseHomePath(path) {
  *     se muestra `~` como primer segmento, pero su `data-path` (y el de los
  *     segmentos siguientes) usa la base REAL del home, no `~`.
  * Cada segmento navega el panel SFTP a su ruta acumulada real al pulsar; con
- * Ctrl/Cmd+clic copia esa ruta. El icono 📂 copia la ruta completa.
+ * Ctrl+clic copia esa ruta. El icono 📂 copia la ruta completa.
  */
 function renderCwdBreadcrumb(sessionId, rawPath) {
   const cwdEl = document.getElementById("status-cwd");
@@ -14923,8 +14789,8 @@ function renderCwdBreadcrumb(sessionId, rawPath) {
     btn.addEventListener("click", async (ev) => {
       ev.preventDefault();
       ev.stopPropagation();
-      // Ctrl/Cmd+clic copia la ruta acumulada del segmento en vez de navegar.
-      if (ev.ctrlKey || ev.metaKey) {
+      // Ctrl+clic copia la ruta acumulada del segmento en vez de navegar.
+      if (ev.ctrlKey) {
         await writeSystemClipboardText(seg.path);
         toast(t("status.cwd_copied"), "success");
         return;
@@ -17318,10 +17184,9 @@ async function promoteProfilePasswordToMaster(profileId) {
 
 /**
  * Abre el directorio donde se guarda profiles.json usando el gestor
- * de archivos nativo del sistema (xdg-open en Linux, Finder en macOS…).
+ * de archivos nativo del sistema (xdg-open en Linux, Explorador en Windows).
  * Los perfiles se guardan en:
  *   Linux:   ~/.local/share/rustty/profiles.json
- *   macOS:   ~/Library/Application Support/com.rustty.app/profiles.json
  *   Windows: %APPDATA%\com.rustty.app\profiles.json
  */
 async function openDataDirectory() {
@@ -21568,7 +21433,7 @@ function ensureSftpRowDelegation(filesDiv, sessionId, side) {
     const view = sftpView(s, side);
     // Alt cuenta como modificador de multi-selección: en entornos como GNOME el
     // gestor de ventanas se queda con Ctrl+clic sobre algunas zonas.
-    const toggle = ev.ctrlKey || ev.metaKey || ev.altKey;
+    const toggle = ev.ctrlKey || ev.altKey;
     setSftpSelection(sessionId, side, sftpSelectionAfterClick(view.selected, row.dataset.path, toggle));
   });
 
@@ -22568,12 +22433,12 @@ function sftpMaxConcurrent() {
 }
 
 /**
- * Opciones de `transferNameKey` para un lado: el disco local de Windows y macOS
- * no distingue mayúsculas por defecto (NTFS, APFS), así que allí `Informe.pdf`
+ * Opciones de `transferNameKey` para un lado: el disco local de Windows
+ * no distingue mayúsculas por defecto (NTFS), así que allí `Informe.pdf`
  * choca con `informe.PDF`. En Linux, y en el remoto, se comparan tal cual.
  */
 function sftpNameKeyOptions(side) {
-  return { foldCase: side === "local" && ["windows", "macos"].includes(diagnosticsPlatform()) };
+  return { foldCase: side === "local" && diagnosticsPlatform() === "windows" };
 }
 
 /**
@@ -25592,8 +25457,6 @@ function bindUIEvents() {
     ?.addEventListener("click", () => syncBrowseLocalFolder());
   document.getElementById("btn-sync-local-open")
     ?.addEventListener("click", () => syncOpenLocalFolder());
-  document.getElementById("btn-sync-icloud-open")
-    ?.addEventListener("click", () => syncOpenBackendFolder());
   document.getElementById("btn-sync-test")
     ?.addEventListener("click", () => syncTestNow());
   document.getElementById("btn-sync-now")
@@ -26191,7 +26054,7 @@ function bindUIEvents() {
   document.addEventListener("keydown", handleGlobalShortcut, { capture: true });
   // Deshacer/rehacer con teclado en campos editables. Solo Linux: WebKitGTK no
   // liga Ctrl+Z/Ctrl+Shift+Z/Ctrl+Y al editor (keybindings de GTK3), así que
-  // sin esto los diálogos no tienen undo; en Windows/macOS el WebView ya lo
+  // sin esto los diálogos no tienen undo; en Windows el WebView ya lo
   // trae nativo y no hay que tocarlo. Capture (registrado tras
   // handleGlobalShortcut, que si consume hace preventDefault) para que ningún
   // stopPropagation de un componente intermedio deje un campo sin deshacer.
@@ -27051,7 +26914,7 @@ function renderPaletteResults(query) {
         <span class="palette-item-title">${escHtml(it.title)}</span>
         ${it.sub ? `<span class="palette-item-sub">${escHtml(it.sub)}</span>` : ""}
       </span>
-      ${combo ? `<kbd class="palette-item-kbd">${escHtml(formatAccelerator(combo))}</kbd>` : ""}
+      ${combo ? `<kbd class="palette-item-kbd">${escHtml(combo)}</kbd>` : ""}
       <span class="palette-item-kind">${escHtml(t("palette.kind_" + it.kind))}</span>
     </div>`;
   }).join("");
@@ -27138,7 +27001,6 @@ function renderShortcutsHelp() {
     get: (id) => shortcuts.get(id),
     label: (id) => t(`prefs_shortcuts.action_${id}`),
     groupLabel: (id) => t(`prefs_shortcuts.group_${id}`),
-    format: (combo) => formatAccelerator(combo),
   }), query);
   if (!groups.length) {
     list.innerHTML = `<div class="palette-empty">${escHtml(t("palette.empty"))}</div>`;
@@ -28010,10 +27872,10 @@ function handleGlobalShortcut(e) {
   if (shortcuts.handle(e, { allow: allowShortcut })) return;
   if (modalOpen) return;
 
-  // Ctrl/Cmd+1…9 salta a la pestaña N (9 = última, convención de navegadores).
+  // Ctrl+1…9 salta a la pestaña N (9 = última, convención de navegadores).
   // Va después del bucle de atajos configurables para no pisar un combo que el
   // usuario haya asignado a Ctrl+<dígito>.
-  if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && /^Digit[1-9]$/.test(e.code)) {
+  if (e.ctrlKey && !e.altKey && !e.shiftKey && /^Digit[1-9]$/.test(e.code)) {
     if (jumpToTabByIndex(Number(e.code.slice(5)))) {
       e.preventDefault();
       e.stopPropagation();
@@ -28341,7 +28203,6 @@ const TAB_CLOSE_ICON_SVG = `<svg viewBox="0 0 16 16" width="12" height="12" aria
 // Iconos monocromo de los backends de sincronización (tarjetas de Preferencias
 // → Copias de seguridad). Sustituyen a los emojis 📁 ☁ 🌐 🅖.
 const SYNC_ICON_LOCAL = `<svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M2 4.5a1 1 0 0 1 1-1h2.6a1 1 0 0 1 .7.3l.9.9H13a1 1 0 0 1 1 1V12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1z"/></svg>`;
-const SYNC_ICON_ICLOUD = `<svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M4.8 12h6.4a2.6 2.6 0 0 0 .3-5.18A3.4 3.4 0 0 0 5 5.9 2.8 2.8 0 0 0 4.8 12z"/></svg>`;
 const SYNC_ICON_WEBDAV = `<svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="6"/><path d="M2 8h12M8 2c2 2.2 2 9.8 0 12M8 2c-2 2.2-2 9.8 0 12"/></svg>`;
 const SYNC_ICON_DRIVE = `<svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M6.1 2.5h3.8l4 7h-3.8zM6.1 2.5 2.1 9.5 4 12.9l4-7zM4 12.9h7.9l1.9-3.4H5.9z"/></svg>`;
 
@@ -28551,7 +28412,7 @@ function initNoteEditor() {
     scheduleNotePreview();
   });
   textarea.addEventListener("keydown", (e) => {
-    if ((e.key === "s" || e.key === "S") && (e.ctrlKey || e.metaKey)) {
+    if ((e.key === "s" || e.key === "S") && e.ctrlKey) {
       e.preventDefault();
       saveNoteFromEditor({ close: false });
     } else if (e.key === "Escape") {
@@ -28922,14 +28783,14 @@ function initCommandEditor() {
       }
       if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); _cmdHistDismissed = true; hideCommandHistoryList(); return; }
     }
-    // Ctrl/Cmd+Espacio: abre o refresca el autocompletado por historial.
-    if (e.code === "Space" && (e.ctrlKey || e.metaKey)) {
+    // Ctrl+Espacio: abre o refresca el autocompletado por historial.
+    if (e.code === "Space" && e.ctrlKey) {
       e.preventDefault();
       _cmdHistDismissed = false;
       renderCommandHistoryList();
       return;
     }
-    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+    if (e.key === "Enter" && e.ctrlKey) {
       e.preventDefault();
       insertCommandEditor();
     } else if (e.key === "Escape") {
@@ -29125,7 +28986,7 @@ function updateZenExitTooltip() {
   const exitBtn = document.getElementById("zen-exit-btn");
   if (!exitBtn) return;
   const combo = shortcuts.get("toggle_zen_mode");
-  exitBtn.dataset.tooltip = t("window.zen_exit_title") + (combo ? ` (${formatAccelerator(combo)})` : "");
+  exitBtn.dataset.tooltip = t("window.zen_exit_title") + (combo ? ` (${combo})` : "");
 }
 
 function applyZenMode(enabled) {
@@ -29316,17 +29177,13 @@ function initSidebarResize() {
 
 /**
  * Controles de ventana integrados (CSD: decorations:false).
- * En macOS dejamos los traffic lights nativos (titleBarStyle Overlay),
- * así que ocultamos nuestros botones y añadimos un padding a la izquierda
- * del tab-bar vía la clase `platform-macos`. Mostrar la ventana por primera
+ * La clase `platform-*` del body permite ajustes por SO. Mostrar la ventana por primera
  * vez NO es cosa de aquí: lo hace revealMainWindow(), al arrancar.
  */
 async function initWindowControls() {
   // Detección de plataforma a partir del UA de la webview.
   const ua = navigator.userAgent || "";
-  const cls = /Mac OS X|Macintosh/.test(ua) ? "platform-macos"
-            : /Windows/.test(ua)            ? "platform-windows"
-            :                                 "platform-linux";
+  const cls = /Windows/.test(ua) ? "platform-windows" : "platform-linux";
   document.body.classList.add(cls);
 
   const win = await getMainWindow();

@@ -19,37 +19,27 @@ Cuando la sesión termina, la pestaña ofrece **Reconectar** además de cerrarla
 
 ## Protocolos
 
-- **RDP**: usa el cliente de escritorio remoto del sistema. En Linux prueba `xfreerdp3`, `xfreerdp` y `rdesktop`; en Windows abre `mstsc.exe` o el manejador `rdp://`; en macOS abre el cliente registrado para `rdp://`. Al usar `xfreerdp` en Linux, Rustty aplica verificación de certificado basada en TOFU (`/cert:tofu`) en vez de ignorar la verificación en silencio, de modo que el cliente recuerda el certificado del servidor y advierte al usuario si cambia de forma inesperada. Si el cliente externo muere nada más arrancar, Rustty muestra el **motivo real del fallo**, no un simple «sesión cerrada»; y cuando el motivo es que el certificado cambió, enseña la huella recordada y la recibida y ofrece aceptar el cambio: al aceptar, olvida el certificado guardado y reconecta en la misma pestaña.
+- **RDP**: usa el cliente de escritorio remoto del sistema. En Linux prueba `xfreerdp3`, `xfreerdp` y `rdesktop`; en Windows abre `mstsc.exe` o el manejador `rdp://`. Al usar `xfreerdp` en Linux, Rustty aplica verificación de certificado basada en TOFU (`/cert:tofu`) en vez de ignorar la verificación en silencio, de modo que el cliente recuerda el certificado del servidor y advierte al usuario si cambia de forma inesperada. Si el cliente externo muere nada más arrancar, Rustty muestra el **motivo real del fallo**, no un simple «sesión cerrada»; y cuando el motivo es que el certificado cambió, enseña la huella recordada y la recibida y ofrece aceptar el cambio: al aceptar, olvida el certificado guardado y reconecta en la misma pestaña.
 
   **Ventana del escritorio remoto.** Puedes elegir cómo abre la ventana el cliente: *ventana redimensionable* (por defecto), *pantalla completa*, *área de trabajo* o *tamaño fijo*. El valor por defecto está en **Preferencias → Sistema** y cada perfil RDP puede llevar el suyo propio, que manda sobre el global.
 
   La ventana redimensionable y la pantalla completa piden **resolución dinámica**: puedes maximizar o arrastrar la ventana y el escritorio remoto sigue el tamaño. Eso necesita un servidor Windows 8 / Server 2012 o superior; contra servidores más antiguos usa *tamaño fijo*, que es el comportamiento clásico. Con `xfreerdp`, **Ctrl+Alt+Intro** alterna pantalla completa en cualquier momento.
-- **VNC**: abre un visor VNC externo. En Linux prueba TigerVNC / `vncviewer`; en macOS usa Pantalla compartida mediante `vnc://`; en Windows prueba `vncviewer.exe`, `tvnviewer.exe` o el manejador `vnc://`.
+- **VNC**: abre un visor VNC externo. En Linux prueba TigerVNC / `vncviewer`; en Windows prueba `vncviewer.exe`, `tvnviewer.exe` o el manejador `vnc://`.
 - **Telnet**: abre el comando `telnet` en un emulador de terminal del sistema. Telnet no cifra el tráfico, así que conviene reservarlo para equipos antiguos, redes controladas o tareas puntuales.
 
 ## Requisitos por plataforma
 
-En Linux, instala los clientes que necesites:
+En Debian / Ubuntu, instala los clientes que necesites:
 
 ```bash
-# RDP
-sudo dnf install freerdp          # Fedora
-sudo apt install freerdp2-x11     # Debian/Ubuntu
-
-# VNC
-sudo dnf install tigervnc         # Fedora
-sudo apt install tigervnc-viewer  # Debian/Ubuntu
-
-# Telnet
-sudo dnf install telnet           # Fedora
-sudo apt install telnet           # Debian/Ubuntu
+sudo apt install freerdp2-x11     # RDP
+sudo apt install tigervnc-viewer  # VNC
+sudo apt install telnet           # Telnet
 ```
 
 Para Telnet en Linux también hace falta un emulador de terminal disponible. Rustty prueba `x-terminal-emulator`, `gnome-terminal`, `konsole`, `xfce4-terminal`, `alacritty`, `kitty` y `xterm`.
 
 En Windows, RDP usa el cliente integrado `mstsc.exe`. Para VNC instala un visor compatible (`vncviewer.exe`, TightVNC u otro que registre `vnc://`). Para Telnet puede hacer falta activar el **Cliente Telnet** en las características opcionales de Windows.
-
-En macOS, VNC usa la app nativa de **Pantalla compartida**. RDP requiere un cliente que registre `rdp://`, como Microsoft Remote Desktop. Telnet se abre en Terminal.app, pero en versiones modernas de macOS quizá tengas que instalar el binario `telnet` aparte.
 
 ## Credenciales
 

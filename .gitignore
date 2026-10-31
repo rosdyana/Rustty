@@ -7,7 +7,6 @@ dist/
 
 # Rust / Tauri build output
 src-tauri/target/
-src-tauri/WixTools/
 
 # Test and coverage output
 coverage/

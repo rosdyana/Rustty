@@ -447,7 +447,7 @@ async function main() {
   const app = await openSession({ application });
   try {
     await app.waitForApp();
-    // El updater puede abrir un diálogo en mitad de otro caso y consumir su
+    // El aviso de versión nueva puede abrir un diálogo en mitad de otro caso y consumir su
     // confirmación. Preferencias solo del webview aislado; la recarga cancela
     // la comprobación inicial que ya pudiera estar en vuelo.
     await app.exec(`

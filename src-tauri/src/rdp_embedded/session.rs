@@ -113,8 +113,6 @@ type Framed = TokioFramed<tokio_rustls::client::TlsStream<TcpStream>>;
 fn os_platform() -> MajorPlatformType {
     if cfg!(windows) {
         MajorPlatformType::WINDOWS
-    } else if cfg!(target_os = "macos") {
-        MajorPlatformType::MACINTOSH
     } else {
         MajorPlatformType::UNIX
     }

@@ -536,8 +536,7 @@ mod tests {
     }
 
     /// Camino real: un bash interactivo con el rcfile generado emite las
-    /// marcas. Solo Linux: el bash de macOS es 3.2 (sin `PS0`) y en Windows no
-    /// hay bash.
+    /// marcas. Solo Linux: en Windows no hay bash.
     #[cfg(target_os = "linux")]
     #[test]
     fn bash_real_emite_las_marcas_osc_con_el_rcfile() {

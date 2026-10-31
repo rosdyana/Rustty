@@ -33,10 +33,10 @@
 - Gestionar en una sola sección **Preferencias → Credenciales** las credenciales locales del **keyring del sistema** (KWallet, GNOME Keyring, Keychain, Credential Store), las variables y una base **KeePass** (`.kdbx`), que puede **bloquearse sola** tras un rato sin usarla o al suspender el equipo.
 - **Confirmar la huella del servidor en la primera conexión** (y avisar si cambia después): la clave de un host nuevo no se aprende en silencio salvo que tú lo elijas. Ver [Seguridad](?page=Seguridad).
 - Sobrevivir a los sustos: si el fichero de conexiones se daña, Rustty **restaura la última copia válida** y te avisa (nunca borra el dañado); y tras suspender el equipo, comprueba qué sesiones siguen vivas y puede reconectar las caídas de forma escalonada.
-- Crear **copias de seguridad cifradas** y sincronizar perfiles, carpetas, preferencias, temas, notas, snippets, credenciales maestras, variables y atajos con Google Drive, iCloud Drive, una carpeta local/NAS o WebDAV. La sincronización se dispara al iniciar y al detectar cambios; puedes restaurar snapshots anteriores cuando lo necesites.
+- Crear **copias de seguridad cifradas** y sincronizar perfiles, carpetas, preferencias, temas, notas, snippets, credenciales maestras, variables y atajos con Google Drive, una carpeta local/NAS o WebDAV. La sincronización se dispara al iniciar y al detectar cambios; puedes restaurar snapshots anteriores cuando lo necesites.
 - Personalizar la apariencia con **temas base y variantes** (Catppuccin, Dracula, Nord, Solarized, Gruvbox, Tokyo Night…), tema del terminal independiente del de UI, fuente configurable, **ligaduras tipográficas opcionales** (FiraCode, JetBrains Mono…) y **atajos de teclado** editables con presets *Vim-like* y *Tmux-like*.
 - Lanzar **RDP**, **VNC** y **Telnet** mediante clientes externos del sistema, manteniéndolos dentro del árbol de perfiles, favoritos, notas y sincronización. Ver [Clientes externos](?page=ClientesExternos).
-- Recordar tamaño y posición de la ventana y **actualizarse automáticamente**: en Windows, macOS y AppImage de Linux, Rustty descarga e instala la nueva versión desde dentro de la app y se reinicia; en el resto de formatos de Linux avisa y abre la página de descargas.
+- Recordar tamaño y posición de la ventana y **avisar de versiones nuevas**: Rustty consulta la última release de GitHub y, si hay una versión nueva, abre su página de descarga.
 
 ## Primeros pasos
 
@@ -47,7 +47,7 @@ conectar y va solo al almacén del sistema), junto a accesos directos para crear
 un perfil, importar `~/.ssh/config` o la configuración de otro cliente, y
 restaurar una copia de seguridad.
 
-1. [Descarga](/descargas) el binario para tu plataforma.
+1. [Descarga](/descargas) el binario para tu plataforma: el `.exe` portable en Windows o el `.deb` en Debian/Ubuntu.
 2. Abre Rustty, pulsa **+** en la barra lateral para crear tu primera conexión.
 3. Rellena host, usuario y método de autenticación. Pulsa **Guardar y conectar**.
 4. Para ver el panel de ficheros, haz clic en el icono **SFTP** dentro de la sesión SSH abierta, o crea un perfil FTP/FTPS si solo necesitas transferencia de archivos. Para RDP, VNC o Telnet, instala primero el cliente externo correspondiente. Para túneles, usa el icono **⇄** de la pestaña o el acceso **⇄** del rail lateral.
@@ -55,4 +55,4 @@ restaurar una copia de seguridad.
 
 ## ¿Problema o duda?
 
-Abre un issue en [GitHub](https://github.com/Aleixenandros/Rustty/issues) o escríbeme por la [página del repositorio](https://github.com/Aleixenandros/Rustty).
+Abre un issue en [GitHub](https://github.com/rosdyana/Rustty/issues) o escríbeme por la [página del repositorio](https://github.com/rosdyana/Rustty).

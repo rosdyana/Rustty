@@ -1484,7 +1484,7 @@ impl FtpConnection {
             );
             // Proveedor criptográfico explícito (`ring`, el mismo que usa el
             // verificador TOFU): el árbol de dependencias trae también `aws-lc-rs`
-            // (vía `reqwest` del updater de Tauri), así que `builder()` a secas no
+            // (vía `russh` y `reqwest`), así que `builder()` a secas no
             // puede autodeterminar el proveedor de proceso y entra en pánico al
             // conectar. Fijarlo aquí lo hace determinista.
             let config = rustls::ClientConfig::builder_with_provider(Arc::new(

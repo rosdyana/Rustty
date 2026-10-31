@@ -25,7 +25,7 @@ En **Preferencias → Apariencia** hay un bloque **Accesibilidad** que ajusta la
 
 ### Navegación por teclado
 
-Toda la interfaz es operable con teclado. Los menús contextuales (clic derecho o **Shift+F10** sobre una conexión, pestaña o panel SFTP) enfocan su primer ítem al abrirse y se recorren con las flechas **↑/↓** e **Inicio/Fin**; **Enter/Espacio** activan la opción y **Tab/Escape** cierran devolviendo el foco al punto de partida. En la barra lateral, **Enter/Espacio** sobre una conexión la abre; en las pestañas, la seleccionan (**Ctrl/Cmd+Enter** la añade a la vista múltiple).
+Toda la interfaz es operable con teclado. Los menús contextuales (clic derecho o **Shift+F10** sobre una conexión, pestaña o panel SFTP) enfocan su primer ítem al abrirse y se recorren con las flechas **↑/↓** e **Inicio/Fin**; **Enter/Espacio** activan la opción y **Tab/Escape** cierran devolviendo el foco al punto de partida. En la barra lateral, **Enter/Espacio** sobre una conexión la abre; en las pestañas, la seleccionan (**Ctrl+Enter** la añade a la vista múltiple).
 
 La barra de pestañas de sesión se expone a los lectores de pantalla como una lista de pestañas (`tablist`), con el estado de selección de cada una y una etiqueta descriptiva en sus botones (SFTP, túneles y cerrar).
 

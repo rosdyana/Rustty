@@ -26,7 +26,7 @@
 - **Exportación granular**: exporta todos los perfiles, los de una carpeta o los de un workspace a JSON desde el menú contextual, preguntando antes si debe incluir contraseñas/passphrases guardadas.
 - **Importación desde otras herramientas**: importa tu `~/.ssh/config` o, con un **asistente por pasos**, conexiones de **mRemoteNG** (`.xml`) o **Ásbrú Connection Manager** (`.yml`) — reconstruye el árbol de carpetas en un perfil-contenedor nuevo, deja elegir qué importar, muestra el progreso y descifra opcionalmente las contraseñas guardadas (todo en local).
 - **Seguridad**:
-  - Integración nativa con el keyring del sistema (Secret Service/KWallet en Linux, macOS Keychain, Windows Credential Store).
+  - Integración nativa con el keyring del sistema (Secret Service/KWallet en Linux, Windows Credential Store).
   - Soporte para bases de datos **KeePass** (`.kdbx`) como fuente de contraseñas.
   - **Credenciales maestras** reutilizables: define una contraseña una vez y refiérela desde varios perfiles con `${master:nombre}`; el valor vive solo en el keyring y rotarlo actualiza todos los perfiles que la usan. Forma parte de un **motor de variables** (`${host}`, `${env:…}`, `${var:…}`, `${ask:…}`) que se resuelve al conectar, también en campos como el host o el usuario.
   - Gestión unificada en **Preferencias → Credenciales**, con vistas separadas para credenciales locales, KeePass y variables; unifica el acceso sin mezclar sus almacenamientos.
@@ -38,7 +38,7 @@
   - Aviso y confirmación al **activar el agent forwarding**, para no compartir el agente SSH con hosts no confiables sin darse cuenta.
   - **Mínimo privilegio entre la interfaz y el núcleo**: los diálogos de abrir y guardar los abre el núcleo en Rust y la interfaz solo recibe un permiso de un solo uso sobre la ruta elegida, así que no puede leer ni escribir ficheros que no hayas escogido tú; los comandos locales se autorizan por equipo en un diálogo nativo; y el panel de archivos no puede tocar la carpeta de datos de la app ni subir una clave privada sin confirmarlo en un diálogo nativo.
   - **Retención configurable de los logs de sesión** (por edad y tamaño) con limpieza manual y aviso de contenido sensible.
-- **Copias de seguridad y sincronización E2E**: perfiles, preferencias, temas, atajos, notas de conexión y, si lo activas, contraseñas guardadas pueden sincronizarse con Google Drive, iCloud Drive, carpeta local / NAS o WebDAV. El blob remoto se cifra localmente con `age` y una passphrase maestra. Sincronización **por evento** (comprueba al iniciar y sincroniza si hay cambios locales/remotos) y **restauración de snapshots históricos** desde la pestaña de Copias.
+- **Copias de seguridad y sincronización E2E**: perfiles, preferencias, temas, atajos, notas de conexión y, si lo activas, contraseñas guardadas pueden sincronizarse con Google Drive, carpeta local / NAS o WebDAV. El blob remoto se cifra localmente con `age` y una passphrase maestra. Sincronización **por evento** (comprueba al iniciar y sincroniza si hay cambios locales/remotos) y **restauración de snapshots históricos** desde la pestaña de Copias.
 - **Organización**: agrupa conexiones en **perfiles-contenedor (workspaces)** independientes, en carpetas dentro de cada workspace, **conexiones favoritas** y vistas de la sidebar (workspace actual, todos los perfiles, favoritos), búsqueda rápida y duplicación de conexiones / sesiones desde el menú contextual. **Orden alfabético o manual** de carpetas y conexiones: en modo manual, «Mover arriba / abajo» desde el menú contextual de cada carpeta o máquina.
 - **Personalización**: 12 temas base integrados y una biblioteca ampliada de 221 temas Rustty v2 precargados para interfaz y terminal, además de ajustes de cursor, scrollback y *bell*. Posibilidad de importar temas personalizados en formato JSON v2 con tokens de UI y terminal; consulta la [guía para crear un tema personalizado](web/docs/Temas.md#crear-un-tema-personalizado). **Tamaño de la interfaz ajustable** (rail, sidebar, pestañas y modales) independiente del terminal, con control en Preferencias y atajos `Ctrl+Alt` con `+` / `-` / `0`, y **densidad de la interfaz** en tres niveles (Espaciosa / Cómoda / Compacta). En Preferencias → Apariencia hay además ajustes de **accesibilidad** (contraste reforzado, reducir movimiento, foco visible, contraste mínimo del terminal y modo daltónico).
 - **Internacionalización**: interfaz traducida a español, inglés, francés, portugués y alemán. (Traducciones realizadas con IA)
@@ -120,95 +120,26 @@ Con `--workspace`, `--group` o `--all` el comando se ejecuta en todos los perfil
 
 ## Instalación
 
-En cada release de GitHub encontrarás binarios precompilados para Linux, Windows y macOS. Puedes descargarlos desde la página de [Releases](https://github.com/Aleixenandros/Rustty/releases) o desde la web del proyecto: [rustty.es/descargas](https://rustty.es/descargas).
+Rustty soporta dos plataformas, y cada release de GitHub publica un artefacto para cada una:
 
-### Instalación rápida con script
-
-En Linux y macOS puedes instalar Rustty con el script oficial:
-
-```bash
-curl -sSf https://rustty.es/install.sh | sh
-```
-
-El script consulta la última release publicada, detecta tu sistema y descarga el artefacto adecuado. Internamente invoca `sudo` solo cuando lo necesita el gestor de paquetes; **no** ejecutes `sudo sh` sobre todo el script.
-
-Si prefieres revisarlo antes:
-
-```bash
-curl -sSf https://rustty.es/install.sh -o install.sh
-less install.sh
-sh install.sh
-```
-
-| Sistema detectado | Artefacto usado | Instalación |
+| Plataforma | Fichero | Formato |
 | --- | --- | --- |
-| Arch / Manjaro / EndeavourOS | `.pkg.tar.zst` | `sudo pacman -U` |
-| Debian / Ubuntu / Mint | `.deb` | `sudo apt-get install` |
-| Fedora / RHEL / CentOS / Rocky / AlmaLinux | `.rpm` | `sudo dnf install` |
-| openSUSE / SUSE | `.rpm` | `sudo zypper install` |
-| Otras distribuciones Linux | `AppImage` | copia en `~/.local/bin/rustty` |
-| macOS Apple Silicon | `.app.tar.gz` | extrae en `~/Applications/Rustty.app` |
+| **Windows 10/11 (x64)** | `Rustty_<version>_x64-portable.exe` | Ejecutable portable, sin instalador |
+| **Debian / Ubuntu (x86_64)** | `Rustty_<version>_amd64.deb` | Paquete `.deb` |
 
-Para actualizar a una nueva versión, vuelve a ejecutar el mismo comando. En Linux reemplazará el paquete mediante el gestor correspondiente; en macOS reemplazará `~/Applications/Rustty.app`.
+Descárgalos desde la página de [Releases](https://github.com/rosdyana/Rustty/releases). Otros sistemas no están soportados; aun así puedes intentar [compilar desde fuente](#desarrollo-y-construcción).
 
-> El instalador automático no está disponible para Windows. Usa el MSI, NSIS o portable de la release.
+Rustty no se actualiza solo: **Preferencias → Acerca de → Comprobar actualizaciones** (o **Comprobar al iniciar**) consulta la API de releases de GitHub y, si hay una versión nueva, abre la página del release para que la descargues.
 
-### Linux
+### Windows (portable)
 
-Rustty necesita **WebKitGTK 4.1** y **libayatana-appindicator** en tiempo de ejecución (en la mayoría de distribuciones ya están instalados o se resuelven como dependencia al instalar el paquete).
+Descarga `Rustty_<version>_x64-portable.exe` y ejecútalo: un único ejecutable, sin instalación ni permisos de administrador, ideal para memorias USB o equipos bloqueados.
 
-- **AppImage (`Rustty_<version>_amd64.AppImage`)** — portable, no requiere instalación:
+Se requiere **Microsoft Edge WebView2 Runtime** (ya incluido en Windows 10 22H2 y Windows 11). Si tu sistema no lo tiene, instálalo a mano desde [aquí](https://developer.microsoft.com/microsoft-edge/webview2/).
 
-  ```bash
-  chmod +x Rustty_*_amd64.AppImage
-  ./Rustty_*_amd64.AppImage
-  ```
+> Los binarios de Windows **aún no están firmados** (la firma de código está en evaluación; ver [`CODE_SIGNING.md`](CODE_SIGNING.md)). Mientras tanto, SmartScreen o algún antivirus pueden mostrar un aviso o un falso positivo: [verifica la descarga](#verificación-de-integridad).
 
-- **.deb (Debian / Ubuntu / Mint / ...)**:
-
-  ```bash
-  sudo apt install ./Rustty_*_amd64.deb
-  ```
-
-- **.rpm (Fedora / openSUSE / RHEL / ...)**:
-
-  ```bash
-  sudo dnf install ./Rustty-*-1.x86_64.rpm        # Fedora
-  sudo zypper install ./Rustty-*-1.x86_64.rpm     # openSUSE
-  ```
-
-- **.pkg.tar.zst (Arch / Manjaro / EndeavourOS / ...)**:
-
-  ```bash
-  sudo pacman -U Rustty-*-1-x86_64.pkg.tar.zst
-  ```
-
-- **Flatpak (`Rustty-<version>-x86_64.flatpak`)** — bundle autocontenido, sin añadir remotos:
-
-  ```bash
-  flatpak install ./Rustty-*-x86_64.flatpak
-  flatpak run es.rustty.Rustty
-  ```
-
-  Requiere el runtime `org.gnome.Platform 50` (Flatpak lo descarga la primera vez). WebKitGTK viene dentro del runtime, así que aquí no hace falta instalarlo en el sistema.
-
-### Windows
-
-La forma recomendada es **winget**:
-
-```powershell
-winget install rustty
-```
-
-O descarga un binario directamente del release:
-
-- **MSI (`Rustty_<version>_x64.msi`)** — instalador tradicional. Doble clic y seguir el asistente.
-- **NSIS (`Rustty_<version>_x64-setup.exe`)** — instalador alternativo, más ligero.
-- **Portable (`Rustty_<version>_x64-portable.exe`)** — ejecutable único sin instalar, ideal para memorias USB o equipos bloqueados.
-
-En todos los casos se requiere **Microsoft Edge WebView2 Runtime** (ya incluido en Windows 10 22H2 y Windows 11). Si tu sistema no lo tiene, el instalador MSI/NSIS lo descargará automáticamente; para el portable, instálalo a mano desde [aquí](https://developer.microsoft.com/microsoft-edge/webview2/).
-
-> Los binarios de Windows **aún no están firmados** (la firma de código está en evaluación; ver [`CODE_SIGNING.md`](CODE_SIGNING.md)). Mientras tanto, algún antivirus puede marcar un falso positivo: verifica el `sha256` publicado en el release.
+Para actualizar, descarga el nuevo `-portable.exe` y ponlo en la misma carpeta que el anterior (puedes borrar el viejo): leerá la misma carpeta de configuración.
 
 #### Modo portable real
 
@@ -220,33 +151,34 @@ Salvedades:
 - El estado de la ventana (tamaño, posición) sí se guarda en el perfil de usuario (plugin `tauri-plugin-window-state`); la sesión visual del USB no es 100% portable.
 - Si renombras el `.exe` y le quitas el sufijo `-portable.exe`, vuelve al modo normal y leerá `%APPDATA%\com.rustty.app\`.
 
-### macOS (Apple Silicon)
+### Debian / Ubuntu (.deb)
 
-Las builds se firman con **Developer ID Application** y se notarizan con el servicio de Apple, así que Gatekeeper no muestra avisos en una instalación limpia.
+Rustty necesita **WebKitGTK 4.1** y **libayatana-appindicator** en tiempo de ejecución; `apt` los instala como dependencias del paquete. Funciona en Ubuntu 22.04 o posterior, Debian 12 o posterior y derivadas (Linux Mint, Pop!_OS…).
 
-La forma más rápida es el instalador automático (ver [Instalación rápida con script](#instalación-rápida-con-script)): `curl -sSf https://rustty.es/install.sh | sh`. O descarga un binario directamente del release:
+```bash
+sudo apt install ./Rustty_*_amd64.deb
+```
 
-- **DMG (`Rustty_<version>_aarch64.dmg`)**: abrir el `.dmg` y arrastrar `Rustty.app` a `Aplicaciones`.
-- **App bundle (`Rustty_aarch64.app.tar.gz`)**: descomprimir y ejecutar `Rustty.app`.
-
-> Las builds sólo se generan para **aarch64** (Apple Silicon). Para Intel Mac habría que compilar desde fuente.
+Para actualizar, descarga el `.deb` nuevo e instálalo con el mismo comando: `apt` actualiza encima de la versión anterior y conserva tus datos.
 
 ### Verificación de integridad
 
-Junto a cada artefacto se publica su `.sig` (firma del updater de Tauri) y, desde la v1.68.0, un fichero **`SHA256SUMS.txt`** con la huella de todos los artefactos del release:
+Cada release incluye un fichero **`SHA256SUMS.txt`** con la huella de todos sus artefactos:
 
 ```bash
 # Descarga SHA256SUMS.txt y el artefacto que quieras, en el mismo directorio:
 sha256sum --check --ignore-missing SHA256SUMS.txt
 ```
 
+En Windows (PowerShell), compara `Get-FileHash .\Rustty_*_x64-portable.exe` con la línea correspondiente de `SHA256SUMS.txt`.
+
 Ese manifiesto lleva además una **atestación de procedencia** de GitHub, que lo ata al workflow, al commit y al runner que lo produjeron. Comprobarla no depende de la integridad de la página del release, así que responde a la pregunta que el `sha256` por sí solo no puede responder —«¿y si quien alteró el binario alteró también el número de al lado?»—:
 
 ```bash
-gh attestation verify SHA256SUMS.txt --repo Aleixenandros/Rustty
+gh attestation verify SHA256SUMS.txt --repo rosdyana/Rustty
 ```
 
-Los binarios de **macOS** están firmados con Apple Developer ID y notarizados, y las **actualizaciones automáticas** van firmadas con minisign y se verifican contra la clave pública embebida. La firma de código de **Windows** está en evaluación. El modelo de firma completo (mecanismos, roles, construcción verificable y cómo verificar una descarga) está en [`CODE_SIGNING.md`](CODE_SIGNING.md).
+La firma de código de **Windows** está en evaluación. El modelo de firma completo (mecanismos, roles, construcción verificable y cómo verificar una descarga) está en [`CODE_SIGNING.md`](CODE_SIGNING.md).
 
 ## Tecnologías utilizadas
 
@@ -261,7 +193,7 @@ Los binarios de **macOS** están firmados con Apple Developer ID y notarizados, 
 
 Rustty incluye una pestaña **Preferencias → Copias de seguridad** con tres flujos:
 
-- **Sincronización en la nube**: Google Drive, iCloud Drive, Carpeta local / NAS o WebDAV.
+- **Sincronización en la nube**: Google Drive, Carpeta local / NAS o WebDAV.
 - **Backup cifrado**: exporta/importa un `.rustty-sync.bin` cifrado con tu passphrase, independiente de cualquier backend.
 - **Datos locales**: export/import JSON de perfiles para interoperabilidad y copias simples.
 
@@ -276,7 +208,6 @@ Además: la **primera sincronización** contra un servidor ya poblado muestra un
 Backends:
 
 - **Google Drive**: OAuth en navegador con callback local; Rustty usa el espacio `appDataFolder` y guarda el refresh token en el keyring.
-- **iCloud Drive**: escribe en la carpeta local de iCloud Drive en macOS y deja que el sistema sincronice.
 - **Carpeta local / NAS**: útil para Syncthing, carpetas compartidas o clientes cloud externos.
 - **WebDAV**: compatible con Nextcloud, ownCloud y servidores WebDAV genéricos.
 
@@ -290,38 +221,10 @@ Si deseas compilar el proyecto desde el código fuente, sigue estos pasos:
 2. **Node.js**: v24 recomendado para igualar el workflow de CI.
 3. **Dependencias de sistema**:
 
-   #### Linux (compilación)
-
-    **Ubuntu / Debian**:
+   #### Debian / Ubuntu (compilación)
 
     ```bash
     sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libdbus-1-dev libssl-dev pkg-config
-    ```
-
-    **Fedora**:
-
-    ```bash
-    sudo dnf install webkit2gtk4.1-devel libayatana-appindicator-devel librsvg2-devel dbus-devel openssl-devel
-    ```
-
-    **Arch Linux**:
-
-    ```bash
-    sudo pacman -S webkit2gtk-4.1 libayatana-appindicator librsvg dbus openssl
-    ```
-
-    **openSUSE**:
-
-    ```bash
-    sudo zypper install webkit2gtk3-devel libayatana-appindicator3-devel librsvg-devel dbus-1-devel libopenssl-devel
-    ```
-
-   #### macOS (compilación)
-
-    Es necesario tener instaladas las **Xcode Command Line Tools** y [Homebrew](https://brew.sh/).
-
-    ```bash
-    brew install openssl pkg-config
     ```
 
    #### Windows (compilación)
@@ -333,7 +236,7 @@ Si deseas compilar el proyecto desde el código fuente, sigue estos pasos:
 1. Clona el repositorio:
 
     ```bash
-    git clone https://github.com/Aleixenandros/Rustty.git
+    git clone https://github.com/rosdyana/Rustty.git
     cd Rustty
     ```
 
@@ -351,17 +254,23 @@ Si deseas compilar el proyecto desde el código fuente, sigue estos pasos:
 
 ### Construcción para producción
 
-Para generar el ejecutable optimizado para tu sistema operativo:
+Genera los mismos artefactos que publica la release:
 
 ```bash
-npm run tauri build
+# Debian / Ubuntu: paquete .deb
+npm run tauri build -- --bundles deb
+# → src-tauri/target/release/bundle/deb/Rustty_<version>_amd64.deb
+
+# Windows: ejecutable portable (sin instalador)
+npm run tauri build -- --no-bundle
+# → src-tauri/target/release/rustty.exe
 ```
 
-El binario y los paquetes (`.deb`, `.rpm`, `.AppImage`, `.msi`, `.dmg`, según plataforma) quedan en `src-tauri/target/release/bundle/`.
+Renombra `rustty.exe` a un nombre que termine en `-portable.exe` si quieres el [modo portable real](#modo-portable-real).
 
 ### Release automático
 
-El workflow de GitHub Actions (`.github/workflows/build.yml`) compila binarios para Linux, Windows y macOS (Apple Silicon) al empujar un tag `v*`:
+El workflow de GitHub Actions (`.github/workflows/build.yml`) se ejecuta al empujar un tag `v*`: verifica el código y el tag, compila el `.deb` de Debian/Ubuntu y el `.exe` portable de Windows, los sube al release junto con `SHA256SUMS.txt` y su atestación de procedencia, y lo publica.
 
 La fuente única de versión es `package.json`. Para preparar una release, cambia sólo el campo `version` ahí y ejecuta:
 
@@ -376,7 +285,7 @@ git tag v1.0.0
 git push --tags
 ```
 
-Los artefactos quedan en un release de GitHub en modo borrador.
+Los artefactos se suben a un release de GitHub en borrador, que el workflow publica cuando terminan las dos compilaciones.
 
 Para que las builds oficiales incluyan Google Drive, define estos secretos en GitHub Actions:
 
@@ -388,12 +297,19 @@ RUSTTY_GOOGLE_DRIVE_CLIENT_SECRET
 ## Rutas de datos
 
 - **Linux**: `~/.local/share/com.rustty.app/` (perfiles, configuración)
-- **macOS**: `~/Library/Application Support/com.rustty.app/`
-- **Windows**: `%APPDATA%\com.rustty.app\`
+- **Windows**: `%APPDATA%\com.rustty.app\` (o `.conf\com.rustty.app\` junto al ejecutable en [modo portable real](#modo-portable-real))
 
 Las contraseñas no se guardan en estos ficheros: viven en el keyring del sistema con el servicio `rustty`, o se resuelven desde una base KeePass referenciada por UUID. Si activas la sync de contraseñas, solo viajan dentro del blob cifrado E2E y se rehidratan de nuevo al keyring local.
 
 La configuración de sincronización vive en `sync_config.json` y el último snapshot local en `sync_state.json` (que se limpia al desactivar la sincronización). Los secretos de sync (passphrase maestra, contraseña WebDAV y token OAuth y client secret de Google Drive) se guardan en el keyring del sistema.
+
+---
+
+## Agradecimientos
+
+Rustty es un fork del proyecto original [Aleixenandros/Rustty](https://github.com/Aleixenandros/Rustty), de Alejandro Soriano. La atribución del producto está en el fichero [NOTICE](NOTICE).
+
+Si quieres que un cambio llegue al proyecto original, propónlo allí con un issue o un pull request; para este fork, abre un pull request contra `main` en este repositorio.
 
 ---
 

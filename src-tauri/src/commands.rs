@@ -30,7 +30,7 @@ use crate::scripts::{HostPreview, RunOptions, Script, ScriptManager};
 use crate::sftp_manager::{FileEntry, SftpManager, TransferConflictPolicy};
 use crate::ssh_manager::{legacy_catalog_info, SshManager, SshTunnelConfig, SshTunnelInfo};
 use crate::sync::{
-    pack_state, resolve_sync_folder, significant_clock_skew, unpack_state, OAuthAccountState,
+    pack_state, significant_clock_skew, unpack_state, OAuthAccountState,
     OAuthFinishResult, OAuthProvider, OAuthStartResult, SnapshotEntry, SyncBackendKind, SyncConfig,
     SyncManager, SyncRunOutcome, SyncState, CONFLICT_MARKER,
 };
@@ -1798,7 +1798,7 @@ fn confirm_upload(app: &AppHandle, guard: &LocalFsGuard, request: &TransferReque
             texts.accept.to_string(),
             texts.cancel.to_string(),
         ));
-    #[cfg(any(windows, target_os = "macos"))]
+    #[cfg(windows)]
     let dialog = match app.get_webview_window("main") {
         Some(window) => dialog.parent(&window),
         None => dialog,
@@ -2241,7 +2241,6 @@ pub fn keepass_list_entries() -> Result<Vec<keepass_manager::EntrySummary>, Stri
 ///
 /// Útil para que el usuario sepa dónde hacer backups.
 ///   Linux:   ~/.local/share/com.rustty.app/
-///   macOS:   ~/Library/Application Support/com.rustty.app/
 ///   Windows: %APPDATA%\com.rustty.app\  (o `<dir-del-exe>\.conf\com.rustty.app\` en portable)
 #[tauri::command]
 pub fn get_data_dir(state: State<crate::DataDir>) -> Result<String, String> {
@@ -2341,7 +2340,7 @@ pub async fn fs_pick(
     }
 
     let mut builder = window.dialog().file();
-    #[cfg(any(windows, target_os = "macos"))]
+    #[cfg(windows)]
     {
         builder = builder.set_parent(&window);
     }
@@ -2576,7 +2575,7 @@ fn confirm_local_command(app: &AppHandle, name: &str, template: &str, lang: &str
             texts.accept.to_string(),
             texts.cancel.to_string(),
         ));
-    #[cfg(any(windows, target_os = "macos"))]
+    #[cfg(windows)]
     let dialog = match app.get_webview_window("main") {
         Some(window) => dialog.parent(&window),
         None => dialog,
@@ -2849,13 +2848,6 @@ pub async fn sync_test_backend(
         Some(_) => Ok("ok-existing".into()),
         None => Ok("ok-empty".into()),
     }
-}
-
-#[tauri::command]
-pub fn sync_get_backend_folder(state: State<SyncManager>) -> Result<Option<String>, String> {
-    let config = state.load_config();
-    let folder = resolve_sync_folder(&config).map_err(|e| e.to_string())?;
-    Ok(folder.map(|path| path.to_string_lossy().into_owned()))
 }
 
 #[tauri::command]
@@ -3981,38 +3973,15 @@ fn resolve_run_credentials(
 /// mecanismo de autostart: tanto el alta/baja (`autostart_apply`) como la
 /// consulta de estado (`autostart_is_enabled`) comparten este builder, así que
 /// el toggle del frontend nunca se desincroniza de la entrada real del SO.
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
 fn autostart_handle(minimized: bool) -> Result<auto_launch::AutoLaunch, String> {
     use auto_launch::AutoLaunchBuilder;
 
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-
-    #[cfg(target_os = "linux")]
-    let app_path = {
-        // En AppImage preferimos registrar el AppImage en lugar del binario interno.
-        std::env::var("APPIMAGE").unwrap_or_else(|_| exe.display().to_string())
-    };
-    #[cfg(not(target_os = "linux"))]
     let app_path = exe.display().to_string();
 
     let mut builder = AutoLaunchBuilder::new();
     builder.set_app_name("Rustty");
     builder.set_app_path(&app_path);
-
-    #[cfg(target_os = "macos")]
-    {
-        // macOS: usar Launch Agent (plist en ~/Library/LaunchAgents/)
-        builder.set_macos_launch_mode(auto_launch::MacOSLaunchMode::LaunchAgent);
-        // Si el exe está dentro de un .app, registrar el bundle
-        let path_str = exe
-            .canonicalize()
-            .map(|p| p.display().to_string())
-            .unwrap_or_else(|_| exe.display().to_string());
-        let parts: Vec<&str> = path_str.split(".app/").collect();
-        if parts.len() == 2 {
-            builder.set_app_path(&format!("{}.app", parts[0]));
-        }
-    }
 
     if minimized {
         builder.set_args(&["--minimized"]);
@@ -4022,7 +3991,6 @@ fn autostart_handle(minimized: bool) -> Result<auto_launch::AutoLaunch, String> 
 }
 
 #[tauri::command]
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn autostart_apply(enable: bool, minimized: bool) -> Result<(), String> {
     let al = autostart_handle(enable && minimized)?;
     if enable {
@@ -4035,24 +4003,10 @@ pub fn autostart_apply(enable: bool, minimized: bool) -> Result<(), String> {
 /// Devuelve `true` si la entrada de autostart del SO está activa. Los args
 /// (`--minimized`) no afectan a la detección, que se hace por `app_name`.
 #[tauri::command]
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub fn autostart_is_enabled() -> Result<bool, String> {
     autostart_handle(false)?
         .is_enabled()
         .map_err(|e| e.to_string())
-}
-
-/// Versión no-op para plataformas móviles (Android/iOS): el autostart no aplica.
-#[tauri::command]
-#[cfg(any(target_os = "android", target_os = "ios"))]
-pub fn autostart_apply(_enable: bool, _minimized: bool) -> Result<(), String> {
-    Ok(())
-}
-
-#[tauri::command]
-#[cfg(any(target_os = "android", target_os = "ios"))]
-pub fn autostart_is_enabled() -> Result<bool, String> {
-    Ok(false)
 }
 
 /// Devuelve `true` si la app fue lanzada con el argumento `--minimized`
@@ -4106,27 +4060,6 @@ pub fn reveal_main_window(app: AppHandle, launched: State<LaunchMinimized>) -> b
     // crear la ventana; repetirlo es barato y deja la garantía en un solo sitio.
     let _ = window.restore_state(crate::WINDOW_STATE_FLAGS);
     window.show().is_ok()
-}
-
-/// Indica si la app se está ejecutando como AppImage en Linux (variable de
-/// entorno `APPIMAGE` presente y no vacía). El frontend lo usa para habilitar
-/// el updater de Tauri en Linux solo cuando es AppImage (el único formato que
-/// el updater sabe actualizar in-place); el resto de formatos se actualizan por
-/// el gestor de paquetes.
-#[tauri::command]
-pub fn is_appimage() -> bool {
-    std::env::var("APPIMAGE")
-        .map(|v| !v.trim().is_empty())
-        .unwrap_or(false)
-}
-
-/// Indica si la app corre dentro del sandbox de Flatpak. El frontend lo usa
-/// para no ofrecer comprobación de actualizaciones: en Flatpak la versión la
-/// gestiona el remote (Flathub) y avisar de releases de GitHub llevaría al
-/// usuario a descargar un paquete que no es el que tiene instalado.
-#[tauri::command]
-pub fn is_flatpak() -> bool {
-    crate::sandbox::in_flatpak()
 }
 
 // ─── Notas Markdown por conexión («runbooks») ───────────────────────────────

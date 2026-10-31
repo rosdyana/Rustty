@@ -169,11 +169,8 @@ impl RdpDisplay {
 }
 
 /// Tamaño con el que arranca una ventana RDP cuando el modo no lo deriva del
-/// monitor. Es el que Rustty ha usado siempre. En macOS la ventana la gestiona
-/// la app del sistema y no hace falta.
-#[cfg(any(target_os = "linux", target_os = "windows"))]
+/// monitor. Es el que Rustty ha usado siempre.
 const DEFAULT_RDP_WIDTH: u32 = 1280;
-#[cfg(any(target_os = "linux", target_os = "windows"))]
 const DEFAULT_RDP_HEIGHT: u32 = 800;
 
 /// A dónde y con qué credencial se conecta una sesión RDP.
@@ -689,15 +686,13 @@ fn spawn_rdp_client(
     display: RdpDisplay,
     _cred_injected: bool,
 ) -> Result<SpawnedRdpClient, String> {
-    // Detectar qué binario está disponible. Bajo Flatpak la búsqueda y el
-    // lanzamiento van contra el host: el cliente RDP es del sistema del
-    // usuario, no del runtime.
+    // Detectar qué binario está disponible.
     let binary = ["xfreerdp3", "xfreerdp", "rdesktop"]
         .iter()
-        .find(|&&bin| crate::sandbox::host_which(bin))
+        .find(|&&bin| crate::external_client::which_exists(bin))
         .copied()
         .ok_or_else(|| {
-            "Cliente RDP no encontrado. Instala xfreerdp:\n  sudo dnf install freerdp  # Fedora\n  sudo apt install freerdp2-x11  # Debian/Ubuntu".to_string()
+            "Cliente RDP no encontrado. Instala xfreerdp:\n  sudo apt install freerdp3-x11  # o freerdp2-x11 en versiones anteriores".to_string()
         })?;
 
     // La contraseña se entrega por stdin o por un descriptor heredado, nunca
@@ -714,36 +709,17 @@ fn spawn_rdp_client(
     // contraseña por stdout; el nuestro es un `cat` del `memfd` heredado, así el
     // secreto sigue sin pasar por argv, entorno ni disco. Si el `memfd` falla
     // queda el `/from-stdin` de más abajo, que es lo que entiende FreeRDP 2.
-    //
-    // El `memfd` se prepara antes de construir el comando porque bajo Flatpak
-    // hay que declarar el descriptor a reenviar (`--forward-fd`) delante del
-    // nombre del programa.
     let askpass_secret = match secret {
         Some(pass) if binary != "rdesktop" => secret_memfd(pass).ok(),
         _ => None,
     };
-    let forward_fds: &[i32] = if askpass_secret.is_some() {
-        &[ASKPASS_FD]
-    } else {
-        &[]
-    };
-    // La orden auxiliar (no el secreto) va en `HostSpawn::env`: bajo Flatpak
-    // un `cmd.env` no llegaría al proceso del host y FreeRDP 3 caería a
-    // `/from-stdin`, que sobre una tubería cancela la conexión.
-    let env: Vec<(String, String)> = if askpass_secret.is_some() {
-        vec![("FREERDP_ASKPASS".into(), ASKPASS_COMMAND.into())]
-    } else {
-        Vec::new()
-    };
 
-    let mut cmd = crate::sandbox::host_command(
-        binary,
-        crate::sandbox::HostSpawn {
-            forward_fds,
-            env: &env,
-            ..Default::default()
-        },
-    );
+    let mut cmd = std::process::Command::new(binary);
+    // La orden auxiliar (no el secreto) va en el entorno: sin ella FreeRDP 3
+    // caería a `/from-stdin`, que sobre una tubería cancela la conexión.
+    if askpass_secret.is_some() {
+        cmd.env("FREERDP_ASKPASS", ASKPASS_COMMAND);
+    }
     if binary == "rdesktop" {
         cmd.arg("-u").arg(username);
         if let Some(d) = domain.filter(|d| !d.is_empty()) {
@@ -1040,33 +1016,6 @@ fn format_exit_status(status: std::process::ExitStatus) -> String {
         Some(code) => format!("código {code}"),
         None => "salida sin código".to_string(),
     }
-}
-
-/// macOS: abre la URL rdp:// con el cliente registrado (Microsoft Remote Desktop)
-#[cfg(target_os = "macos")]
-fn spawn_rdp_client(
-    host: &str,
-    port: u16,
-    username: &str,
-    _domain: Option<&str>,
-    _password: Option<&str>,
-    _display: RdpDisplay,
-    _cred_injected: bool,
-) -> Result<SpawnedRdpClient, String> {
-    // Codificamos el usuario (igual que la variante Windows): un `DOMINIO\usuario`,
-    // espacios o `&` romperían la URL o inyectarían parámetros sin escapar.
-    let enc_user = urlencoding::encode(username);
-    let url = format!("rdp://full%20address=s:{host}:{port}&username=s:{enc_user}");
-    let child = std::process::Command::new("open")
-        .arg(&url)
-        .spawn()
-        .map_err(|e| format!("Error al abrir cliente RDP: {e}"))?;
-    Ok(SpawnedRdpClient {
-        child,
-        cleanup_path: None,
-        output_tail: None,
-        output_readers: Vec::new(),
-    })
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────

@@ -58,7 +58,7 @@ Las sesiones que van por el mismo salto **comparten su conexión** con él: se a
 
 ## RDP, VNC y Telnet por el salto
 
-Estos protocolos los abren [clientes externos](?page=ClientesExternos). Cuando van por un salto, Rustty abre un **túnel local automático**: escucha solo en tu propio equipo, en una dirección local (`127.x.y.z`) y un puerto que son siempre los mismos para cada destino, y reenvía por el salto hasta el servidor real. El cliente externo se conecta a esa dirección, y el túnel se cierra cuando cierras el cliente. (En macOS la dirección es siempre `127.0.0.1` y lo que cambia por destino es el puerto.)
+Estos protocolos los abren [clientes externos](?page=ClientesExternos). Cuando van por un salto, Rustty abre un **túnel local automático**: escucha solo en tu propio equipo, en una dirección local (`127.x.y.z`) y un puerto que son siempre los mismos para cada destino, y reenvía por el salto hasta el servidor real. El cliente externo se conecta a esa dirección, y el túnel se cierra cuando cierras el cliente.
 
 Como el cliente ve esa dirección local y no el nombre real del servidor, la primera vez puede preguntarte por su certificado; al ser siempre la misma para cada servidor, no vuelve a preguntar mientras el certificado no cambie.
 

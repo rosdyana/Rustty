@@ -47,18 +47,16 @@ export const SHORTCUT_GROUPS = [
  * @param {(id: string) => string|null} deps.get Combinación vigente de la acción.
  * @param {(id: string) => string} deps.label Nombre visible de la acción.
  * @param {(groupId: string) => string} deps.groupLabel Nombre visible del contexto.
- * @param {(combo: string) => string} [deps.format] Presentación por plataforma.
  * @returns {CheatsheetGroup[]}
  */
-export function buildCheatsheet({ get, label, groupLabel, format = (combo) => combo }) {
+export function buildCheatsheet({ get, label, groupLabel }) {
   return SHORTCUT_GROUPS.map((group) => ({
     id: group.id,
     label: groupLabel(group.id),
     items: group.actions.flatMap((id) => {
       const combo = get(id);
       if (!combo) return [];
-      const shown = format(combo);
-      return [{ id, label: label(id), combo: shown, keys: splitCombo(shown) }];
+      return [{ id, label: label(id), combo, keys: splitCombo(combo) }];
     }),
   })).filter((group) => group.items.length);
 }

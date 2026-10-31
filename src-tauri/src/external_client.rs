@@ -23,7 +23,7 @@ pub struct ExternalHandle {
     /// Reenvío local por la ruta de saltos, si la conexión va por un salto.
     forward: Option<crate::jump_forward::LocalForward>,
     /// Cuándo se lanzó: un proceso que muere enseguida era un lanzador
-    /// (`cmd /c start`, `open`, el emulador de terminal; ver `jump_forward`).
+    /// (`cmd /c start`, el emulador de terminal; ver `jump_forward`).
     launched_at: std::time::Instant,
 }
 
@@ -234,27 +234,14 @@ fn spawn_vnc_client(host: &str, port: u16) -> Result<SpawnedExternalClient, Stri
         .find(|&&bin| which_exists(bin))
         .copied()
         .ok_or_else(|| {
-            "Visor VNC no encontrado. Instala TigerVNC:\n  sudo dnf install tigervnc  # Fedora\n  sudo apt install tigervnc-viewer  # Debian/Ubuntu".to_string()
+            "Visor VNC no encontrado. Instala TigerVNC:\n  sudo apt install tigervnc-viewer".to_string()
         })?;
 
     // `host::port` (doble dos puntos) indica puerto TCP literal en TigerVNC.
-    let child = crate::sandbox::host_command(binary, crate::sandbox::HostSpawn::default())
+    let child = std::process::Command::new(binary)
         .arg(format!("{host}::{port}"))
         .spawn()
         .map_err(|e| format!("Error al lanzar {binary}: {e}"))?;
-    Ok(SpawnedExternalClient {
-        child,
-        cleanup_path: None,
-    })
-}
-
-#[cfg(target_os = "macos")]
-fn spawn_vnc_client(host: &str, port: u16) -> Result<SpawnedExternalClient, String> {
-    // Screen Sharing nativo abre las URL vnc://.
-    let child = std::process::Command::new("open")
-        .arg(format!("vnc://{host}:{port}"))
-        .spawn()
-        .map_err(|e| format!("Error al abrir el visor VNC: {e}"))?;
     Ok(SpawnedExternalClient {
         child,
         cleanup_path: None,
@@ -292,7 +279,7 @@ fn spawn_vnc_client(host: &str, port: u16) -> Result<SpawnedExternalClient, Stri
 fn spawn_telnet_client(host: &str, port: u16) -> Result<SpawnedExternalClient, String> {
     if !which_exists("telnet") {
         return Err(
-            "Cliente telnet no encontrado. Instala telnet:\n  sudo dnf install telnet  # Fedora\n  sudo apt install telnet  # Debian/Ubuntu".to_string(),
+            "Cliente telnet no encontrado. Instala telnet:\n  sudo apt install telnet".to_string(),
         );
     }
     // `telnet` es de línea de comandos: necesita un emulador de terminal anfitrión.
@@ -304,7 +291,7 @@ fn spawn_telnet_client(host: &str, port: u16) -> Result<SpawnedExternalClient, S
             "No se encontró un emulador de terminal para lanzar telnet (probado: gnome-terminal, konsole, xterm…).".to_string()
         })?;
 
-    let mut cmd = crate::sandbox::host_command(term, crate::sandbox::HostSpawn::default());
+    let mut cmd = std::process::Command::new(term);
     // gnome-terminal moderno separa el comando con `--`; el resto usa `-e`.
     if term == "gnome-terminal" {
         cmd.arg("--").arg("telnet").arg(host).arg(port.to_string());
@@ -314,19 +301,6 @@ fn spawn_telnet_client(host: &str, port: u16) -> Result<SpawnedExternalClient, S
     let child = cmd
         .spawn()
         .map_err(|e| format!("Error al lanzar telnet en {term}: {e}"))?;
-    Ok(SpawnedExternalClient {
-        child,
-        cleanup_path: None,
-    })
-}
-
-#[cfg(target_os = "macos")]
-fn spawn_telnet_client(host: &str, port: u16) -> Result<SpawnedExternalClient, String> {
-    // Abrir Terminal.app ejecutando telnet mediante AppleScript.
-    let child = std::process::Command::new("osascript")
-        .args(telnet_osascript_args(host, port))
-        .spawn()
-        .map_err(|e| format!("Error al abrir Terminal para telnet: {e}"))?;
     Ok(SpawnedExternalClient {
         child,
         cleanup_path: None,
@@ -357,8 +331,8 @@ const MAX_LAUNCH_HOST_LEN: usize = 255;
 ///
 /// El host llega del perfil, y el perfil puede venir de un import o de la
 /// sincronización: no es un sitio en el que confiar a ciegas. En Windows
-/// algunos caminos pasan por `cmd /C start` y en macOS Telnet se abre con
-/// AppleScript en el shell del usuario; un `10.0.0.5&calc` o un `h;curl …|sh`
+/// algunos caminos pasan por `cmd /C start`, y en Linux el host llega como
+/// argumento a un emulador de terminal; un `10.0.0.5&calc` o un `h;curl …|sh`
 /// ejecutaría otra orden. Por eso se admite solo una lista cerrada: letras y
 /// dígitos (también los de un nombre internacionalizado), `.`, `_`, `-`, `:`
 /// (IPv6), `[` `]` (IPv6 entre corchetes) y un único `%` (la zona de una IPv6
@@ -389,24 +363,6 @@ pub fn check_launch_host(host: &str) -> Result<(), String> {
 
 // ─── Utilidades ───────────────────────────────────────────────────────────────
 
-/// Argumentos de `osascript` para abrir telnet en Terminal.app. El host y el
-/// puerto no se interpolan en el script: viajan como argumentos del manejador
-/// `run` y llegan al shell con `quoted form of`, así que el texto del script es
-/// siempre el mismo y ningún valor del perfil se interpreta como código.
-#[cfg(any(target_os = "macos", test))]
-fn telnet_osascript_args(host: &str, port: u16) -> Vec<String> {
-    vec![
-        "-e".to_string(),
-        "on run argv".to_string(),
-        "-e".to_string(),
-        "tell application \"Terminal\" to do script \"telnet \" & quoted form of item 1 of argv & \" \" & quoted form of item 2 of argv".to_string(),
-        "-e".to_string(),
-        "end run".to_string(),
-        host.to_string(),
-        port.to_string(),
-    ]
-}
-
 /// Línea de órdenes de `cmd` para abrir `target` con `start`: título vacío y
 /// destino entre comillas, tal cual (`raw_arg`). Con `.arg("\"\"")` la
 /// biblioteca estándar escapa las comillas como `\"\"`, que `start` no toma por
@@ -429,11 +385,20 @@ pub(crate) fn cmd_start_line(wait: bool, target: &str, args: &[&str]) -> String 
     line
 }
 
-/// Bajo Flatpak la búsqueda va contra el `PATH` del host, que es donde estos
-/// visores están instalados y donde se van a ejecutar.
+/// ¿Hay un ejecutable `bin` en algún directorio del `PATH`? Lo usan los
+/// lanzadores de Linux (RDP, VNC, telnet) para elegir el primer cliente
+/// instalado sin lanzarlo.
 #[cfg(target_os = "linux")]
-fn which_exists(bin: &str) -> bool {
-    crate::sandbox::host_which(bin)
+pub(crate) fn which_exists(bin: &str) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    let Some(path) = std::env::var_os("PATH") else {
+        return false;
+    };
+    std::env::split_paths(&path).any(|dir| {
+        std::fs::metadata(dir.join(bin))
+            .map(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+            .unwrap_or(false)
+    })
 }
 
 #[cfg(target_os = "windows")]
@@ -473,7 +438,7 @@ mod tests {
     }
 
     #[test]
-    fn el_host_rechaza_metacaracteres_de_cmd_sh_y_applescript() {
+    fn el_host_rechaza_metacaracteres_de_cmd_y_sh() {
         for host in [
             "",
             "10.0.0.5&calc",
@@ -506,25 +471,6 @@ mod tests {
             assert!(check_launch_host(host).is_err(), "debería rechazar {host:?}");
         }
         assert!(check_launch_host(&"a".repeat(MAX_LAUNCH_HOST_LEN + 1)).is_err());
-    }
-
-    #[test]
-    fn telnet_en_macos_pasa_host_y_puerto_fuera_del_script() {
-        let args = telnet_osascript_args("10.0.0.5", 2323);
-        // El script (lo que sigue a cada `-e`) no lleva ni el host ni el puerto.
-        let script: Vec<&str> = args
-            .chunks(2)
-            .take_while(|par| par[0] == "-e")
-            .map(|par| par[1].as_str())
-            .collect();
-        assert_eq!(script.len(), 3);
-        assert!(script
-            .iter()
-            .all(|linea| !linea.contains("10.0.0.5") && !linea.contains("2323")));
-        assert!(script[1].contains("quoted form of item 1 of argv"));
-        // Host y puerto van detrás, como argumentos del manejador `run`.
-        assert_eq!(&args[args.len() - 2..], ["10.0.0.5", "2323"]);
-        assert_eq!(args.len(), 8);
     }
 
     #[test]

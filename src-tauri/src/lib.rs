@@ -57,7 +57,6 @@ mod remote_launch;
 mod ssh_fixture;
 #[cfg(all(test, target_os = "linux"))]
 mod webdav_fixture;
-mod sandbox;
 mod scripts;
 mod sftp_manager;
 mod shell_integration;
@@ -256,7 +255,6 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_notification::init())
-        .plugin(tauri_plugin_process::init())
         // Tamaño, posición y maximizado; **no** la visibilidad. Con los flags
         // por defecto (`StateFlags::all()`) el plugin hacía `show()` de la
         // ventana en `on_window_ready`, o sea con el webview recién creado y
@@ -294,12 +292,6 @@ pub fn run() {
             );
             app.manage(AppLogDir(log_dir.clone()));
             app.manage(AppLogLevel(log_level));
-            // Updater de Tauri (solo escritorio): permite actualizar la app
-            // desde dentro sin re-lanzar el instalador. Las actualizaciones se
-            // verifican con la clave pública de `tauri.conf.json`.
-            #[cfg(desktop)]
-            app.handle()
-                .plugin(tauri_plugin_updater::Builder::new().build())?;
             // El handler TOFU necesita poder pedir confirmación de una host key
             // nueva al usuario (evento `ssh-hostkey-prompt`). Sin este registro
             // —caso de la CLI— cae al prompt por stdin.
@@ -436,8 +428,6 @@ pub fn run() {
             commands::reveal_main_window,
             commands::save_workspace_index,
             commands::load_workspace_index,
-            commands::is_appimage,
-            commands::is_flatpak,
             app_tray::tray_update_quick_launcher,
             // ── Perfiles de conexión
             commands::get_profiles,
@@ -596,7 +586,6 @@ pub fn run() {
             commands::sync_get_device_id,
             commands::sync_run,
             commands::sync_test_backend,
-            commands::sync_get_backend_folder,
             commands::sync_oauth_begin,
             commands::sync_oauth_complete,
             commands::sync_oauth_status,

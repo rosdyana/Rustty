@@ -1,144 +1,73 @@
 # Instalación
 
-Rustty ofrece binarios precompilados para Linux, Windows y macOS en la [página de releases](https://github.com/Aleixenandros/Rustty/releases).
+Rustty publica dos binarios precompilados en la [página de releases](https://github.com/rosdyana/Rustty/releases):
 
-La web y el instalador apuntan siempre al último release publicado. Desde Rustty puedes comprobarlo manualmente en **Preferencias → Acerca de**, o activar **Comprobar al iniciar** para que la app lo revise al arrancar.
+| Sistema | Fichero | Formato |
+|---|---|---|
+| **Windows 10/11 (x64)** | `Rustty_<version>_x64-portable.exe` | Ejecutable portable, sin instalador |
+| **Debian / Ubuntu (x86_64)** | `Rustty_<version>_amd64.deb` | Paquete `.deb` |
 
-## Linux
+Son las dos únicas plataformas soportadas. En otros sistemas puedes [compilar desde fuente](#compilar-desde-fuente), pero sin soporte oficial.
 
-Rustty requiere **WebKitGTK 4.1** y **libayatana-appindicator** en tiempo de ejecución. En la mayoría de distribuciones ya están instalados o se resuelven como dependencia al instalar el paquete.
+Desde Rustty puedes comprobar si hay una versión nueva en **Preferencias → Acerca de**, o activar **Comprobar al iniciar** para que la app lo revise al arrancar. Rustty no se actualiza solo: si hay versión nueva, te avisa y abre la página del release para que descargues el fichero.
 
-### Instalador automático
+## Windows (portable)
 
-Detecta tu distribución (Arch / Debian / Fedora / openSUSE) y descarga el paquete nativo correcto del último release:
+En Windows 10 22H2 y Windows 11 el runtime **Microsoft Edge WebView2** viene preinstalado. Si tu sistema no lo tiene, instálalo desde la [página de Microsoft](https://developer.microsoft.com/microsoft-edge/webview2/) antes de abrir Rustty.
 
-```bash
-curl -sSf https://rustty.es/install.sh | sh
-```
+Descarga `Rustty_<version>_x64-portable.exe` y ejecútalo: es un único fichero, no necesita instalación ni permisos de administrador, y sirve también desde un USB o en equipos bloqueados. Puedes dejarlo en cualquier carpeta y crear un acceso directo.
 
-Si tu distro no se detecta, instala una AppImage en `~/.local/bin`. El script puede inspeccionarse antes de ejecutarse: `curl -sSf https://rustty.es/install.sh -o install.sh`.
+Mientras el nombre del fichero termine en `-portable.exe`, Rustty guarda toda su configuración (perfiles, preferencias, notas…) en una carpeta `.conf\com.rustty.app\` **junto al propio ejecutable**, sin tocar `%APPDATA%`: copia la carpeta a otro equipo o a un USB y la configuración viaja con ella. Las contraseñas siguen en el Administrador de credenciales de Windows del usuario; para llevarlas contigo usa una base **KeePass** junto al `.exe` o la sincronización cifrada de contraseñas. Si renombras el `.exe` quitando el sufijo `-portable.exe`, vuelve al modo normal y usa `%APPDATA%\com.rustty.app\`.
 
-### AppImage (portable)
+> Los binarios de Windows aún **no están firmados** (la firma de código está en evaluación; ver la [política de firma de código](?page=Firma)). Mientras tanto, SmartScreen o algún antivirus pueden mostrar un aviso o un falso positivo: [verifica la descarga](#verificar-integridad) para confirmar que el fichero no ha sido alterado.
 
-No requiere instalación:
+### Actualizar en Windows
 
-```bash
-chmod +x Rustty_*_amd64.AppImage
-./Rustty_*_amd64.AppImage
-```
+Descarga el `.exe` portable de la versión nueva y ponlo **en la misma carpeta** que el anterior (puedes borrar el viejo): como su nombre también termina en `-portable.exe`, leerá la misma carpeta `.conf\` y conservarás tus datos.
 
-### .deb (Debian / Ubuntu / Mint)
+## Debian / Ubuntu (.deb)
+
+Rustty requiere **WebKitGTK 4.1** y **libayatana-appindicator** en tiempo de ejecución; `apt` los instala como dependencia del paquete. Funciona en Ubuntu 22.04 o posterior, Debian 12 o posterior y derivadas (Linux Mint, Pop!_OS…).
 
 ```bash
 sudo apt install ./Rustty_*_amd64.deb
 ```
 
-### .rpm (Fedora / openSUSE / RHEL)
+### Actualizar en Debian / Ubuntu
 
-```bash
-sudo dnf install ./Rustty-*-1.x86_64.rpm        # Fedora
-sudo zypper install ./Rustty-*-1.x86_64.rpm     # openSUSE
-```
-
-### .pkg.tar.zst (Arch / Manjaro)
-
-```bash
-sudo pacman -U Rustty-*-1-x86_64.pkg.tar.zst
-```
-
-### Flatpak
-
-A partir de la **v1.10.2** Rustty publica un bundle Flatpak independiente. No requiere añadir un remoto: el `.flatpak` se descarga del release y se instala con un comando.
-
-```bash
-flatpak install ./Rustty-*-x86_64.flatpak
-flatpak run es.rustty.Rustty
-```
-
-Requiere el runtime `org.freedesktop.Platform 24.08`; si no lo tienes lo descargará Flatpak la primera vez. El bundle pide acceso a `$HOME` (claves SSH, KeePass, known_hosts), al keyring del sistema (gnome-keyring / KWallet) y a los portales XDG para diálogos y notificaciones.
-
-> El paquete todavía no está en Flathub. Se publicará allí cuando migremos el manifest a un build offline reproducible (con `flatpak-cargo-generator` y `flatpak-node-generator`) y se cree la cuenta del proyecto.
-
-## Windows
-
-En Windows 10 22H2 y Windows 11 el runtime **Microsoft Edge WebView2** viene preinstalado. Si tu sistema no lo tiene, el instalador MSI o NSIS lo descargará automáticamente.
-
-La forma recomendada es **winget**, que instala y actualiza Rustty con un solo comando:
-
-```powershell
-winget install rustty
-```
-
-También puedes descargar un binario directamente del release:
-
-- **MSI** (`Rustty_<version>_x64.msi`): instalador tradicional, doble clic y seguir. **Recomendado para actualizar**: al reinstalar sobre una versión anterior hace la actualización *in-place*, sin pasos extra.
-- **NSIS** (`Rustty_<version>_x64-setup.exe`): instalador alternativo, más ligero.
-- **Portable** (`Rustty_<version>_x64-portable.exe`): ejecutable único, ideal para USB o equipos bloqueados.
-
-> Los binarios de Windows aún **no están firmados** (la firma de código está en evaluación; ver la [política de firma de código](?page=Firma)). Mientras tanto, algún antivirus puede marcar un falso positivo: verifica el `sha256` publicado junto al release para confirmar que el fichero no ha sido alterado.
-
-### Actualizar Rustty
-
-La forma más cómoda es la **actualización desde la propia app**: en Windows y macOS, Rustty puede descargar e instalar la nueva versión y reiniciarse solo. Compruébalo en **Preferencias → Acerca de → Comprobar actualizaciones** (o activa **Comprobar al iniciar**).
-
-Si actualizas **manualmente** con un instalador:
-
-- Con el **MSI**, basta con ejecutar el de la versión nueva: actualiza encima de la anterior.
-- Con el **NSIS** (`.exe`), al detectar una instalación previa verás la página *"Already Installed"* con dos opciones; **"Uninstall before installing"** es la recomendada y conserva tus datos (perfiles, preferencias y notas viven en `%APPDATA%\com.rustty.app`, no se borran al desinstalar).
-
-## macOS (Apple Silicon)
-
-### Instalador automático
-
-El mismo script detecta macOS (Apple Silicon), descarga el último release e instala `Rustty.app` en `~/Applications`:
-
-```bash
-curl -sSf https://rustty.es/install.sh | sh
-```
-
-O descarga un binario directamente del release:
-
-- **DMG** (`Rustty_<version>_aarch64.dmg`): abrir el `.dmg` y arrastrar `Rustty.app` a **Aplicaciones**.
-- **App bundle** (`Rustty_aarch64.app.tar.gz`): descomprimir y ejecutar `Rustty.app`.
-
-Las builds publicadas están firmadas con **Apple Developer ID** y notarizadas, así que Gatekeeper no mostrará aviso. Para Intel Mac hay que compilar desde fuente.
+Descarga el `.deb` de la versión nueva e instálalo con el mismo comando: `apt` actualiza encima de la versión anterior y conserva tus datos.
 
 ## Verificar integridad
 
-Junto a cada artefacto se publica su `.sig` (firma del updater de Tauri) y la página del release incluye el `sha256` de cada fichero:
+Cada release incluye un `SHA256SUMS.txt` con el hash de todos los artefactos, y ese manifiesto lleva una **attestation de procedencia** de GitHub que lo ata al workflow, al commit y al runner que lo generaron:
 
 ```bash
-sha256sum Rustty_*_amd64.deb
-# comparar con el hash indicado en la release
+# 1. El manifiesto viene del CI del proyecto
+gh attestation verify SHA256SUMS.txt --repo rosdyana/Rustty
+
+# 2. Tu descarga coincide con el manifiesto
+sha256sum --check --ignore-missing SHA256SUMS.txt
 ```
 
-Para el detalle de cómo se firman los binarios y cómo verificarlos, consulta la [política de firma de código](?page=Firma).
+En Windows (PowerShell), el paso 2 equivale a comparar `Get-FileHash .\Rustty_*_x64-portable.exe` con la línea correspondiente de `SHA256SUMS.txt`.
+
+Para el detalle de cómo se construyen los binarios y cómo verificarlos, consulta la [política de firma de código](?page=Firma).
 
 ## Clientes externos opcionales
 
 SSH, SFTP, FTP y FTPS funcionan dentro de Rustty. Para **RDP**, **VNC** y **Telnet**, Rustty lanza clientes externos del sistema; instala solo los que vayas a usar.
 
-En Linux:
+En Debian / Ubuntu:
 
 ```bash
-# RDP
-sudo dnf install freerdp          # Fedora
-sudo apt install freerdp2-x11     # Debian/Ubuntu
-
-# VNC
-sudo dnf install tigervnc         # Fedora
-sudo apt install tigervnc-viewer  # Debian/Ubuntu
-
-# Telnet
-sudo dnf install telnet           # Fedora
-sudo apt install telnet           # Debian/Ubuntu
+sudo apt install freerdp2-x11     # RDP
+sudo apt install tigervnc-viewer  # VNC
+sudo apt install telnet           # Telnet
 ```
 
 Telnet en Linux necesita además un emulador de terminal (`x-terminal-emulator`, GNOME Terminal, Konsole, Xfce Terminal, Alacritty, Kitty o xterm).
 
 En Windows, RDP usa `mstsc.exe` incluido en el sistema. VNC requiere un visor instalado o un manejador `vnc://`. Telnet puede requerir activar el **Cliente Telnet** desde las características opcionales.
-
-En macOS, VNC usa Pantalla compartida (`vnc://`) y RDP necesita un cliente que registre `rdp://`. Telnet se abre en Terminal.app, pero puede que tengas que instalar el binario `telnet` aparte.
 
 Más detalle en [Clientes externos](?page=ClientesExternos).
 
@@ -148,4 +77,4 @@ Una vez instalado, el binario también permite listar perfiles SSH, abrir sesion
 
 ## Compilar desde fuente
 
-Si prefieres compilar tú mismo, consulta el [README del proyecto](https://github.com/Aleixenandros/Rustty#desarrollo-y-construcción) para la lista completa de dependencias por sistema.
+Si prefieres compilar tú mismo, consulta el [README del proyecto](https://github.com/rosdyana/Rustty#desarrollo-y-construcción) para las dependencias y los comandos de compilación.

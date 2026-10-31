@@ -122,7 +122,7 @@ Dentro del buscador, `Esc` limpia el texto y restablece la lista; un segundo `Es
 
 ## Captura de nuevos atajos
 
-El capturador detecta cualquier combinación de **Ctrl / Alt / Shift / Meta** más una tecla final, y normaliza el código de tecla independientemente del layout del teclado (ES / EN / FR). En macOS, `Ctrl` se muestra como `Cmd` en la interfaz pero internamente sigue siendo la misma combinación.
+El capturador detecta cualquier combinación de **Ctrl / Alt / Shift / Meta** más una tecla final, y normaliza el código de tecla independientemente del layout del teclado (ES / EN / FR).
 
 Si un atajo entra en conflicto con otro ya asignado, Rustty te avisa con un toast pero deja que decidas: puedes mantener el conflicto (uno de los dos no funcionará) o elegir una combinación distinta.
 
