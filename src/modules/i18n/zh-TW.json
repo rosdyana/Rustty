@@ -632,6 +632,7 @@
     "connect_as": "以其他使用者連線",
     "menu_label": "連線選單",
     "menu_tab_label": "分頁選單",
+    "menu_terminal_label": "終端機選單",
     "menu_files_label": "檔案選單",
     "open_trash": "資源回收筒…",
     "connect_restore": "連線並還原先前的畫面",
@@ -702,6 +703,13 @@
     "connect": "連線",
     "open_folder": "開啟",
     "no_folder": "無資料夾"
+  },
+  "termctx": {
+    "copy": "複製",
+    "paste": "貼上",
+    "select_all": "全選",
+    "find": "搜尋…",
+    "clear": "清除"
   },
   "tabctx": {
     "duplicate": "複製分頁",
@@ -2102,6 +2110,7 @@
     "transfers_all_paused": "傳輸已暫停",
     "transfers_all_resumed": "傳輸已繼續",
     "host_copied": "已複製：{host}",
+    "copied_selection": "已複製到剪貼簿",
     "transfer_cancel_failed": "無法取消：{err}",
     "transfer_pause_failed": "無法暫停：{err}",
     "transfer_resume_failed": "無法繼續：{err}",

@@ -632,6 +632,7 @@
     "connect_as": "Sambungkan sebagai pengguna lain",
     "menu_label": "Menu koneksi",
     "menu_tab_label": "Menu tab",
+    "menu_terminal_label": "Menu terminal",
     "menu_files_label": "Menu berkas",
     "open_trash": "Tempat sampah…",
     "connect_restore": "Sambungkan dan pulihkan layar sebelumnya",
@@ -702,6 +703,13 @@
     "connect": "Sambungkan",
     "open_folder": "Buka",
     "no_folder": "Tanpa folder"
+  },
+  "termctx": {
+    "copy": "Salin",
+    "paste": "Tempel",
+    "select_all": "Pilih semua",
+    "find": "Cari…",
+    "clear": "Bersihkan"
   },
   "tabctx": {
     "duplicate": "Duplikat tab",
@@ -2102,6 +2110,7 @@
     "transfers_all_paused": "Transfer dijeda",
     "transfers_all_resumed": "Transfer dilanjutkan",
     "host_copied": "Disalin: {host}",
+    "copied_selection": "Disalin ke papan klip",
     "transfer_cancel_failed": "Tidak dapat membatalkan: {err}",
     "transfer_pause_failed": "Tidak dapat menjeda: {err}",
     "transfer_resume_failed": "Tidak dapat melanjutkan: {err}",

@@ -632,6 +632,7 @@
     "connect_as": "Connect as another user",
     "menu_label": "Connection menu",
     "menu_tab_label": "Tab menu",
+    "menu_terminal_label": "Terminal menu",
     "menu_files_label": "File menu",
     "open_trash": "Trash…",
     "connect_restore": "Connect and restore previous screen",
@@ -702,6 +703,13 @@
     "connect": "Connect",
     "open_folder": "Open",
     "no_folder": "No folder"
+  },
+  "termctx": {
+    "copy": "Copy",
+    "paste": "Paste",
+    "select_all": "Select all",
+    "find": "Find…",
+    "clear": "Clear"
   },
   "tabctx": {
     "duplicate": "Duplicate tab",
@@ -2102,6 +2110,7 @@
     "transfers_all_paused": "Transfers paused",
     "transfers_all_resumed": "Transfers resumed",
     "host_copied": "Copied: {host}",
+    "copied_selection": "Copied to clipboard",
     "transfer_cancel_failed": "Could not cancel: {err}",
     "transfer_pause_failed": "Could not pause: {err}",
     "transfer_resume_failed": "Could not resume: {err}",

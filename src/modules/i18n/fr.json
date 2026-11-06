@@ -632,6 +632,7 @@
     "connect_as": "Se connecter avec un autre utilisateur",
     "menu_label": "Menu de la connexion",
     "menu_tab_label": "Menu de l'onglet",
+    "menu_terminal_label": "Menu du terminal",
     "menu_files_label": "Menu des fichiers",
     "open_trash": "Corbeille…",
     "connect_restore": "Connecter et restaurer l’écran précédent",
@@ -702,6 +703,13 @@
     "connect": "Se connecter",
     "open_folder": "Ouvrir",
     "no_folder": "Sans dossier"
+  },
+  "termctx": {
+    "copy": "Copier",
+    "paste": "Coller",
+    "select_all": "Tout sélectionner",
+    "find": "Rechercher…",
+    "clear": "Effacer"
   },
   "tabctx": {
     "duplicate": "Dupliquer l'onglet",
@@ -2108,6 +2116,7 @@
     "transfers_all_paused": "Transferts en pause",
     "transfers_all_resumed": "Transferts repris",
     "host_copied": "Copié : {host}",
+    "copied_selection": "Copié dans le presse-papiers",
     "transfer_cancel_failed": "Impossible d'annuler : {err}",
     "transfer_pause_failed": "Impossible de mettre en pause : {err}",
     "transfer_resume_failed": "Impossible de reprendre : {err}",

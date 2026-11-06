@@ -24,8 +24,8 @@ Todos los atajos son **configurables** desde **Preferencias → Atajos**. Pulsa 
 
 | Atajo          | Acción                                              |
 |----------------|-----------------------------------------------------|
-| `Ctrl+Alt+C`   | Copiar selección del terminal                       |
-| `Ctrl+Alt+V`   | Pegar en el terminal                                |
+| `Ctrl+Shift+C` | Copiar selección del terminal (`Cmd+C` en macOS)    |
+| `Ctrl+Shift+V` | Pegar en el terminal (`Cmd+V` en macOS)             |
 | `Ctrl+P`       | Pegar la contraseña del usuario con el que se conectó la sesión |
 | `Ctrl+Shift+E` | Abrir el editor multilínea de comandos              |
 | `Ctrl+Shift+M` | Abrir el editor de notas de la conexión activa      |
@@ -89,7 +89,7 @@ Dentro del editor multilínea (`Ctrl+Shift+E`), al escribir aparece un desplegab
 
 La búsqueda en el buffer abre una barra flotante con next/prev y un toggle de **case-sensitive**. Resalta todas las coincidencias sobre `@xterm/addon-search`.
 
-El pegado en el terminal (`Ctrl+Alt+V`) pide confirmación con una previsualización cuando el texto es **multilínea**, **muy largo** o trae **caracteres de control**. Se configura en **Preferencias → Terminal** y puede desactivarse por perfil desde sus opciones avanzadas.
+El pegado en el terminal (`Ctrl+Shift+V`) pide confirmación con una previsualización cuando el texto es **multilínea**, **muy largo** o trae **caracteres de control**. Se configura en **Preferencias → Terminal** y puede desactivarse por perfil desde sus opciones avanzadas.
 
 La paleta (`Ctrl+Shift+P`) busca acciones, perfiles, snippets, comandos locales, **scripts** y **notas de conexión**, e incluye acciones contextuales según lo que tengas delante: abrir/cerrar el panel SFTP, la nota de la conexión activa, los túneles SSH o la comprobación de salud. Además aprende de tu uso: sin texto escrito, lo reciente y frecuente aparece primero; en cuanto escribes, manda la coincidencia del texto. `Ctrl+K` se mantiene reservado para buscar conexiones en la sidebar.
 

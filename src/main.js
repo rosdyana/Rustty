@@ -69,6 +69,7 @@ import {
 import { passwordPlan } from "./modules/credential-plan.js";
 import { localParentPath, splitLocalPathPrefix } from "./modules/local-path.js";
 import { clampMenuPosition, menuNeedsScroll } from "./modules/menu-position.js";
+import { terminalRightClickAction } from "./modules/terminal-mouse.js";
 import { compilePromptRegex, segmentByPrompt, DEFAULT_PROMPT_PATTERN } from "./modules/terminal/prompt-fallback.js";
 import { layoutToTree, paneDims, layoutSize } from "./modules/tmux/layout-view.js";
 import { isActiveTmuxControlRoot, isTmuxPaneSession, tmuxRootRedirect } from "./modules/tmux/sessions.js";
@@ -7307,7 +7308,7 @@ function hideContextMenu() {
 // anillo de foco solo se ve si la apertura fue por teclado, por la heurística de
 // `:focus-visible`); las flechas / Inicio / Fin recorren los ítems visibles; y
 // Tab o Escape cierran devolviendo el foco al elemento que abrió el menú.
-const FLOATING_MENU_IDS = ["context-menu", "tab-context-menu", "sftp-context-menu", "route-menu"];
+const FLOATING_MENU_IDS = ["context-menu", "tab-context-menu", "terminal-context-menu", "sftp-context-menu", "route-menu"];
 let menuReturnFocus = null;
 /**
  * Cuándo se cerró por última vez un menú visible. Un diálogo que se abre con
@@ -7349,6 +7350,7 @@ function closeFloatingMenus({ restoreFocus = false } = {}) {
   const wasOpen = !!openFloatingMenuEl();
   hideContextMenu();
   hideTabContextMenu();
+  hideTerminalContextMenu();
   hideSftpContextMenu();
   hideRouteMenu();
   if (restoreFocus && wasOpen && menuReturnFocus && document.contains(menuReturnFocus)) {
@@ -15840,20 +15842,27 @@ function createTerminalTab(sessionId, profile, initialStatus, opts = {}) {
     if (sel) writeSystemClipboardText(sel);
   });
 
-  // Pegar con clic derecho (se activa/desactiva según prefs en tiempo real).
-  // El portapapeles externo se lee vía plugin Tauri para no depender de las
-  // restricciones de activación de `navigator.clipboard` en el WebView.
+  // Clic derecho en el terminal. Siempre tomamos el evento en captura, antes de
+  // que xterm lo vea y antes de que aparezca el menú nativo del WebView. Según
+  // la pref `rightClickPaste` copia la selección, pega o abre el menú propio del
+  // terminal; sobre un enlace no hace nada. La decisión pura vive en
+  // `modules/terminal-mouse.js`. El portapapeles externo se lee vía plugin Tauri
+  // para no depender de las restricciones de `navigator.clipboard` en el WebView.
   xtermDiv.addEventListener("contextmenu", (e) => {
-    // El botón derecho sobre un enlace no lo activa ni pega el portapapeles.
-    if (terminalLinkHovered) {
-      e.preventDefault();
-      e.stopPropagation();
-      return;
-    }
-    if (prefs.rightClickPaste) {
-      e.preventDefault();
-      e.stopPropagation();
+    e.preventDefault();
+    e.stopPropagation();
+    const action = terminalRightClickAction({
+      rightClickPaste: !!prefs.rightClickPaste,
+      hasSelection: terminal.hasSelection(),
+      linkHovered: terminalLinkHovered,
+    });
+    if (action === "copy") {
+      copyTerminalSelection(terminal);
+      terminal.clearSelection();
+    } else if (action === "paste") {
       pasteClipboardIntoSession(sessionObj);
+    } else if (action === "menu") {
+      showTerminalContextMenu(e.clientX, e.clientY, sessionObj.id);
     }
   }, true);
 
@@ -15867,6 +15876,19 @@ function createTerminalTab(sessionId, profile, initialStatus, opts = {}) {
     // Con un diálogo modal abierto, ninguna tecla llega a un terminal oculto
     // tras el velo (defensa por si el foco se colara sin soporte de `inert`).
     if (dialogs.hasModal()) return false;
+    // macOS: Cmd+C copia la selección y Cmd+V pega, como en cualquier app nativa.
+    // Cmd+C sin selección sigue su curso normal. Ctrl+C no se toca: va al shell.
+    if (e.type === "keydown" && isMacPlatform() && e.metaKey && !e.ctrlKey && !e.altKey) {
+      if (e.key === "c" && terminal.hasSelection()) {
+        copyTerminalSelection(terminal);
+        return false;
+      }
+      if (e.key === "v") {
+        e.preventDefault();
+        pasteClipboardIntoSession(sessionObj);
+        return false;
+      }
+    }
     return true;
   });
 
@@ -26143,6 +26165,12 @@ function bindUIEvents() {
     if (btn) handleTabContextAction(btn.dataset.tabctx);
   });
 
+  document.getElementById("terminal-context-menu").addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-termctx]");
+    if (!btn || btn.disabled) return;
+    handleTerminalContextMenuAction(btn.dataset.termctx);
+  });
+
   document.getElementById("sftp-context-menu")?.addEventListener("click", (e) => {
     const btn = e.target.closest("[data-sftpctx]");
     if (!btn || btn.disabled) return;
@@ -26158,6 +26186,10 @@ function bindUIEvents() {
     const tabMenu = document.getElementById("tab-context-menu");
     if (!tabMenu.classList.contains("hidden") && !tabMenu.contains(e.target)) {
       hideTabContextMenu();
+    }
+    const termMenu = document.getElementById("terminal-context-menu");
+    if (!termMenu.classList.contains("hidden") && !termMenu.contains(e.target)) {
+      hideTerminalContextMenu();
     }
     const sftpMenu = document.getElementById("sftp-context-menu");
     if (sftpMenu && !sftpMenu.classList.contains("hidden") && !sftpMenu.contains(e.target)) {
@@ -28301,12 +28333,76 @@ async function pasteSessionPasswordIntoActiveTerminal() {
   password = null;
 }
 
+/**
+ * Copia la selección del terminal al portapapeles y avisa. Devuelve `false` si
+ * no había texto seleccionado (no hay nada que avisar).
+ * @param {import("@xterm/xterm").Terminal} terminal
+ */
+function copyTerminalSelection(terminal) {
+  const sel = terminal.getSelection();
+  if (!sel) return false;
+  writeSystemClipboardText(sel);
+  toast(t("toast.copied_selection"), "success");
+  return true;
+}
+
+/** macOS (WKWebView): Cmd es el modificador de copiar y pegar. */
+function isMacPlatform() {
+  return /Macintosh|Mac OS X/.test(navigator.userAgent);
+}
+
+// ── Menú contextual del terminal (clic derecho sobre la salida) ──
+
+let terminalCtxTargetId = null;
+
+/**
+ * Abre el menú del terminal en el punto del clic, sobre la sesión indicada.
+ * Sin selección, «Copiar» queda visible pero inactivo.
+ */
+function showTerminalContextMenu(x, y, sessionId) {
+  const s = sessions.get(sessionId);
+  if (!s?.terminal) return;
+  terminalCtxTargetId = sessionId;
+  const menu = document.getElementById("terminal-context-menu");
+  menu.querySelector('[data-termctx="copy"]').disabled = !s.terminal.hasSelection();
+  positionFloatingMenu(menu, x, y);
+  onFloatingMenuOpened(menu);
+}
+
+function hideTerminalContextMenu() {
+  noteFloatingMenuHidden("terminal-context-menu");
+  document.getElementById("terminal-context-menu").classList.add("hidden");
+  terminalCtxTargetId = null;
+}
+
+/** @param {string} action Valor de `data-termctx` del ítem pulsado. */
+function handleTerminalContextMenuAction(action) {
+  const sessionId = terminalCtxTargetId;
+  hideTerminalContextMenu();
+  const s = sessionId ? sessions.get(sessionId) : null;
+  if (!s?.terminal) return;
+  const { terminal } = s;
+  if (action === "copy") {
+    copyTerminalSelection(terminal);
+  } else if (action === "paste") {
+    pasteClipboardIntoSession(s);
+  } else if (action === "select-all") {
+    terminal.selectAll();
+  } else if (action === "find") {
+    // Mismo camino que el atajo `find_in_terminal`: abre la barra de búsqueda.
+    toggleTerminalSearch();
+    return;
+  } else if (action === "clear") {
+    terminal.clear();
+  }
+  terminal.focus();
+}
+
 function copyActiveSelection() {
   if (!activeSessionId) return;
   const s = sessions.get(activeSessionId);
   if (!s?.terminal) return;
-  const sel = s.terminal.getSelection();
-  if (sel) writeSystemClipboardText(sel);
+  copyTerminalSelection(s.terminal);
 }
 
 function clearActiveTerminal() {
