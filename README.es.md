@@ -77,8 +77,8 @@ Rustty incluye un **editor de atajos** en Preferencias → *Atajos* que permite 
 | `Ctrl+Tab`                     | Pestaña siguiente                                      |
 | `Ctrl+Shift+Tab`               | Pestaña anterior                                       |
 | `Ctrl+,`                       | Abrir preferencias                                     |
-| `Ctrl+Alt+C`                   | Copiar selección del terminal                          |
-| `Ctrl+Alt+V`                   | Pegar en el terminal                                   |
+| `Ctrl+Shift+C`                 | Copiar selección del terminal (`Cmd+C` en macOS)       |
+| `Ctrl+Shift+V`                 | Pegar en el terminal (`Cmd+V` en macOS)                |
 | `Ctrl+P`                       | Pegar la contraseña del perfil activo en el shell      |
 | `Ctrl+Shift+E`                 | Abrir el editor multilínea de comandos                 |
 | `Ctrl+Shift+P`                 | Abrir la paleta de comandos global                     |

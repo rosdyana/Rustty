@@ -74,8 +74,8 @@ Rustty includes a **shortcut editor** in Preferences → *Shortcuts* that lets y
 | `Ctrl+Tab`                     | Next tab                                               |
 | `Ctrl+Shift+Tab`               | Previous tab                                           |
 | `Ctrl+,`                       | Open preferences                                       |
-| `Ctrl+Alt+C`                   | Copy terminal selection                                |
-| `Ctrl+Alt+V`                   | Paste into the terminal                                |
+| `Ctrl+Shift+C`                 | Copy terminal selection (`Cmd+C` on macOS)             |
+| `Ctrl+Shift+V`                 | Paste into the terminal (`Cmd+V` on macOS)             |
 | `Ctrl+P`                       | Paste the active profile's password into the shell    |
 | `Ctrl+Shift+E`                 | Open the multi-line command editor                     |
 | `Ctrl+Shift+P`                 | Open the global command palette                        |

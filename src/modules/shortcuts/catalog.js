@@ -2,8 +2,8 @@
 /** Catálogo estable: ids de intercambio, combinaciones de fábrica y ámbito. */
 /** @type {Record<string, {default: string|null, scope?: string}>} */
 export const SHORTCUT_ACTIONS = {
-  paste_terminal: { default: "Ctrl+Alt+V" },
-  copy_terminal: { default: "Ctrl+Alt+C" },
+  paste_terminal: { default: "Ctrl+Shift+V" },
+  copy_terminal: { default: "Ctrl+Shift+C" },
   paste_password: { default: "Ctrl+P" },
   new_local_shell: { default: "Ctrl+Shift+T" },
   new_connection: { default: "Ctrl+Shift+N" },

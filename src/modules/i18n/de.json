@@ -632,6 +632,7 @@
     "connect_as": "Mit anderem Benutzer verbinden",
     "menu_label": "Verbindungsmenü",
     "menu_tab_label": "Tab-Menü",
+    "menu_terminal_label": "Terminal-Menü",
     "menu_files_label": "Dateimenü",
     "open_trash": "Papierkorb…",
     "connect_restore": "Verbinden und vorherigen Bildschirm wiederherstellen",
@@ -702,6 +703,13 @@
     "connect": "Verbinden",
     "open_folder": "Öffnen",
     "no_folder": "Ohne Ordner"
+  },
+  "termctx": {
+    "copy": "Kopieren",
+    "paste": "Einfügen",
+    "select_all": "Alles auswählen",
+    "find": "Suchen…",
+    "clear": "Leeren"
   },
   "tabctx": {
     "duplicate": "Tab duplizieren",
@@ -2102,6 +2110,7 @@
     "transfers_all_paused": "Übertragungen pausiert",
     "transfers_all_resumed": "Übertragungen fortgesetzt",
     "host_copied": "Kopiert: {host}",
+    "copied_selection": "In die Zwischenablage kopiert",
     "transfer_cancel_failed": "Abbrechen nicht möglich: {err}",
     "transfer_pause_failed": "Pausieren nicht möglich: {err}",
     "transfer_resume_failed": "Fortsetzen nicht möglich: {err}",

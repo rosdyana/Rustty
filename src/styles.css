@@ -5687,6 +5687,7 @@ body.overlay-scrollbars:not(.native-scrollbars) ::-webkit-scrollbar-thumb:hover 
 
 #context-menu,
 #tab-context-menu,
+#terminal-context-menu,
 #sftp-context-menu,
 #route-menu {
   position: fixed;
@@ -5706,6 +5707,7 @@ body.overlay-scrollbars:not(.native-scrollbars) ::-webkit-scrollbar-thumb:hover 
    overflow recorta el submenú absoluto en el caso normal. */
 #context-menu.menu-overflow,
 #tab-context-menu.menu-overflow,
+#terminal-context-menu.menu-overflow,
 #sftp-context-menu.menu-overflow,
 #route-menu.menu-overflow {
   max-height: calc(100vh - 12px);

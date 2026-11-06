@@ -632,6 +632,7 @@
     "connect_as": "Ligar com outro utilizador",
     "menu_label": "Menu da ligação",
     "menu_tab_label": "Menu do separador",
+    "menu_terminal_label": "Menu do terminal",
     "menu_files_label": "Menu de ficheiros",
     "open_trash": "Reciclagem…",
     "connect_restore": "Ligar e restaurar o ecrã anterior",
@@ -702,6 +703,13 @@
     "connect": "Conectar",
     "open_folder": "Abrir",
     "no_folder": "Sem pasta"
+  },
+  "termctx": {
+    "copy": "Copiar",
+    "paste": "Colar",
+    "select_all": "Selecionar tudo",
+    "find": "Pesquisar…",
+    "clear": "Limpar"
   },
   "tabctx": {
     "duplicate": "Duplicar separador",
@@ -2108,6 +2116,7 @@
     "transfers_all_paused": "Transferências em pausa",
     "transfers_all_resumed": "Transferências retomadas",
     "host_copied": "Copiado: {host}",
+    "copied_selection": "Copiado para a área de transferência",
     "transfer_cancel_failed": "Não foi possível cancelar: {err}",
     "transfer_pause_failed": "Não foi possível pausar: {err}",
     "transfer_resume_failed": "Não foi possível retomar: {err}",

@@ -710,6 +710,28 @@
     </div>
 
     <!-- ══════════════════════════════════════════════════════
+         MENÚ CONTEXTUAL DEL TERMINAL (clic derecho en la salida de una sesión)
+    ══════════════════════════════════════════════════════ -->
+    <div id="terminal-context-menu" class="ctx-menu hidden" role="menu" data-i18n-aria-label="ctx.menu_terminal_label">
+      <button class="ctx-item" data-termctx="copy">
+        <span class="ctx-icon"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-duplicate"/></svg></span><span data-i18n="termctx.copy">Copiar</span>
+      </button>
+      <button class="ctx-item" data-termctx="paste">
+        <span class="ctx-icon"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-download"/></svg></span><span data-i18n="termctx.paste">Pegar</span>
+      </button>
+      <button class="ctx-item" data-termctx="select-all">
+        <span class="ctx-icon"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-grid"/></svg></span><span data-i18n="termctx.select_all">Seleccionar todo</span>
+      </button>
+      <div class="ctx-sep"></div>
+      <button class="ctx-item" data-termctx="find">
+        <span class="ctx-icon"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-search"/></svg></span><span data-i18n="termctx.find">Buscar…</span>
+      </button>
+      <button class="ctx-item" data-termctx="clear">
+        <span class="ctx-icon"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-x"/></svg></span><span data-i18n="termctx.clear">Limpiar</span>
+      </button>
+    </div>
+
+    <!-- ══════════════════════════════════════════════════════
          MENÚ CONTEXTUAL (clic derecho en una pestaña)
     ══════════════════════════════════════════════════════ -->
     <div id="tab-context-menu" class="ctx-menu hidden" role="menu" data-i18n-aria-label="ctx.menu_tab_label">
