@@ -170,7 +170,9 @@ impl RdpDisplay {
 
 /// Tamaño con el que arranca una ventana RDP cuando el modo no lo deriva del
 /// monitor. Es el que Rustty ha usado siempre.
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 const DEFAULT_RDP_WIDTH: u32 = 1280;
+#[cfg(any(target_os = "linux", target_os = "windows"))]
 const DEFAULT_RDP_HEIGHT: u32 = 800;
 
 /// A dónde y con qué credencial se conecta una sesión RDP.
@@ -800,6 +802,21 @@ fn spawn_rdp_client(
         output_tail: Some(tail),
         output_readers: readers,
     })
+}
+
+/// Este fork no se distribuye para macOS: no hay cliente RDP externo. El RDP
+/// integrado en la pestaña (IronRDP) no depende de esto.
+#[cfg(target_os = "macos")]
+fn spawn_rdp_client(
+    _host: &str,
+    _port: u16,
+    _username: &str,
+    _domain: Option<&str>,
+    _password: Option<&str>,
+    _display: RdpDisplay,
+    _cred_injected: bool,
+) -> Result<SpawnedRdpClient, String> {
+    Err("El cliente RDP externo no está disponible en macOS en esta build".into())
 }
 
 /// Windows: escribe un archivo .rdp temporal y lo abre con mstsc.exe.

@@ -248,6 +248,12 @@ fn spawn_vnc_client(host: &str, port: u16) -> Result<SpawnedExternalClient, Stri
     })
 }
 
+/// Este fork no se distribuye para macOS: el visor VNC externo no está disponible.
+#[cfg(target_os = "macos")]
+fn spawn_vnc_client(_host: &str, _port: u16) -> Result<SpawnedExternalClient, String> {
+    Err("El cliente VNC externo no está disponible en macOS en esta build".into())
+}
+
 #[cfg(target_os = "windows")]
 fn spawn_vnc_client(host: &str, port: u16) -> Result<SpawnedExternalClient, String> {
     // Buscar un vncviewer.exe conocido; si no, dejar que el shell resuelva vnc://.
@@ -305,6 +311,12 @@ fn spawn_telnet_client(host: &str, port: u16) -> Result<SpawnedExternalClient, S
         child,
         cleanup_path: None,
     })
+}
+
+/// Este fork no se distribuye para macOS: telnet externo no está disponible.
+#[cfg(target_os = "macos")]
+fn spawn_telnet_client(_host: &str, _port: u16) -> Result<SpawnedExternalClient, String> {
+    Err("El cliente telnet externo no está disponible en macOS en esta build".into())
 }
 
 #[cfg(target_os = "windows")]
