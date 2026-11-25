@@ -22,19 +22,18 @@ all-features = true
 yanked = "deny"
 unmaintained = "workspace"
 ignore = [
-  # ── Excepciones activas (revisadas 2026-08-06) ─────────────────────────
+  # ── Excepciones activas (revisadas 2026-11-24) ─────────────────────────
   #
-  # Las tres son transitivas y **ninguna tiene arreglo desde nuestro
-  # Cargo.toml**: se ha comprobado que forzar la versión parcheada no resuelve
-  # (ver el motivo de cada una). Cada motivo lleva escrita su fecha de revisión
+  # Es transitiva y **no tiene arreglo desde nuestro Cargo.toml**: se ha
+  # comprobado que forzar otra versión no resuelve (ver el motivo). Las de
+  # `quick-xml` (vía `wayland-scanner`) y `zip` 4 (vía `tauri-plugin-updater`)
+  # se retiraron el 2026-11-02, cuando ambos crates subieron a versiones
+  # parcheadas. Cada motivo lleva escrita su fecha de revisión
   # —`cargo-deny` no tiene campo de caducidad—: una excepción sin fecha se queda
   # para siempre.
 
+  { id = "RUSTSEC-2026-0543", reason = "`chrono` sin mantenimiento (aviso del 2026-11; no es una vulnerabilidad). Lo usamos directamente para las marcas de tiempo del sync, y además llega por `keepass` y por `libunftp` (solo en tests): quitarlo de nuestro Cargo.toml no lo saca del árbol. `russh-sftp` 4 y `suppaftp` 13 ya migraron (a `jiff`, el 2026-11-24). Cuando `keepass` lo haga, se pasa también nuestro uso a `jiff` y se retira esta excepción. REVISAR ANTES DE 2027-02-24." },
   { id = "RUSTSEC-2023-0071", reason = "Marvin Attack (timing sidechannel en `rsa`). Llega por `russh` → `ssh-key`; el propio aviso dice «No safe upgrade is available» y no hay versión parcheada que forzar. Alcance en Rustty: solo afecta a las claves de cliente RSA al firmar la autenticación; un atacante necesitaría medir con precisión los tiempos de NUESTRAS firmas. Se mitiga usando Ed25519, que es lo que recomienda el asistente de «acceso sin contraseña». REVISAR ANTES DE 2027-02-06; cuando RustCrypto publique la implementación de tiempo constante." },
-
-  { id = "RUSTSEC-2026-0194", reason = "Coste cuadrático de `quick-xml` al detectar atributos duplicados. Bloqueado upstream: llega por `wayland-scanner`, que pide `quick-xml ^0.39`, así que `cargo update --precise 0.41.0` es imposible sin parchear ese crate. Alcance en Rustty: `wayland-scanner` corre en **tiempo de compilación** y solo lee los XML de protocolo Wayland que vienen con el propio crate — no procesa nada que venga de un servidor ni del usuario. REVISAR ANTES DE 2027-02-06; retirar cuando `wayland-scanner` suba a quick-xml 0.41." },
-
-  { id = "RUSTSEC-2026-0195", reason = "Agotamiento de memoria por declaraciones de espacio de nombres sin límite en `quick-xml` (`NsReader`). Mismo origen, mismo bloqueo y mismo alcance que RUSTSEC-2026-0194: se resuelven juntas al subir `wayland-scanner`. REVISAR ANTES DE 2027-02-06." },
 ]
 
 [licenses]

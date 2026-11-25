@@ -69,10 +69,27 @@ describe("normalizePrefs", () => {
     expect(p.sidebarViewMode).toBe("current");
     expect(p.sidebarCompact).toBe(true);
     expect(p.searchAllWorkspaces).toBe(false);
+    expect(p.searchScope).toBe("current");
     expect(p.searchGroupedResults).toBe(false);
     expect(p.foldersFirst).toBe(true);
     // Sin valor guardado (o basura), la agrupación queda activada por defecto.
     expect(normalizePrefs({}, null, deps).searchGroupedResults).toBe(true);
+  });
+
+  it("el alcance de búsqueda manda y mantiene el booleano antiguo al día", () => {
+    expect(normalizePrefs({ searchScope: "ws:t" }, null, deps).searchAllWorkspaces).toBe(false);
+    expect(normalizePrefs({ searchScope: "all", searchAllWorkspaces: false }, null, deps).searchAllWorkspaces).toBe(true);
+    expect(normalizePrefs({ searchScope: null, searchAllWorkspaces: true }, null, deps).searchScope).toBe("all");
+    expect(normalizePrefs({}, null, deps).searchScope).toBe("all");
+  });
+
+  it("la barra inferior de la consola local va encendida salvo apagada a mano", () => {
+    expect(normalizePrefs({}, null, deps).localShellStatusBar).toBe(true);
+    expect(normalizePrefs({ localShellStatusBar: "x" }, null, deps).localShellStatusBar).toBe(true);
+    expect(normalizePrefs({ localShellStatusBar: true }, null, deps).localShellStatusBar).toBe(true);
+    const off = normalizePrefs({ localShellStatusBar: false }, null, deps);
+    expect(off.localShellStatusBar).toBe(false);
+    expect(off._prefsUpdatedAt).toBeUndefined();
   });
 
   it("siembra las reglas de highlight solo cuando toca", () => {

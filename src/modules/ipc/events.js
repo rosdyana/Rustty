@@ -118,6 +118,14 @@ export const EVENT = Object.freeze({
    * `ssh_auth_prompt_response`.
    */
   sshAuthPrompt: "ssh-auth-prompt",
+  /**
+   * `ssh-auth-totp-wait` → {@link SshAuthTotpWaitEvent}
+   *
+   * Un perfil con el TOTP de KeePass en modo automático espera al código
+   * siguiente (el de este periodo ya se entregó a ese servidor). Solo es un
+   * aviso, para que la conexión no parezca colgada: no hay nada que contestar.
+   */
+  sshAuthTotpWait: "ssh-auth-totp-wait",
 });
 
 /**
@@ -158,6 +166,19 @@ export const EVENT = Object.freeze({
  * @property {string} username
  * @property {Array<{ prompt: string, echo: boolean }>} prompts Preguntas de esta
  *   ronda. `echo: false` (contraseñas, códigos) = lo tecleado no debe verse.
+ * @property {{ autoRejected: boolean, locked: boolean } | null} [totpKeepass]
+ *   Presente si la ronda puede contestarse con el TOTP de KeePass del perfil
+ *   (comando `ssh_auth_prompt_totp`, que devuelve un estado y nunca el
+ *   código). `autoRejected`: el último código enviado automáticamente fue
+ *   rechazado. `locked`: la base KeePass está bloqueada en este momento.
+ */
+
+/**
+ * Payload de `ssh-auth-totp-wait`: el modo automático del TOTP de KeePass
+ * espera al código siguiente antes de contestar.
+ * @typedef {object} SshAuthTotpWaitEvent
+ * @property {string} host Servidor al que se está conectando.
+ * @property {number} waitSecs Segundos hasta que se envíe el código.
  */
 
 /**
@@ -216,7 +237,7 @@ export function eventName(kind, suffix) {
 
 /**
  * @typedef {object} RdpEmbedStatusEvent Estado de una sesión RDP integrada.
- * @property {"connecting"|"connected"|"closed"|"error"} state
+ * @property {"connecting"|"connected"|"display-control"|"closed"|"error"} state
  * @property {string} [code] Con `error` (y `closed` por el servidor): motivo
  *   estable (`auth-failed`, `cert-rejected`, `cert-changed`, `unreachable`,
  *   `timeout`, `tls`, `unsupported`, `protocol`, `network`, `redirect`,
@@ -224,18 +245,26 @@ export function eventName(kind, suffix) {
  * @property {string} [message] Detalle técnico (no se traduce).
  * @property {number} [width] Con `connected`: ancho del escritorio remoto.
  * @property {number} [height] Con `connected`: alto del escritorio remoto.
+ * @property {boolean} [displayControl] Con `display-control`: el servidor admite
+ *   cambiar el tamaño del escritorio sin reconectar (`true`), o pasó el margen
+ *   tras conectar sin ofrecerlo (`false`; si llega más tarde, otro `true`).
  */
 
 /**
  * @typedef {object} RdpEmbedClipEvent Portapapeles de una sesión RDP integrada.
- * @property {"download-start"|"download-progress"|"download-done"|"download-error"|"unavailable"} kind
- *   Los ficheros copiados en el remoto se descargan a una carpeta temporal y,
- *   al terminar (`download-done`), quedan en el portapapeles local.
- * @property {number} [files] Ficheros de la copia (`download-start`, `download-done`).
+ * @property {"files-offered"|"files-withheld"|"download-start"|"download-progress"|"download-done"|"download-error"|"unavailable"} kind
+ *   Los ficheros copiados en el remoto se ofrecen (`files-offered`) y solo se
+ *   descargan si el usuario elige carpeta (`rdp_embed_clipboard_save`, que
+ *   abre el diálogo en el backend). `files-withheld`: lo copiado en local
+ *   parecía sensible y no se confirmó, así que no se ofreció al remoto.
+ * @property {number} [offer] Con `files-offered`: id que vuelve en el guardado.
+ * @property {number} [files] Ficheros de la copia.
  * @property {number} [bytes] Bytes descargados hasta ahora.
- * @property {number} [total] Bytes totales previstos.
+ * @property {number} [total] Bytes totales previstos (los conocidos).
+ * @property {string} [folder] Con `download-done`: carpeta donde quedaron.
  * @property {string} [reason] Con `download-error`/`unavailable`: `too-large`,
- *   `unsafe-name`, `remote`, `short-read`, `empty` o un texto del sistema.
+ *   `too-many`, `too-deep`, `unsafe-name`, `duplicate-name`, `remote`,
+ *   `short-read`, `empty`, `busy`, `expired`, `cancelled` o un texto del sistema.
  */
 
 /**
@@ -273,6 +302,8 @@ export function eventName(kind, suffix) {
  * @property {string} id Identificador del túnel.
  * @property {number} bytesUp Bytes enviados acumulados.
  * @property {number} bytesDown Bytes recibidos acumulados.
+ * @property {number} activeConnections Conexiones abiertas ahora por el túnel
+ *   (sube al abrir cada canal y baja al cerrarlo, también si falla).
  */
 
 /**
@@ -290,7 +321,7 @@ export function eventName(kind, suffix) {
  * @property {number|null} netRxBps Bytes/s de bajada.
  * @property {number|null} netTxBps Bytes/s de subida.
  * @property {Array<{ filesystem: string, sizeKb: number, usedKb: number, availKb: number, mount: string }>} disks Uso por sistema de ficheros.
- * @property {Array<{ pid: number, cpuPct: number, memPct: number, command: string }>} procs Procesos top por CPU.
+ * @property {Array<{ pid: number, cpuPct: number, memPct: number, user: string, command: string }>} procs Procesos top por CPU (`user` vacío si `ps` no lo da).
  */
 
 /**

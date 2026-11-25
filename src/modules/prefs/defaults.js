@@ -63,12 +63,15 @@ export const DEFAULT_PREFS = {
   rdpDisplay:      "window",
   // Dónde se abre el escritorio remoto: "embedded" (en la pestaña, cliente
   // integrado IronRDP) o "external" (mstsc / xfreerdp en su propia ventana).
+  // Este fork abre por defecto en la pestaña.
   // Si la build no trae el cliente integrado se usa siempre el externo.
   rdpMode:         "embedded",
   // Solo en la pestaña: portapapeles compartido con el escritorio remoto
-  // (texto) y, además, ficheros y carpetas por copiar/pegar.
+  // (texto, como el `+clipboard` del cliente externo) y, si se activa,
+  // ficheros y carpetas. Los ficheros, apagados por defecto: el remoto puede
+  // leer lo que se copie en local en cuanto se anuncia.
   rdpClipboard:    true,
-  rdpClipboardFiles: true,
+  rdpClipboardFiles: false,
   // Solo en la pestaña: qué se pide al servidor para gastar menos ancho de
   // banda. "speed" (sin fondo, temas ni animaciones, compresión fuerte),
   // "balanced" (sin fondo ni animaciones) o "quality" (el escritorio tal cual).
@@ -117,6 +120,14 @@ export const DEFAULT_PREFS = {
 
   // Disposición del panel SFTP: lado donde se muestra el panel remoto.
   sftpRemoteSide:  "left",     // "left" | "right"
+  // Al entrar en una carpeta remota, preguntar al servidor el espacio libre de
+  // ese disco y enseñarlo en la cabecera del panel. Solo hay dato con SFTP y
+  // la extensión `statvfs@openssh.com`; si no, no aparece nada.
+  sftpDiskSpace:   true,
+  // Leer el destino de un enlace simbólico remoto al detener el puntero sobre
+  // él, para enseñarlo en su tooltip. Apagado, solo se lee al pedirlo desde el
+  // menú contextual («Ir al destino del enlace»).
+  sftpLinkTargets: true,
   fontSize:        14,
   // Tipografía fina del terminal
   fontFamily:      "",        // "" = usar cadena por defecto con fallback monospace
@@ -140,6 +151,13 @@ export const DEFAULT_PREFS = {
   // Título que fija el servidor (OSC 0/2): "off", "tooltip" (default) o "tab"
   // (junto al nombre). El alias manual de la pestaña manda siempre.
   remoteTitleMode:    "tooltip",
+  // Rueda del ratón sobre la barra de pestañas: "scroll" (desplaza la tira,
+  // por defecto), "switch" (cambia de pestaña) u "off".
+  tabWheel:           "scroll",
+  // Botones de la pestaña (SFTP, túneles, nota): "always" (de serie; las
+  // ancladas, solo en la activa o al pasar el ratón), "active" o "never". Sus
+  // funciones siguen en el menú contextual de la pestaña y en los atajos.
+  tabButtons:         "always",
   scrollback:      5000,
   // Directorio inicial de las consolas locales nuevas. "" = $HOME (o el dir del
   // usuario). Una ruta válida se usa como cwd al abrir/reabrir la consola; si no
@@ -150,6 +168,10 @@ export const DEFAULT_PREFS = {
   // actual) sin tocar los dotfiles del usuario. Opt-in: cambia cómo arranca
   // el shell, así que solo se aplica a consolas nuevas.
   localShellIntegration: false,
+  // Barra inferior también en la consola local: usuario@equipo, carpeta (con
+  // la integración de shell), tamaño y, en Linux, el monitor de recursos de
+  // este equipo. Encendida por defecto; apagada, la consola local va sin barra.
+  localShellStatusBar: true,
   // Comandos locales del catálogo: plazo máximo de ejecución en segundos
   // (0 = sin límite, opción explícita del usuario) y tope de salida capturada
   // por flujo en KiB. Al agotarse el plazo se termina el árbol de procesos.
@@ -202,6 +224,9 @@ export const DEFAULT_PREFS = {
   // Si está activo, las búsquedas de conexiones recorren todos los workspaces.
   // Si se desactiva, solo consultan el workspace activo.
   searchAllWorkspaces: true,
+  // Alcance de los buscadores: "current" | "all" | "ws:<id>". Sin valor
+  // (null) lo deduce `normalizePrefs` de `searchAllWorkspaces`, el antiguo.
+  searchScope: null,
   // Resultados de búsqueda agrupados por relevancia: conexiones directas,
   // carpetas coincidentes (una entrada con recuento) y coincidencias en notas.
   // Desactivado, vuelve la lista plana alfabética clásica.
@@ -267,6 +292,13 @@ export const DEFAULT_PREFS = {
   reduceMotion:    false,
   // Refuerza el anillo de foco (grosor y contraste) en la navegación por teclado.
   strongFocus:     false,
+  // Deja los <select> nativos del sistema en vez del desplegable propio
+  // (`enhanceSelect`): hay lectores de pantalla que manejan mejor el control
+  // nativo de WebKitGTK/WebView2. Off = el desplegable de Rustty, que también
+  // se maneja con el teclado (patrón combobox de solo selección).
+  nativeSelects:   false,
+  // Tooltips propios al pasar el ratón o enfocar con el teclado (`modules/tooltips/`).
+  tooltips:        true,
   // Duración de los avisos: "normal" (la de cada aviso, como siempre), "long"
   // (el doble, mínimo 10 s) o "sticky" (hasta cerrarlos). Con el ratón encima
   // o el foco dentro no caduca ninguno (`modules/toast-timer.js`).

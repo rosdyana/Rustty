@@ -1,6 +1,6 @@
 [package]
 name = "rustty"
-version = "2.22.0"
+version = "2.30.1"
 description = "Rustty - Cliente SSH multiplataforma de escritorio"
 authors = ["Alejandro Soriano"]
 license = "Apache-2.0"
@@ -32,7 +32,7 @@ tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
 # Notificaciones nativas del SO (aviso de fin de comando largo con la app en
 # segundo plano). El contenido lo compone el frontend; nunca lleva secretos.
-tauri-plugin-notification = "2.7.0"
+tauri-plugin-notification = "2.8.0"
 # Persistencia automática de tamaño y posición de la ventana entre ejecuciones
 tauri-plugin-window-state = "2"
 # Logs técnicos de diagnóstico a fichero con rotación acotada (no contenido de
@@ -45,9 +45,12 @@ serde_json = "1"
 # interactivo (ssh_manager) como el explorador de ficheros (sftp_manager);
 # nos permite arrancar un sftp-server elevado con `sudo` sobre un canal exec.
 # feature "des": habilita 3des-cbc para servidores legacy muy antiguos.
-russh = { version = "0.64", features = ["des"] }
-russh-sftp = "2.3"
-suppaftp = { version = "12.1.0", features = ["rustls-ring"] }
+russh = { version = "0.65", features = ["des"] }
+russh-sftp = "4.0"
+suppaftp = { version = "13.0.0", features = ["rustls-ring"] }
+# Fechas de `MDTM` en FTP: desde suppaftp 13 llegan como `jiff::civil::DateTime`
+# (antes `chrono`). Es la misma versión que ya trae suppaftp, sin crate nuevo.
+jiff = { version = "1", default-features = false, features = ["std"] }
 # `rt-multi-thread`: el runtime propio de las conexiones a los saltos
 # (`jump_pool::jump_runtime`), que comparten sesiones de hilos distintos.
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "net", "io-util", "io-std", "sync", "fs", "macros", "time"] }
@@ -74,12 +77,11 @@ dirs = "7"
 thiserror = "2"
 # Borrado seguro de secretos en memoria (Zeroizing) al liberarlos
 zeroize = "1"
-# Lectura de bases de datos KeePass (.kdbx).
-# Clavado en 0.13.22: a partir de 0.13.23 el crate salta a `cipher` 0.5 /
-# `crypto-common` 0.2, y el resto del árbol (russh, age, rustls) sigue en la
-# 0.1. Conviven las dos versiones y `Aes256` deja de cumplir los traits que la
-# otra espera: no compila. Subirlo exige que el ecosistema entero cruce.
-keepass = "=0.13.22"
+# Lectura de bases de datos KeePass (.kdbx). Estuvo clavado en 0.13.22 porque
+# sus versiones nuevas pedían otra generación de `cipher` que el resto del árbol;
+# desde que comparten `cipher` 0.5 con russh (comprobado 2026-11-02) sigue las
+# versiones normales.
+keepass = { version = "0.17", features = ["totp"] }
 # Enumeración de fuentes del sistema para el selector de familia del terminal
 fontdb = "0.24"
 # Sincronización en la nube: crypto + HTTP + timestamps
@@ -125,6 +127,10 @@ tauri-plugin-single-instance = "2.4.2"
 # sueltos y NO el meta-crate `ironrdp`: su 0.17 fija el juego de julio y
 # mezclaría tipos de dos versiones. Todo opcional detrás de la feature
 # `embedded-rdp` (activa por defecto).
+# `ironrdp-egfx` es el canal gráfico (MS-RDPEGFX): sin él, GNOME Remote Desktop
+# corta la conexión, y los Windows modernos lo prefieren. Va sin H.264: el
+# servidor elige entre los códecs que decodifica IronRDP (RemoteFX, progresivo,
+# ClearCodec, plano).
 # `ironrdp-cliprdr` (portapapeles, texto y ficheros) y `ironrdp-rdpdr` +
 # `ironrdp-rdpdr-native` (carpeta local como unidad del remoto) son del mismo
 # juego que el resto (`ironrdp-svc` 0.10 / `ironrdp-pdu` 0.11). `arboard` lee y
@@ -140,6 +146,7 @@ ironrdp-session = { version = "0.13", optional = true }
 ironrdp-tokio = { version = "0.12", optional = true }
 ironrdp-dvc = { version = "0.10", optional = true }
 ironrdp-displaycontrol = { version = "0.10", optional = true }
+ironrdp-egfx = { version = "0.5", optional = true }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"], optional = true }
 ironrdp-pdu = { version = "0.11", optional = true }
 ironrdp-graphics = { version = "0.11", optional = true }
@@ -162,6 +169,7 @@ embedded-rdp = [
     "dep:ironrdp-tokio",
     "dep:ironrdp-dvc",
     "dep:ironrdp-displaycontrol",
+    "dep:ironrdp-egfx",
     "dep:tokio-rustls",
     "dep:ironrdp-pdu",
     "dep:ironrdp-graphics",
@@ -197,5 +205,5 @@ rustls = { version = "0.23.42", default-features = false, features = ["ring", "s
 # arrastrar `aws-lc` (toolchain C), Prometheus y proxy-protocol; alinea el
 # proveedor TLS con el `rustls-ring` del cliente. Dev-only: no entra en el binario
 # ni en la cadena de suministro de release.
-libunftp = { version = "0.23.0", default-features = false, features = ["ring"] }
+libunftp = { version = "0.25.1", default-features = false, features = ["ring"] }
 unftp-sbe-fs = "0.4.0"

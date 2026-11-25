@@ -28,6 +28,7 @@ use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
+use crate::cli_lang::tr;
 use crate::credentials::{self, CredentialStore};
 use crate::locks::MutexExt;
 use crate::profiles::{AuthType, ConnectionProfile};
@@ -102,29 +103,29 @@ impl std::fmt::Display for RouteError {
             RouteError::Missing {
                 id,
                 referenced_by: Some(name),
-            } => write!(
-                f,
-                "El perfil de salto que usa «{name}» ({id}) ya no existe: elige otro bastión o conecta sin saltos."
-            ),
+            } => f.write_str(&tr!(
+                "El perfil de salto que usa «{name}» ({id}) ya no existe: elige otro bastión o conecta sin saltos.",
+                "The jump profile used by \"{name}\" ({id}) no longer exists: pick another bastion or connect without jumps."
+            )),
             RouteError::Missing {
                 id,
                 referenced_by: None,
-            } => write!(
-                f,
-                "El perfil de salto {id} ya no existe: elige otro o conecta sin saltos."
-            ),
-            RouteError::NotSsh { name } => write!(
-                f,
-                "«{name}» no puede ser un salto: solo los perfiles SSH o SFTP abren túneles."
-            ),
-            RouteError::Loop { name } => write!(
-                f,
-                "La ruta de saltos pasa dos veces por «{name}»: revisa los bastiones de los perfiles."
-            ),
-            RouteError::TooMany { count } => write!(
-                f,
-                "La ruta tiene {count} saltos y el máximo es {MAX_JUMP_HOPS}: acórtala."
-            ),
+            } => f.write_str(&tr!(
+                "El perfil de salto {id} ya no existe: elige otro o conecta sin saltos.",
+                "Jump profile {id} no longer exists: pick another one or connect without jumps."
+            )),
+            RouteError::NotSsh { name } => f.write_str(&tr!(
+                "«{name}» no puede ser un salto: solo los perfiles SSH o SFTP abren túneles.",
+                "\"{name}\" cannot be a jump: only SSH or SFTP profiles open tunnels."
+            )),
+            RouteError::Loop { name } => f.write_str(&tr!(
+                "La ruta de saltos pasa dos veces por «{name}»: revisa los bastiones de los perfiles.",
+                "The jump route goes through \"{name}\" twice: check the profiles' bastions."
+            )),
+            RouteError::TooMany { count } => f.write_str(&tr!(
+                "La ruta tiene {count} saltos y el máximo es {MAX_JUMP_HOPS}: acórtala.",
+                "The route has {count} jumps and the maximum is {MAX_JUMP_HOPS}: shorten it."
+            )),
         }
     }
 }
@@ -424,6 +425,11 @@ pub(crate) struct ResolvedHop {
     pub secrets: HopSecrets,
     pub allow_legacy_algorithms: bool,
     pub legacy_algorithms: Option<Vec<String>>,
+    /// TOTP de KeePass del perfil del salto, si lo tiene activado: el salto
+    /// contesta su segundo factor con SU entrada, no con la del destino.
+    /// `None` en un salto de texto (la semilla del dueño es la de su servidor,
+    /// no la del bastión).
+    pub totp: Option<crate::auth_totp::Policy>,
     /// Secretos aprendidos del pool. La interfaz no manda la contraseña de un
     /// salto cuya conexión ya está viva (`jump_pool_ready`); si esa conexión
     /// muere después, la reconexión de la sesión necesita con qué volver a
@@ -472,6 +478,7 @@ impl ResolvedHop {
             secrets,
             allow_legacy_algorithms: profile.allow_legacy_algorithms,
             legacy_algorithms: profile.legacy_algorithms.clone(),
+            totp: crate::auth_totp::Policy::from_profile(profile),
             learned: Arc::default(),
         }
     }
@@ -492,6 +499,7 @@ impl ResolvedHop {
             secrets,
             allow_legacy_algorithms: owner.allow_legacy_algorithms,
             legacy_algorithms: owner.legacy_algorithms.clone(),
+            totp: None,
             learned: Arc::default(),
         }
     }

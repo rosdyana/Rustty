@@ -15,14 +15,23 @@
 //! servidor (texto, o la lista de ficheros con sus carpetas). Los datos solo
 //! viajan cuando el remoto pega: se leen del disco a trozos, a demanda.
 //!
+//! Si lo copiado en local parece sensible (una clave privada, algo de `~/.ssh`
+//! o de la carpeta de datos), antes de anunciarlo se pregunta con un diálogo
+//! **nativo** ([`UploadGate`]), igual que al subirlo por SFTP: un servidor puede
+//! pedir los ficheros en cuanto se anuncian, sin esperar a que nadie pegue.
+//!
 //! **Remoto → local.** Cuando el remoto copia, el texto se escribe directamente
-//! en el portapapeles local. Los ficheros se descargan a una carpeta temporal de
-//! la sesión y, al terminar, se ponen en el portapapeles local como ficheros
-//! copiados: se pegan en el explorador como cualquier otro.
+//! en el portapapeles local. Los ficheros **no** se descargan solos: se piden
+//! sus nombres y tamaños, se ofrecen al usuario (aviso `files-offered`) y solo
+//! se descargan si elige una carpeta en el diálogo nativo que abre el backend
+//! (`rdp_embed_clipboard_save`). Nada se escribe en disco sin esa elección.
 //!
 //! Los nombres que llegan del servidor no son de fiar: IronRDP ya los sanea y
-//! aquí, además, cada componente se valida antes de crear nada en disco, y todo
-//! queda dentro de la carpeta temporal de esa descarga.
+//! aquí, además, cada componente se valida antes de crear nada (sin `..`, sin
+//! rutas absolutas, sin separadores, ni caracteres de control, ni nombres
+//! reservados de Windows), todo queda dentro de la carpeta elegida, nunca se
+//! sobrescribe nada que ya existiera (un nombre ocupado se guarda como
+//! «nombre (2)») y la copia entera tiene un tope de tamaño y de entradas.
 
 use std::collections::HashMap;
 use std::fs::File;
@@ -30,7 +39,7 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{mpsc as std_mpsc, Arc};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, UNIX_EPOCH};
 
 use ironrdp_cliprdr::backend::CliprdrBackend;
 use ironrdp_cliprdr::pdu::{
@@ -48,6 +57,12 @@ const DOWNLOAD_CHUNK: u32 = 1024 * 1024;
 const UPLOAD_CHUNK_MAX: u32 = 4 * 1024 * 1024;
 /// Tope de una descarga (suma de los ficheros copiados en el remoto).
 const MAX_DOWNLOAD_BYTES: u64 = 8 * 1024 * 1024 * 1024;
+/// Tope de entradas (ficheros + carpetas) de una copia del remoto.
+const MAX_REMOTE_ENTRIES: usize = 20_000;
+/// Tope de niveles (componentes de la ruta) de una entrada del remoto.
+const MAX_REMOTE_DEPTH: usize = 32;
+/// Intentos de «nombre (n)» antes de rendirse con un nombre ocupado.
+const MAX_NAME_SUFFIX: u32 = 999;
 /// Tope de entradas al anunciar carpetas locales (ficheros + subcarpetas).
 const MAX_LOCAL_ENTRIES: usize = 20_000;
 /// Profundidad máxima al recorrer carpetas locales.
@@ -100,6 +115,13 @@ pub enum ClipIn {
     },
     Lock(u32),
     Unlock(u32),
+    /// El usuario eligió dónde guardar los ficheros de la oferta `offer`.
+    SaveTo {
+        offer: u32,
+        dest: PathBuf,
+    },
+    /// El usuario cancela la descarga en curso.
+    CancelDownload,
     Shutdown,
 }
 
@@ -107,9 +129,13 @@ pub enum ClipIn {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClipNotice {
-    /// `download-start` | `download-progress` | `download-done` |
-    /// `download-error` | `upload-start` | `unavailable`.
+    /// `files-offered` | `files-withheld` | `download-start` |
+    /// `download-progress` | `download-done` | `download-error` | `unavailable`.
     pub kind: &'static str,
+    /// Con `files-offered`: id de la oferta, que vuelve en
+    /// `rdp_embed_clipboard_save` (una oferta vieja ya no vale).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub offer: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub files: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -118,22 +144,35 @@ pub struct ClipNotice {
     pub total: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
+    /// Con `download-done`: la carpeta donde quedaron.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub folder: Option<String>,
 }
 
 impl ClipNotice {
     fn new(kind: &'static str) -> Self {
         Self {
             kind,
+            offer: None,
             files: None,
             bytes: None,
             total: None,
             reason: None,
+            folder: None,
         }
     }
 }
 
 pub trait ClipNotifier: Send + Sync {
     fn notice(&self, notice: ClipNotice);
+}
+
+/// Decide si se pueden anunciar al remoto unos ficheros copiados en local.
+/// Puede preguntar al usuario: bloquea el hilo del portapapeles, no la sesión.
+pub trait UploadGate: Send + Sync {
+    /// `true` = se pueden anunciar. `paths` son las rutas copiadas (las de
+    /// primer nivel: el recorrido de las carpetas viene después).
+    fn allow(&self, paths: &[PathBuf]) -> bool;
 }
 
 // ─── Backend de IronRDP ──────────────────────────────────────────────────────
@@ -240,12 +279,10 @@ impl Drop for ClipboardChannel {
 }
 
 /// Crea el canal `CLIPRDR` y arranca su hilo.
-///
-/// `temp_root` es la carpeta de las descargas de **esta** sesión.
 pub fn start(
     options: ClipboardOptions,
-    temp_root: PathBuf,
     notifier: Arc<dyn ClipNotifier>,
+    gate: Arc<dyn UploadGate>,
 ) -> (CliprdrClient, ClipboardChannel) {
     let (in_tx, in_rx) = std_mpsc::channel();
     let (out_tx, out_rx) = mpsc::unbounded_channel();
@@ -254,7 +291,7 @@ pub fn start(
         files: options.files,
         temp_dir: std::env::temp_dir().to_string_lossy().into_owned(),
     };
-    let worker = Worker::new(options, temp_root, out_tx, notifier);
+    let worker = Worker::new(options, out_tx, notifier, gate);
     let spawned = std::thread::Builder::new()
         .name("rdp-clipboard".into())
         .spawn(move || worker.run(&in_rx));
@@ -316,16 +353,31 @@ enum PendingPaste {
     Text,
 }
 
+/// Una entrada de la descarga, ya con su ruta definitiva.
 struct DlItem {
     index: i32,
     path: PathBuf,
     size: Option<u64>,
     dir: bool,
+    /// Entrada de primer nivel: se crea sin `create_dir_all` (nunca dentro de
+    /// algo que ya existía) y se apunta para poder deshacerla.
+    top: bool,
+}
+
+/// Ficheros copiados en el remoto, a la espera de que el usuario elija dónde
+/// guardarlos.
+struct Offer {
+    id: u32,
+    plan: DownloadPlan,
+    lock: Option<u32>,
 }
 
 struct Download {
-    root: PathBuf,
+    dest: PathBuf,
     items: Vec<DlItem>,
+    /// Lo que esta descarga ha creado en la carpeta elegida (ruta, es carpeta):
+    /// lo único que se borra si falla o se cancela.
+    created: Vec<(PathBuf, bool)>,
     cur: usize,
     file: Option<File>,
     pos: u64,
@@ -334,15 +386,29 @@ struct Download {
     lock: Option<u32>,
     total: u64,
     done: u64,
-    top_level: Vec<PathBuf>,
+    files: usize,
     last_notice: Instant,
+}
+
+impl Download {
+    /// Borra lo creado por esta descarga (nada que ya estuviera allí).
+    fn undo(&mut self) {
+        self.file = None;
+        for (path, dir) in self.created.drain(..).rev() {
+            let _ = if dir {
+                std::fs::remove_dir_all(&path)
+            } else {
+                std::fs::remove_file(&path)
+            };
+        }
+    }
 }
 
 struct Worker {
     options: ClipboardOptions,
-    temp_root: PathBuf,
     out: mpsc::UnboundedSender<ClipOut>,
     notifier: Arc<dyn ClipNotifier>,
+    gate: Arc<dyn UploadGate>,
     clipboard: Option<arboard::Clipboard>,
     files_negotiated: bool,
     last: Option<Fingerprint>,
@@ -352,23 +418,24 @@ struct Worker {
     /// Fichero abierto para servir la subida en curso (índice, lista, fichero).
     reader: Option<(usize, usize, File)>,
     pending: PendingPaste,
+    offer: Option<Offer>,
+    offer_seq: u32,
     download: Option<Download>,
-    batch: u32,
     next_stream: u32,
 }
 
 impl Worker {
     fn new(
         options: ClipboardOptions,
-        temp_root: PathBuf,
         out: mpsc::UnboundedSender<ClipOut>,
         notifier: Arc<dyn ClipNotifier>,
+        gate: Arc<dyn UploadGate>,
     ) -> Self {
         Self {
             options,
-            temp_root,
             out,
             notifier,
+            gate,
             clipboard: None,
             files_negotiated: false,
             last: None,
@@ -377,8 +444,9 @@ impl Worker {
             locked: HashMap::new(),
             reader: None,
             pending: PendingPaste::None,
+            offer: None,
+            offer_seq: 0,
             download: None,
-            batch: 0,
             next_stream: 1,
         }
     }
@@ -420,12 +488,17 @@ impl Worker {
                 ClipIn::Unlock(id) => {
                     self.locked.remove(&id);
                 }
+                ClipIn::SaveTo { offer, dest } => self.save_to(offer, dest),
+                ClipIn::CancelDownload => {
+                    if self.download.is_some() {
+                        self.fail_download("cancelled".into());
+                    }
+                }
             }
         }
-        // Las descargas a medias no sirven para nada: fuera. La última completa
-        // se queda, que puede estar en el portapapeles todavía.
-        if let Some(dl) = self.download.take() {
-            let _ = std::fs::remove_dir_all(&dl.root);
+        // Una descarga a medias no sirve para nada: se deshace lo que creó.
+        if let Some(mut dl) = self.download.take() {
+            dl.undo();
         }
     }
 
@@ -452,6 +525,14 @@ impl Worker {
                     if !force && self.last.as_ref() == Some(&fp) {
                         return;
                     }
+                    // Algo sensible y el usuario no lo confirma: no se anuncia
+                    // nada (tampoco lo anterior, que el remoto seguiría
+                    // ofreciendo) y no se vuelve a preguntar hasta que cambie.
+                    if self.last.as_ref() != Some(&fp) && !self.gate.allow(&paths) {
+                        self.last = Some(fp);
+                        self.withhold();
+                        return;
+                    }
                     let (descriptors, entries) = collect_local_files(&paths);
                     if !descriptors.is_empty() {
                         self.last = Some(fp);
@@ -465,6 +546,9 @@ impl Worker {
             }
         }
 
+        let Some(clipboard) = self.clipboard.as_mut() else {
+            return;
+        };
         match clipboard.get().text() {
             Ok(text) if !text.is_empty() => {
                 let fp = text_fingerprint(&text);
@@ -483,6 +567,15 @@ impl Worker {
                 }
             }
         }
+    }
+
+    /// Retira lo anunciado y avisa de que los ficheros se quedan en local.
+    fn withhold(&mut self) {
+        self.local_text = None;
+        self.local_files = Arc::new(Vec::new());
+        self.reader = None;
+        self.emit(ClipOut::InitiateCopy(Vec::new()));
+        self.notifier.notice(ClipNotice::new("files-withheld"));
     }
 
     fn on_format_data_request(&mut self, format: ClipboardFormatId) {
@@ -546,60 +639,89 @@ impl Worker {
         }
     }
 
+    /// El remoto copió ficheros: se ofrecen al usuario. No se crea nada en disco
+    /// hasta que elija carpeta. Una copia nueva sustituye a la oferta anterior
+    /// (no a una descarga ya en marcha, que sigue con su lista bloqueada).
     fn on_remote_file_list(&mut self, files: &[FileDescriptor], lock: Option<u32>) {
-        // Una copia nueva sustituye a la descarga en curso y a las anteriores.
-        if let Some(old) = self.download.take() {
-            let _ = std::fs::remove_dir_all(&old.root);
-        }
-        if self.batch > 0 {
-            let _ = std::fs::remove_dir_all(self.temp_root.join(self.batch.to_string()));
-        }
-        self.batch = self.batch.wrapping_add(1);
-        let root = self.temp_root.join(self.batch.to_string());
-
-        let plan = match plan_download(files, &root) {
+        self.offer = None;
+        let plan = match plan_download(files) {
             Ok(plan) => plan,
             Err(reason) => {
-                self.fail_download(reason);
+                self.notice_error(reason);
                 return;
             }
         };
         if plan.total > MAX_DOWNLOAD_BYTES {
-            self.fail_download("too-large".into());
+            self.notice_error("too-large");
             return;
         }
-        if let Err(e) = create_private_dir(&self.temp_root).and_then(|()| create_private_dir(&root))
-        {
-            self.fail_download(e.to_string());
-            return;
-        }
-        let mut n = ClipNotice::new("download-start");
-        n.files = Some(plan.items.iter().filter(|i| !i.dir).count());
+        self.offer_seq = self.offer_seq.wrapping_add(1).max(1);
+        let mut n = ClipNotice::new("files-offered");
+        n.offer = Some(self.offer_seq);
+        n.files = Some(plan.files);
         n.total = Some(plan.total);
         self.notifier.notice(n);
-        self.download = Some(Download {
-            root,
-            items: plan.items,
+        self.offer = Some(Offer {
+            id: self.offer_seq,
+            plan,
+            lock,
+        });
+    }
+
+    /// El usuario eligió `dest` (ya validada por el comando) para la oferta `id`.
+    fn save_to(&mut self, id: u32, dest: PathBuf) {
+        if self.download.is_some() {
+            self.notice_error("busy");
+            return;
+        }
+        let Some(offer) = self.offer.take_if(|o| o.id == id) else {
+            self.notice_error("expired");
+            return;
+        };
+        let (items, top_dirs) = place_plan(&offer.plan, &dest);
+        let mut dl = Download {
+            items,
+            dest,
+            created: Vec::new(),
             cur: 0,
             file: None,
             pos: 0,
             waiting: None,
-            lock,
-            total: plan.total,
+            lock: offer.lock,
+            total: offer.plan.total,
             done: 0,
-            top_level: plan.top_level,
+            files: offer.plan.files,
             last_notice: Instant::now(),
-        });
+        };
+        // Las carpetas de primer nivel, antes que nada: lo que va dentro se
+        // crea ya bajo algo nuestro.
+        for dir in top_dirs {
+            if let Err(e) = std::fs::create_dir(&dir) {
+                dl.undo();
+                self.notice_error(e.to_string());
+                return;
+            }
+            dl.created.push((dir, true));
+        }
+        let mut n = ClipNotice::new("download-start");
+        n.files = Some(dl.files);
+        n.total = Some(dl.total);
+        self.notifier.notice(n);
+        self.download = Some(dl);
         self.advance_download();
     }
 
-    fn fail_download(&mut self, reason: String) {
-        if let Some(dl) = self.download.take() {
-            let _ = std::fs::remove_dir_all(&dl.root);
-        }
+    fn notice_error(&self, reason: impl Into<String>) {
         let mut n = ClipNotice::new("download-error");
-        n.reason = Some(reason);
+        n.reason = Some(reason.into());
         self.notifier.notice(n);
+    }
+
+    fn fail_download(&mut self, reason: String) {
+        if let Some(mut dl) = self.download.take() {
+            dl.undo();
+        }
+        self.notice_error(reason);
     }
 
     fn stream_id(&mut self) -> u32 {
@@ -620,20 +742,25 @@ impl Worker {
                 return;
             };
             if item.dir {
-                if let Err(e) = create_private_dir(&item.path) {
-                    let reason = e.to_string();
-                    self.fail_download(reason);
-                    return;
+                if !item.top {
+                    if let Err(e) = std::fs::create_dir_all(&item.path) {
+                        let reason = e.to_string();
+                        self.fail_download(reason);
+                        return;
+                    }
                 }
                 dl.cur += 1;
                 continue;
             }
             if dl.file.is_none() {
-                if let Some(parent) = item.path.parent() {
-                    let _ = create_private_dir(parent);
-                }
-                match create_new_private_file(&item.path) {
-                    Ok(f) => dl.file = Some(f),
+                let opened = open_target(item);
+                match opened {
+                    Ok(f) => {
+                        if item.top {
+                            dl.created.push((item.path.clone(), false));
+                        }
+                        dl.file = Some(f);
+                    }
                     Err(e) => {
                         let reason = e.to_string();
                         self.fail_download(reason);
@@ -731,31 +858,31 @@ impl Worker {
     }
 
     fn finish_download(&mut self) {
-        let Some(dl) = self.download.take() else {
+        let Some(mut dl) = self.download.take() else {
             return;
         };
-        let count = dl.items.iter().filter(|i| !i.dir).count();
-        let result = match self.clipboard.as_mut() {
-            Some(c) => c.set().file_list(&dl.top_level).map_err(|e| e.to_string()),
-            None => Err("clipboard".into()),
-        };
-        match result {
-            Ok(()) => {
-                self.last = Some(Fingerprint::Files(dl.top_level.clone()));
-                self.local_text = None;
-                let mut n = ClipNotice::new("download-done");
-                n.files = Some(count);
-                n.bytes = Some(dl.done);
-                self.notifier.notice(n);
-            }
-            Err(reason) => {
-                let _ = std::fs::remove_dir_all(&dl.root);
-                let mut n = ClipNotice::new("download-error");
-                n.reason = Some(reason);
-                self.notifier.notice(n);
-            }
+        dl.file = None;
+        let mut n = ClipNotice::new("download-done");
+        n.files = Some(dl.files);
+        n.bytes = Some(dl.done);
+        n.folder = Some(dl.dest.to_string_lossy().into_owned());
+        self.notifier.notice(n);
+    }
+}
+
+/// Abre el fichero de destino de una entrada: **nuevo** siempre (falla si ya
+/// hay algo, también un enlace simbólico). Las carpetas intermedias de una
+/// entrada anidada se crean dentro de la de primer nivel, que es nuestra.
+fn open_target(item: &DlItem) -> std::io::Result<File> {
+    if !item.top {
+        if let Some(parent) = item.path.parent() {
+            std::fs::create_dir_all(parent)?;
         }
     }
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&item.path)
 }
 
 // ─── Utilidades ──────────────────────────────────────────────────────────────
@@ -763,8 +890,10 @@ impl Worker {
 /// Texto UTF-16LE terminado (o no) en NUL.
 fn decode_utf16z(data: &[u8]) -> String {
     let units: Vec<u16> = data
-        .chunks_exact(2)
-        .map(|c| u16::from_le_bytes([c[0], c[1]]))
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|c| u16::from_le_bytes(*c))
         .take_while(|&u| u != 0)
         .collect();
     String::from_utf16_lossy(&units)
@@ -896,147 +1025,231 @@ fn serve_file_contents(
     Some(FileContentsResponse::new_data_response(req.stream_id, buf))
 }
 
-struct DownloadPlan {
-    items: Vec<DlItem>,
-    total: u64,
-    top_level: Vec<PathBuf>,
+/// Entrada validada de la copia del remoto, relativa a la carpeta de destino.
+struct PlanItem {
+    index: i32,
+    /// Componentes de la ruta; el primero es el de primer nivel.
+    parts: Vec<String>,
+    size: Option<u64>,
+    dir: bool,
 }
 
+/// La copia del remoto, validada entera antes de ofrecerla.
+struct DownloadPlan {
+    items: Vec<PlanItem>,
+    /// Suma de los tamaños conocidos (los que faltan se piden al descargar).
+    total: u64,
+    files: usize,
+    /// Nombres de primer nivel en orden, con si son carpeta.
+    tops: Vec<(String, bool)>,
+}
+
+/// Caracteres que no valen en un nombre en ninguno de los sistemas donde
+/// corre Rustty (los de Windows son los más restrictivos).
+const FORBIDDEN_NAME_CHARS: [char; 9] = ['/', '\\', ':', '*', '?', '"', '<', '>', '|'];
+
 /// Un componente de ruta que llega del servidor y se puede crear sin salir de
-/// la carpeta de la descarga.
+/// la carpeta de destino ni toparse con un nombre reservado.
 fn safe_component(c: &str) -> bool {
     !c.is_empty()
+        && c.len() <= 255
         && c != "."
         && c != ".."
-        && !c.contains(['/', '\\', ':', '\0'])
+        && !c.contains(FORBIDDEN_NAME_CHARS)
+        && !c.chars().any(char::is_control)
         && !c.ends_with(['.', ' '])
         && !ironrdp_cliprdr::is_windows_device_name(c)
 }
 
-/// Traduce la lista remota a rutas bajo `root`. Falla entera si un nombre no es
-/// seguro: mejor no copiar nada que copiar a medias en un sitio raro.
-fn plan_download(files: &[FileDescriptor], root: &Path) -> Result<DownloadPlan, String> {
+/// Valida la lista remota entera. Falla si un nombre no es seguro, si dos
+/// entradas de primer nivel chocan (sin distinguir mayúsculas, como en Windows
+/// y macOS) o si pasa de los topes: mejor no copiar nada que copiar a medias.
+fn plan_download(files: &[FileDescriptor]) -> Result<DownloadPlan, &'static str> {
+    if files.len() > MAX_REMOTE_ENTRIES {
+        return Err("too-many");
+    }
     let mut items = Vec::with_capacity(files.len());
     let mut total = 0u64;
-    let mut top_level = Vec::new();
+    let mut count = 0usize;
+    let mut tops: Vec<(String, bool)> = Vec::new();
     for (index, fd) in files.iter().enumerate() {
-        let mut path = root.to_path_buf();
-        let mut components = 0usize;
+        let mut parts = Vec::new();
         if let Some(rel) = fd.relative_path.as_deref().filter(|r| !r.is_empty()) {
             for c in rel.split('\\') {
                 if !safe_component(c) {
-                    return Err("unsafe-name".into());
+                    return Err("unsafe-name");
                 }
-                path.push(c);
-                components += 1;
+                parts.push(c.to_string());
             }
         }
         if !safe_component(&fd.name) {
-            return Err("unsafe-name".into());
+            return Err("unsafe-name");
         }
-        path.push(&fd.name);
+        parts.push(fd.name.clone());
+        if parts.len() > MAX_REMOTE_DEPTH {
+            return Err("too-deep");
+        }
         let dir = fd
             .attributes
             .is_some_and(|a| a.contains(ClipboardFileAttributes::DIRECTORY));
-        if components == 0 && !top_level.contains(&path) {
-            top_level.push(path.clone());
+        let top_is_dir = dir || parts.len() > 1;
+        let top_key = parts[0].to_lowercase();
+        match tops.iter().find(|(name, _)| name.to_lowercase() == top_key) {
+            // La carpeta y lo que lleva dentro comparten el primer nivel.
+            Some((_, true)) if top_is_dir => {}
+            Some(_) => return Err("duplicate-name"),
+            None => tops.push((parts[0].clone(), top_is_dir)),
         }
         let size = if dir { Some(0) } else { fd.file_size };
         total = total.saturating_add(size.unwrap_or(0));
-        items.push(DlItem {
-            index: i32::try_from(index).map_err(|_| "too-many".to_string())?,
-            path,
+        if !dir {
+            count += 1;
+        }
+        items.push(PlanItem {
+            index: i32::try_from(index).map_err(|_| "too-many")?,
+            parts,
             size,
             dir,
         });
     }
-    if top_level.is_empty() {
-        return Err("empty".into());
+    if tops.is_empty() {
+        return Err("empty");
     }
     Ok(DownloadPlan {
         items,
         total,
-        top_level,
+        files: count,
+        tops,
     })
 }
 
-/// Carpeta de las descargas del portapapeles de una sesión, bajo `base` (la
-/// caché **del usuario**, nunca el `/tmp` compartido: ahí otro usuario podría
-/// crear antes la carpeta o dejar enlaces simbólicos donde vamos a escribir).
-#[must_use]
-pub fn session_temp_root(base: &Path, session_id: &str) -> PathBuf {
-    base.join(session_id)
+fn name_taken(dest: &Path, name: &str, taken: &[String]) -> bool {
+    taken.contains(&name.to_lowercase()) || std::fs::symlink_metadata(dest.join(name)).is_ok()
 }
 
-/// Crea una carpeta (y las que falten) que solo ve el usuario, y comprueba que
-/// lo que hay en esa ruta es una carpeta de verdad y no un enlace.
-fn create_private_dir(path: &Path) -> std::io::Result<()> {
-    let mut builder = std::fs::DirBuilder::new();
-    builder.recursive(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::DirBuilderExt as _;
-        builder.mode(0o700);
+/// Nombre libre en `dest` para una entrada de primer nivel: el suyo, o
+/// «nombre (2).ext», «nombre (3).ext»… Lo que ya existe no se pisa nunca.
+fn unique_name(dest: &Path, name: &str, is_dir: bool, taken: &[String]) -> String {
+    if !name_taken(dest, name, taken) {
+        return name.to_string();
     }
-    builder.create(path)?;
-    let meta = std::fs::symlink_metadata(path)?;
-    if meta.file_type().is_symlink() || !meta.is_dir() {
-        return Err(std::io::Error::other(
-            "la carpeta de descargas no es una carpeta",
-        ));
-    }
-    Ok(())
-}
-
-/// Crea un fichero **nuevo** (falla si ya existe algo en esa ruta, también un
-/// enlace simbólico: nunca se sigue ni se sobrescribe nada que no sea nuestro).
-fn create_new_private_file(path: &Path) -> std::io::Result<File> {
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt as _;
-        options.mode(0o600);
-    }
-    options.open(path)
-}
-
-/// Borra las descargas de sesiones de hace más de un día (al arrancar la app).
-pub fn cleanup_stale_downloads(root: &Path) {
-    let Ok(read) = std::fs::read_dir(root) else {
-        return;
+    let (stem, ext) = match (is_dir, name.rsplit_once('.')) {
+        (false, Some((stem, ext))) if !stem.is_empty() => (stem, format!(".{ext}")),
+        _ => (name, String::new()),
     };
-    let day = Duration::from_secs(24 * 3600);
-    for entry in read.filter_map(Result::ok) {
-        let old = entry
-            .metadata()
-            .and_then(|m| m.modified())
-            .ok()
-            .and_then(|t| SystemTime::now().duration_since(t).ok())
-            .is_some_and(|age| age > day);
-        if old {
-            let _ = std::fs::remove_dir_all(entry.path());
+    for n in 2..=MAX_NAME_SUFFIX {
+        let candidate = format!("{stem} ({n}){ext}");
+        if !name_taken(dest, &candidate, taken) {
+            return candidate;
         }
     }
+    // Sin hueco: el nombre original, que al crearlo fallará sin pisar nada.
+    name.to_string()
+}
+
+/// Traduce el plan a rutas bajo `dest`, con los nombres de primer nivel ya
+/// libres. Devuelve las entradas y las carpetas de primer nivel a crear.
+fn place_plan(plan: &DownloadPlan, dest: &Path) -> (Vec<DlItem>, Vec<PathBuf>) {
+    let mut taken: Vec<String> = Vec::new();
+    let mut chosen: Vec<(String, String)> = Vec::new();
+    let mut top_dirs = Vec::new();
+    for (name, is_dir) in &plan.tops {
+        let free = unique_name(dest, name, *is_dir, &taken);
+        taken.push(free.to_lowercase());
+        if *is_dir {
+            top_dirs.push(dest.join(&free));
+        }
+        chosen.push((name.to_lowercase(), free));
+    }
+    let items = plan
+        .items
+        .iter()
+        .map(|item| {
+            let key = item.parts[0].to_lowercase();
+            let top = chosen
+                .iter()
+                .find(|(k, _)| *k == key)
+                .map_or(item.parts[0].as_str(), |(_, free)| free.as_str());
+            let mut path = dest.join(top);
+            for part in &item.parts[1..] {
+                path.push(part);
+            }
+            DlItem {
+                index: item.index,
+                path,
+                size: item.size,
+                dir: item.dir,
+                top: item.parts.len() == 1,
+            }
+        })
+        .collect();
+    (items, top_dirs)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
 
-    #[test]
-    fn fichero_nuevo_no_pisa_lo_que_ya_existe() {
-        let dir = std::env::temp_dir().join(format!("rustty-clip-new-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        create_private_dir(&dir.join("a")).unwrap();
-        let path = dir.join("a").join("f.txt");
-        create_new_private_file(&path).unwrap();
-        assert!(create_new_private_file(&path).is_err());
-        assert!(
-            create_private_dir(&path).is_err(),
-            "un fichero no vale como carpeta"
+    fn temp_dir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("rustty-clip-{tag}-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[derive(Default)]
+    struct Notices(Mutex<Vec<ClipNotice>>);
+    impl ClipNotifier for Notices {
+        fn notice(&self, notice: ClipNotice) {
+            self.0.lock().unwrap().push(notice);
+        }
+    }
+    impl Notices {
+        fn kinds(&self) -> Vec<&'static str> {
+            self.0.lock().unwrap().iter().map(|n| n.kind).collect()
+        }
+        fn last(&self) -> ClipNotice {
+            self.0.lock().unwrap().last().cloned().unwrap()
+        }
+    }
+
+    struct Allow;
+    impl UploadGate for Allow {
+        fn allow(&self, _: &[PathBuf]) -> bool {
+            true
+        }
+    }
+
+    fn worker() -> (Worker, mpsc::UnboundedReceiver<ClipOut>, Arc<Notices>) {
+        let (tx, rx) = mpsc::unbounded_channel();
+        let notices = Arc::new(Notices::default());
+        let mut w = Worker::new(
+            ClipboardOptions { files: true },
+            tx,
+            notices.clone(),
+            Arc::new(Allow),
         );
-        let _ = std::fs::remove_dir_all(&dir);
+        w.files_negotiated = true;
+        (w, rx, notices)
+    }
+
+    /// Responde las peticiones de contenido del worker con `content` de cada
+    /// índice hasta que deja de pedir.
+    fn serve(w: &mut Worker, rx: &mut mpsc::UnboundedReceiver<ClipOut>, content: &[&[u8]]) {
+        while let Ok(out) = rx.try_recv() {
+            let ClipOut::RequestFileContents(req) = out else {
+                continue;
+            };
+            let data = content[usize::try_from(req.index).unwrap()];
+            let body = if req.flags.contains(FileContentsFlags::SIZE) {
+                (data.len() as u64).to_le_bytes().to_vec()
+            } else {
+                let from = usize::try_from(req.position).unwrap();
+                let to = (from + req.requested_size as usize).min(data.len());
+                data[from..to].to_vec()
+            };
+            w.on_file_contents_response(req.stream_id, true, &body);
+        }
     }
 
     #[test]
@@ -1049,18 +1262,19 @@ mod tests {
     #[test]
     fn componentes_inseguros_rechazados() {
         for bad in [
-            "", ".", "..", "a/b", "a\\b", "C:", "con", "NUL.txt", "x.", "x ",
+            "", ".", "..", "a/b", "a\\b", "C:", "con", "NUL.txt", "x.", "x ", "a\nb", "a\u{7}",
+            "a*b", "a?b", "a|b", "a<b", "a>b", "a\"b",
         ] {
             assert!(!safe_component(bad), "{bad:?}");
         }
-        for ok in ["informe.pdf", "carpeta", ".bashrc", "a b"] {
+        assert!(!safe_component(&"a".repeat(256)));
+        for ok in ["informe.pdf", "carpeta", ".bashrc", "a b", "año (2).txt"] {
             assert!(safe_component(ok), "{ok:?}");
         }
     }
 
     #[test]
-    fn plan_de_descarga_queda_dentro_de_la_raiz() {
-        let root = PathBuf::from("raiz");
+    fn plan_valida_la_lista_entera() {
         let files = vec![
             FileDescriptor::new("docs").with_attributes(ClipboardFileAttributes::DIRECTORY),
             FileDescriptor::new("a.txt")
@@ -1068,14 +1282,149 @@ mod tests {
                 .with_file_size(5),
             FileDescriptor::new("b.bin").with_file_size(7),
         ];
-        let plan = plan_download(&files, &root).unwrap();
+        let plan = plan_download(&files).unwrap();
         assert_eq!(plan.total, 12);
-        assert_eq!(plan.top_level, vec![root.join("docs"), root.join("b.bin")]);
-        assert_eq!(plan.items[1].path, root.join("docs").join("a.txt"));
-        assert!(plan.items.iter().all(|i| i.path.starts_with(&root)));
+        assert_eq!(plan.files, 2);
+        assert_eq!(
+            plan.tops,
+            vec![("docs".to_string(), true), ("b.bin".to_string(), false)]
+        );
 
         let traversal = vec![FileDescriptor::new("x").with_relative_path("..\\..")];
-        assert!(plan_download(&traversal, &root).is_err());
+        assert_eq!(plan_download(&traversal).err(), Some("unsafe-name"));
+        let absolute = vec![FileDescriptor::new("x").with_relative_path("C:\\Windows")];
+        assert_eq!(plan_download(&absolute).err(), Some("unsafe-name"));
+        let rooted = vec![FileDescriptor::new("x").with_relative_path("\\etc")];
+        assert_eq!(plan_download(&rooted).err(), Some("unsafe-name"));
+        let twice = vec![FileDescriptor::new("A.txt"), FileDescriptor::new("a.txt")];
+        assert_eq!(plan_download(&twice).err(), Some("duplicate-name"));
+        let deep_path = vec!["d"; MAX_REMOTE_DEPTH].join("\\");
+        let deep = vec![FileDescriptor::new("x").with_relative_path(deep_path)];
+        assert_eq!(plan_download(&deep).err(), Some("too-deep"));
+        let many = vec![FileDescriptor::new("x"); MAX_REMOTE_ENTRIES + 1];
+        assert_eq!(plan_download(&many).err(), Some("too-many"));
+        assert_eq!(plan_download(&[]).err(), Some("empty"));
+    }
+
+    #[test]
+    fn destino_no_pisa_lo_que_ya_existe() {
+        let dest = temp_dir("place");
+        std::fs::write(dest.join("b.bin"), b"mio").unwrap();
+        std::fs::create_dir(dest.join("docs")).unwrap();
+        let files = vec![
+            FileDescriptor::new("a.txt")
+                .with_relative_path("docs")
+                .with_file_size(5),
+            FileDescriptor::new("b.bin").with_file_size(7),
+            FileDescriptor::new("informe.tar.gz").with_file_size(1),
+        ];
+        let plan = plan_download(&files).unwrap();
+        let (items, top_dirs) = place_plan(&plan, &dest);
+        assert_eq!(top_dirs, vec![dest.join("docs (2)")]);
+        assert_eq!(items[0].path, dest.join("docs (2)").join("a.txt"));
+        assert!(!items[0].top);
+        assert_eq!(items[1].path, dest.join("b (2).bin"));
+        assert_eq!(items[2].path, dest.join("informe.tar.gz"));
+        assert!(items.iter().all(|i| i.path.starts_with(&dest)));
+        let _ = std::fs::remove_dir_all(dest);
+    }
+
+    #[test]
+    fn copia_remota_se_ofrece_y_solo_se_guarda_al_elegir_carpeta() {
+        let dest = temp_dir("save");
+        let (mut w, mut rx, notices) = worker();
+        let files = vec![
+            FileDescriptor::new("docs").with_attributes(ClipboardFileAttributes::DIRECTORY),
+            FileDescriptor::new("a.txt").with_relative_path("docs"),
+            FileDescriptor::new("b.bin").with_file_size(3),
+        ];
+        w.on_remote_file_list(&files, Some(7));
+        assert_eq!(notices.kinds(), vec!["files-offered"]);
+        let offer = notices.last().offer.unwrap();
+        // Ofrecer no escribe nada ni pide contenidos.
+        assert!(rx.try_recv().is_err());
+        assert_eq!(std::fs::read_dir(&dest).unwrap().count(), 0);
+
+        // Una oferta que no es la vigente no vale.
+        w.save_to(offer + 1, dest.clone());
+        assert_eq!(notices.last().reason.as_deref(), Some("expired"));
+
+        w.save_to(offer, dest.clone());
+        serve(&mut w, &mut rx, &[b"", b"hola", b"xyz"]);
+        assert_eq!(notices.last().kind, "download-done");
+        assert_eq!(notices.last().files, Some(2));
+        assert_eq!(std::fs::read(dest.join("docs").join("a.txt")).unwrap(), b"hola");
+        assert_eq!(std::fs::read(dest.join("b.bin")).unwrap(), b"xyz");
+        // La oferta se gasta al usarla.
+        w.save_to(offer, dest.clone());
+        assert_eq!(notices.last().reason.as_deref(), Some("expired"));
+        let _ = std::fs::remove_dir_all(dest);
+    }
+
+    #[test]
+    fn descarga_fallida_o_cancelada_deshace_solo_lo_suyo() {
+        let dest = temp_dir("undo");
+        std::fs::write(dest.join("previo.txt"), b"no tocar").unwrap();
+        let (mut w, mut rx, notices) = worker();
+        let files = vec![
+            FileDescriptor::new("docs").with_attributes(ClipboardFileAttributes::DIRECTORY),
+            FileDescriptor::new("a.txt")
+                .with_relative_path("docs")
+                .with_file_size(4),
+            FileDescriptor::new("b.bin").with_file_size(3),
+        ];
+        w.on_remote_file_list(&files, None);
+        let offer = notices.last().offer.unwrap();
+        w.save_to(offer, dest.clone());
+        // El servidor no entrega el primer fichero.
+        let Ok(ClipOut::RequestFileContents(req)) = rx.try_recv() else {
+            panic!("se esperaba una petición de contenido");
+        };
+        w.on_file_contents_response(req.stream_id, false, &[]);
+        assert_eq!(notices.last().reason.as_deref(), Some("remote"));
+        let left: Vec<_> = std::fs::read_dir(&dest)
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(left, vec![std::ffi::OsString::from("previo.txt")]);
+
+        // Cancelar a medias, igual.
+        w.on_remote_file_list(&files, None);
+        let offer = notices.last().offer.unwrap();
+        w.save_to(offer, dest.clone());
+        assert!(dest.join("docs").is_dir());
+        w.fail_download("cancelled".into());
+        assert!(!dest.join("docs").exists());
+        assert_eq!(std::fs::read(dest.join("previo.txt")).unwrap(), b"no tocar");
+        let _ = std::fs::remove_dir_all(dest);
+    }
+
+    #[test]
+    fn copia_demasiado_grande_no_se_ofrece() {
+        let (mut w, _rx, notices) = worker();
+        let files = vec![FileDescriptor::new("enorme.iso").with_file_size(MAX_DOWNLOAD_BYTES + 1)];
+        w.on_remote_file_list(&files, None);
+        assert_eq!(notices.kinds(), vec!["download-error"]);
+        assert_eq!(notices.last().reason.as_deref(), Some("too-large"));
+        assert!(w.offer.is_none());
+    }
+
+    #[test]
+    fn fichero_que_crece_en_el_remoto_no_pasa_del_tope() {
+        let dest = temp_dir("grow");
+        let (mut w, mut rx, notices) = worker();
+        // Sin tamaño en la lista: se pregunta y el remoto dice más del tope.
+        w.on_remote_file_list(&[FileDescriptor::new("x.bin")], None);
+        let offer = notices.last().offer.unwrap();
+        w.save_to(offer, dest.clone());
+        let Ok(ClipOut::RequestFileContents(req)) = rx.try_recv() else {
+            panic!("se esperaba la petición de tamaño");
+        };
+        assert!(req.flags.contains(FileContentsFlags::SIZE));
+        w.on_file_contents_response(req.stream_id, true, &(MAX_DOWNLOAD_BYTES + 1).to_le_bytes());
+        assert_eq!(notices.last().reason.as_deref(), Some("too-large"));
+        assert!(!dest.join("x.bin").exists());
+        let _ = std::fs::remove_dir_all(dest);
     }
 
     #[test]

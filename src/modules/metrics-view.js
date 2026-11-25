@@ -42,6 +42,26 @@ export function usagePct(used, total) {
   return Math.min(100, Math.max(0, Math.round(pct * 10) / 10));
 }
 
+/** Uso a partir del cual una barra del monitor pasa a aviso (amarillo). */
+export const USAGE_WARN_PCT = 75;
+/** Uso a partir del cual una barra del monitor pasa a crítico (rojo). */
+export const USAGE_CRIT_PCT = 90;
+
+/**
+ * Nivel de una barra de uso del monitor (CPU, núcleo, RAM, disco): el mismo
+ * lenguaje de semáforo que el espacio libre del panel SFTP. Un valor que no es
+ * número cuenta como «ok»: sin dato no hay alarma que dar.
+ * @param {number} pct Uso en 0..100.
+ * @returns {"ok"|"warn"|"crit"}
+ */
+export function usageLevel(pct) {
+  const p = Number(pct);
+  if (!Number.isFinite(p)) return "ok";
+  if (p >= USAGE_CRIT_PCT) return "crit";
+  if (p >= USAGE_WARN_PCT) return "warn";
+  return "ok";
+}
+
 /**
  * Disco a mostrar en la barra compacta: el montado en `/` si existe; si no, el
  * **más lleno** (mayor % de uso). `null` si la lista está vacía.
@@ -131,4 +151,137 @@ export function computeMetricAlerts(prevActive, values, thresholds, rearmMargin 
     }
   }
   return { active, fired };
+}
+
+/**
+ * @typedef {{ pid: number, cpuPct: number, memPct: number, command: string, user?: string }} ProcRow
+ * @typedef {"pid"|"user"|"command"|"cpu"|"mem"} ProcSortKey
+ * @typedef {"asc"|"desc"} SortDir
+ * @typedef {{ filter: string, sortKey: ProcSortKey, sortDir: SortDir }} ProcView
+ */
+
+/** Columnas ordenables de la tabla de procesos, en orden de presentación. */
+export const PROC_SORT_KEYS = /** @type {const} */ (["pid", "user", "command", "cpu", "mem"]);
+
+/**
+ * Sentido con que empieza cada columna al elegirla: los porcentajes, de mayor a
+ * menor (lo que interesa es quién gasta más); el resto, alfabético o creciente.
+ * @type {Record<ProcSortKey, SortDir>}
+ */
+const FIRST_DIR = { pid: "asc", user: "asc", command: "asc", cpu: "desc", mem: "desc" };
+
+/**
+ * @param {unknown} key
+ * @returns {key is ProcSortKey}
+ */
+function isProcSortKey(key) {
+  return /** @type {readonly unknown[]} */ (PROC_SORT_KEYS).includes(key);
+}
+
+/**
+ * Vista inicial de la tabla: sin filtro y por %CPU descendente, el mismo orden
+ * en que la manda el servidor (`ps --sort=-pcpu`).
+ * @returns {ProcView}
+ */
+export function defaultProcView() {
+  return { filter: "", sortKey: "cpu", sortDir: "desc" };
+}
+
+/**
+ * Filtra por nombre del comando, PID o usuario, sin distinguir mayúsculas.
+ * Varias palabras se exigen todas (cada una puede casar con cualquier campo):
+ * `root nginx` deja los nginx de root. Consulta vacía → todos.
+ * @param {ProcRow[]} procs
+ * @param {string} query
+ * @returns {ProcRow[]}
+ */
+export function filterProcs(procs, query) {
+  const list = Array.isArray(procs) ? procs : [];
+  const terms = String(query ?? "").toLowerCase().split(/\s+/).filter(Boolean);
+  if (!terms.length) return list.slice();
+  return list.filter((p) => {
+    const fields = [
+      String(p.command ?? "").toLowerCase(),
+      String(p.user ?? "").toLowerCase(),
+      String(Number(p.pid) || 0),
+    ];
+    return terms.every((term) => fields.some((f) => f.includes(term)));
+  });
+}
+
+/**
+ * @param {ProcRow} p
+ * @param {ProcSortKey} key
+ * @returns {number|string}
+ */
+function sortValue(p, key) {
+  switch (key) {
+    case "pid": return Number(p.pid) || 0;
+    case "cpu": return Number(p.cpuPct) || 0;
+    case "mem": return Number(p.memPct) || 0;
+    case "user": return String(p.user ?? "");
+    default: return String(p.command ?? "");
+  }
+}
+
+/**
+ * Ordena (sin mutar la entrada) por la columna y el sentido pedidos. Los
+ * empates se deshacen por PID creciente, para que dos filas iguales no se
+ * crucen de una muestra a la siguiente. Una clave desconocida ordena por %CPU.
+ * @param {ProcRow[]} procs
+ * @param {string} key
+ * @param {string} dir
+ * @returns {ProcRow[]}
+ */
+export function sortProcs(procs, key, dir) {
+  const k = isProcSortKey(key) ? key : "cpu";
+  const sign = dir === "asc" ? 1 : -1;
+  return (Array.isArray(procs) ? procs : []).slice().sort((a, b) => {
+    const va = sortValue(a, k);
+    const vb = sortValue(b, k);
+    const cmp = typeof va === "number" && typeof vb === "number"
+      ? va - vb
+      : String(va).localeCompare(String(vb), undefined, { sensitivity: "base", numeric: true });
+    if (cmp !== 0) return cmp * sign;
+    return (Number(a.pid) || 0) - (Number(b.pid) || 0);
+  });
+}
+
+/**
+ * Filas a pintar: filtradas y ordenadas según la vista de la sesión.
+ * @param {ProcRow[]} procs
+ * @param {ProcView|null|undefined} view
+ * @returns {ProcRow[]}
+ */
+export function procTableRows(procs, view) {
+  const v = view || defaultProcView();
+  return sortProcs(filterProcs(procs, v.filter), v.sortKey, v.sortDir);
+}
+
+/**
+ * Orden tras pulsar una cabecera: la misma columna invierte el sentido; otra
+ * empieza en su sentido natural ({@link FIRST_DIR}). Una clave desconocida
+ * deja el orden como estaba.
+ * @param {ProcView|null|undefined} view
+ * @param {string} key
+ * @returns {{ sortKey: ProcSortKey, sortDir: SortDir }}
+ */
+export function nextProcSort(view, key) {
+  if (!isProcSortKey(key)) {
+    return { sortKey: view?.sortKey || "cpu", sortDir: view?.sortDir || "desc" };
+  }
+  if (view?.sortKey === key) return { sortKey: key, sortDir: view.sortDir === "asc" ? "desc" : "asc" };
+  return { sortKey: key, sortDir: FIRST_DIR[key] };
+}
+
+/**
+ * Valor de `aria-sort` de una cabecera: el sentido en la columna activa y
+ * `none` en las demás.
+ * @param {ProcView|null|undefined} view
+ * @param {string} key
+ * @returns {"ascending"|"descending"|"none"}
+ */
+export function procSortAria(view, key) {
+  if (!view || view.sortKey !== key) return "none";
+  return view.sortDir === "asc" ? "ascending" : "descending";
 }

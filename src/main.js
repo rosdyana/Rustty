@@ -34,6 +34,8 @@ import {
   goForward as goForwardPath,
   pathSegments,
   pushPath,
+  collapseSlashes,
+  crumbSeparatorAfter,
 } from "./modules/path-history.js";
 import { formatSize, formatDuration, formatSftpPermissions, formatSftpPermissionsOctal, formatOctalMode, formatSteppedNumber } from "./modules/format.js";
 import { escHtml } from "./modules/html.js";
@@ -41,29 +43,45 @@ import {
   visibleRange as sftpVisibleRange,
   filterEntries as filterSftpEntries,
   selectionAfterClick as sftpSelectionAfterClick,
+  selectionAfterRangeClick as sftpSelectionAfterRangeClick,
+  selectionModifiers as sftpSelectionModifiers,
   selectionForRowAction as sftpSelectionForRowAction,
   pruneSelection as pruneSftpSelection,
   VIRTUAL_THRESHOLD as SFTP_VIRTUAL_THRESHOLD,
   FALLBACK_ROW_HEIGHT as SFTP_FALLBACK_ROW_HEIGHT,
 } from "./modules/sftp/list-view.js";
 import { sftpRowOpenAction } from "./modules/sftp/row-open.js";
+import { diskUsage, diskUsageLabels } from "./modules/sftp/disk-space.js";
+import { linkInfo, remoteDirname } from "./modules/sftp/link-target.js";
 import { foldSearchText, groupConnectionSearch, matchSegments } from "./modules/connection-search.js";
 import { clampUiZoom } from "./modules/num.js";
+import { rovingKey, treeKey, typeAhead, visibleNodes } from "./modules/tree-nav.js";
 import { baseSlugifyThemeId } from "./modules/text.js";
 import { formatTime, formatRelativeTimeShort, formatDashboardTime } from "./modules/datetime.js";
 import { compareVersions, normalizeVersion } from "./modules/version.js";
 import {
+  activityExportFormat,
+  activityExportJson,
+  activityExportText,
+  activityFilterCounts,
+  activityItemText,
+  countUnseenErrors,
+  filterActivityItems,
   groupActivityByDay,
+  isActivityUnseen,
   normalizeActivityItem,
   serializableActivityItem,
 } from "./modules/activity.js";
 import {
+  TRANSFER_EXISTS_RETRIES,
   createTransferConflictState,
+  namesWithExisting,
   nextAvailableTransferName,
   normalizeSftpConflictPolicy,
   recursiveConflictPolicyForTransfer as recursiveConflictPolicy,
   transferNameKey,
   transferNameSet,
+  transferOverwriteFlag,
   transferTarget,
 } from "./modules/sftp-conflicts.js";
 import { passwordPlan } from "./modules/credential-plan.js";
@@ -78,16 +96,31 @@ import { leafIds } from "./modules/panes/tree.js";
 import { comboFromEvent } from "./modules/shortcuts/combo.js";
 import { createShortcutController } from "./modules/shortcuts/controller.js";
 import { createDialogController } from "./modules/dialogs/controller.js";
+import { attachDialogFrame } from "./modules/dialogs/frame.js";
+import { createTooltipController } from "./modules/tooltips/controller.js";
+import { normalizeSearchScope, resolveSearchScope, scopeIncludesWorkspace, searchScopeOptions } from "./modules/search-scope.js";
+import { moveWorkspace, moveWorkspaceTo, workspaceMoves } from "./modules/profiles/workspace-order.js";
 import { undoRedoCommand } from "./modules/shortcuts/undo-keys.js";
 import { buildCheatsheet, filterCheatsheet } from "./modules/shortcuts/cheatsheet.js";
-import { buildQuickProfile, findQuickTargetProfile, formatQuickTarget, paletteQuickTarget, parseQuickTarget } from "./modules/quick-connect.js";
+import { formatAccelerator } from "./modules/platform.js";
+import { QUICK_DEFAULT_USER, buildQuickProfile, findQuickTargetProfile, formatQuickTarget, paletteQuickTarget, parseQuickTarget } from "./modules/quick-connect.js";
+import { normalizeTabWheel, tabScrollEdges, tabWheelAction } from "./modules/tab-wheel.js";
+import { normalizeTabButtons } from "./modules/tab-buttons.js";
 import { firstBlockPerAlias, linkSshConfigJumps, sshConfigJumpFields } from "./modules/ssh-config-jumps.js";
 import {
   MAX_ENV_VALUE_LEN, MAX_ENV_VARS, allowsOsc7Hook, applySshConfigLaunchKey, formatEnvVarsText, launchKind,
   launchFieldsChanged, launchFieldsFromBlock, normalizeRemoteCommand, normalizeTermType, parseEnvVarsText,
 } from "./modules/remote-launch.js";
+import {
+  DEFAULT_TOTP_PROMPT_PATTERN, MAX_TOTP_PROMPT_PATTERN_LEN, createTotpPromptState, promptLabel, totpEntryChoices,
+  totpEntryStatus, totpFormIssue, totpNoticeKey, totpProfileFields, totpWaitSeconds,
+} from "./modules/auth-totp.js";
 import { tabIndexForKey } from "./modules/tab-navigation.js";
+import { createListboxState, listboxKey } from "./modules/listbox-nav.js";
+import { menuKey } from "./modules/menu-nav.js";
+import { tabStateFromClasses, tabStateKeys } from "./modules/tab-state.js";
 import { TOAST_DURATIONS, createPausableTimer, toastDurationMs } from "./modules/toast-timer.js";
+import { isToastExitKey, pickToastToFocus, shouldReturnToastFocus } from "./modules/toast-focus.js";
 import {
   blockAt,
   createBlockTracker,
@@ -113,9 +146,15 @@ import {
   tooltipWithRemoteTitle,
 } from "./modules/terminal/osc.js";
 import { opensReadOnly, readOnlyInputDecision, readOnlyKeyAction } from "./modules/terminal/read-only.js";
-import { formatBytesPerSec, formatKib, usagePct, summaryDisk, pushHistory, sparklinePath, computeMetricAlerts } from "./modules/metrics-view.js";
+import {
+  formatBytesPerSec, formatKib, usagePct, usageLevel, summaryDisk, pushHistory, sparklinePath, computeMetricAlerts,
+  defaultProcView, procTableRows, nextProcSort, procSortAria,
+} from "./modules/metrics-view.js";
+import { createMetricsPoller } from "./modules/metrics-poller.js";
+import { localUserHost, statusBarModel } from "./modules/status-bar.js";
 import { THEME_FORMAT_VERSION, UI_THEME_TOKENS, TERMINAL_THEME_TOKENS, pickThemeTokens, buildThemeDocument, normalizeThemeDocument } from "./modules/themes/document.js";
 import { inkTokens, ringColor } from "./modules/themes/ink.js";
+import { galleryTone, isHighContrastThemeId, matchesToneFilter, toneFor } from "./modules/themes/tone.js";
 import { compileHighlightRules, applyHighlightRules } from "./modules/terminal/highlight.js";
 import { createChunkDecoder } from "./modules/terminal/chunk-decoder.js";
 import { createShellCloseGate } from "./modules/terminal/shell-close.js";
@@ -125,13 +164,25 @@ import { createPromptQueue } from "./modules/dialogs/prompt-queue.js";
 import { reconnectRoute, runReconnectOnce } from "./modules/sessions/reconnect.js";
 import { createRdpCanvasView } from "./modules/rdp/canvas-view.js";
 import {
+  FIT as RDP_FIT,
+  createResizeController as createRdpResizeController,
+  desiredDesktopSize as rdpDesiredDesktopSize,
+  parseResolution as parseRdpResolution,
+  resolutionMenuModel as rdpResolutionMenuModel,
+} from "./modules/rdp/resolution.js";
+import {
   MAX_JUMPS, allowsTextBastion, bastionChoices, bastionLinksOf, bastionReferrers, clampIdleSecs, relinkRestoredBastion,
   withBastionOverride, describeRoute, detachDeletedBastions, filterJumpProfiles,
   isJumpCapable, jumpCandidates, jumpChain, jumpSettingsPayload, pushRecentJump, resolveJumpRoute,
   shouldShowRoutePill, supportsJump, validateJumpIds,
 } from "./modules/jump-route.js";
+import {
+  BULK_FIELD_KEYS, applyBulkEdit, applyUndo as applyBulkUndo, buildUndo as buildBulkUndo,
+  fieldAdmits as bulkFieldAdmits, summarizeBulkEdit, validateBulkPatch,
+} from "./modules/profiles/bulk-edit.js";
 import { commandDraftKey, isLocalShellReady, isLocalShellSession } from "./modules/sessions/local-shell.js";
-import { connectionTunnelOwners } from "./modules/tunnels/lifecycle.js";
+import { connectionTunnelOwners, tunnelsClosedWith } from "./modules/tunnels/lifecycle.js";
+import { localTunnelAddress, localTunnelUrl } from "./modules/tunnels/address.js";
 import { DEFAULT_PREFS, createDefaultPrefs } from "./modules/prefs/defaults.js";
 import { loadPrefs as readSavedPrefs, savePrefs as writeSavedPrefs } from "./modules/prefs/storage.js";
 import { applyPrefsForm } from "./modules/prefs/sync.js";
@@ -139,7 +190,14 @@ import { hasLocalSyncData } from "./modules/prefs/first-sync.js";
 import { resolveActiveWorkspaceId, workspaceNameMap, workspacesForExport } from "./modules/workspaces.js";
 import { substitutePreview, substituteWith } from "./modules/subst.js";
 import { EVENT, eventName } from "./modules/ipc/events.js";
-import { ipcErrorText, isHostKeyError, isKeyringUnavailableError } from "./modules/ipc/errors.js";
+import {
+  ipcErrorText,
+  isHostKeyError,
+  isKeyringUnavailableError,
+  isTransferConnectionLostError,
+  isTransferExistsError,
+  transferConnectionLostDetail,
+} from "./modules/ipc/errors.js";
 import {
   OAUTH_ACCOUNT_STATE,
   oauthDisconnectFeedback,
@@ -153,6 +211,8 @@ import { createFileApi, isFileGrantError, localCommandError, localFsError } from
 import { buildDropInsertText, hasControlChars, initialDirCommand } from "./modules/shell-quote.js";
 import { generatePassphrase, passphraseStrength } from "./modules/passphrase.js";
 import { rankCommandSuggestions } from "./modules/command-suggest.js";
+import { markdownFormatEdit, MARKDOWN_FORMATS } from "./modules/markdown-format.js";
+import { textMenuEntries, textTargetKind } from "./modules/text-menu.js";
 import { detectedWake, staggerDelays } from "./modules/wake.js";
 import { buildDiagnosticsReport, diagnosticsToMarkdown } from "./modules/diagnostics.js";
 import { STEP_TYPES, makeStep, emptyScript, validateScript } from "./modules/scripts/model.js";
@@ -239,11 +299,24 @@ const broadcastViews = new Map();
 
 let activeSessionId = null;
 let editingProfileId = null;
+/**
+ * Perfil del que sale el formulario abierto con «Duplicar». La copia es un
+ * borrador: el formulario va en modo «nueva conexión» con los datos del
+ * original y no se crea nada hasta pulsar Guardar.
+ */
+let duplicatingFromId = null;
 let _connectionTestUnlisten = null;
 let _activityFilter = "all";
 const ACTIVITY_MAX_ITEMS = 250;
 const ACTIVITY_HISTORY_STORAGE_KEY = "rustty-activity-history-v1";
+const ACTIVITY_SEEN_STORAGE_KEY = "rustty-activity-seen-at-v1";
 const activityItems = loadActivityHistory();
+// Última vez que se miró el centro de actividad: los errores posteriores salen
+// en el distintivo del botón «Historial y logs».
+let _activitySeenAt = loadActivitySeenAt();
+// Marca anterior a la apertura en curso: lo posterior se rotula «Nuevo»
+// mientras el centro siga abierto.
+let _activityNewSince = null;
 
 const KEYRING_SERVICE = "rustty";
 const RECENT_CONNECTIONS_STORAGE_KEY = "rustty-recent-connections";
@@ -514,6 +587,11 @@ function fileErrorText(err) {
  * @param {unknown} err
  */
 function sftpErrorText(err) {
+  // La conexión de ficheros se ha perdido (plazo agotado, servidor parado):
+  // nada va a funcionar hasta reconectar, y eso es lo que hay que decir.
+  if (isTransferConnectionLostError(err)) {
+    return t("sftp.connection_lost", { err: transferConnectionLostDetail(err) });
+  }
   const guard = localFsError(err);
   if (!guard) return ipcErrorText(err);
   if (guard.code === "protected") return t("sftp.protected_path");
@@ -607,7 +685,8 @@ function loadPrefs() {
   setLanguage(prefs.lang).then(() => {
     applyTranslations();
     refreshTunnelIndicators();
-    updateZenExitTooltip();
+    updateShortcutHints();
+    updateActivityRailBadge();
     refreshWorkspaceLabels();
   });
   applyTranslations();
@@ -620,7 +699,9 @@ function loadPrefs() {
   applyUiContrast(prefs.uiContrast);
   applyReduceMotion(prefs.reduceMotion);
   applyStrongFocus(prefs.strongFocus);
+  applyTooltips(prefs.tooltips !== false);
   applyViewFade(prefs.viewFade !== false);
+  applyTabButtons(prefs.tabButtons);
   applyScrollbarStyle();
   if (loadZenMode()) applyZenMode(true);
 }
@@ -720,6 +801,23 @@ function savePrefs() {
   writeSavedPrefs(localStorage, prefs);
   scheduleTrayQuickLauncherUpdate();
   syncWorkspaceIndex();
+  syncCliLanguage();
+}
+
+let _cliLanguageSent = null;
+
+/**
+ * Deja el idioma de la interfaz al backend (`cli-language.json`) para que
+ * `rustty -c`/`-l` hable el mismo: `lang` = el elegido (null = «Sistema») y
+ * `detected` = el que se detectó para «Sistema», respaldo de la CLI cuando el
+ * entorno no tiene locale. Solo viaja cuando cambia.
+ */
+function syncCliLanguage() {
+  const payload = { lang: prefs.lang || null, detected: detectLanguage() };
+  const key = JSON.stringify(payload);
+  if (key === _cliLanguageSent) return;
+  _cliLanguageSent = key;
+  invoke("save_cli_language", payload).catch((e) => console.debug("[cli] language", e));
 }
 
 let _workspaceIndexSent = null;
@@ -778,7 +876,35 @@ function applyTheme(theme) {
   // El nivel de contraste reasigna tokens a valores de la paleta del tema; al
   // cambiar de tema hay que recalcularlos sobre la paleta nueva.
   applyUiContrast(prefs.uiContrast);
+  applyThemeTone(effective);
   applyPrefsToAllTerminals();
+}
+
+/** Donde `applyThemeTone()` deja el tono medido para que `boot.js` lo ponga antes del primer pintado. */
+const THEME_TONE_STORAGE_KEY = "rustty-theme-tone";
+
+/**
+ * Tono del tema activo como dato en `<html>`: `data-tone="light|dark"` (de él
+ * cuelgan en la hoja `color-scheme` de los controles nativos y las sombras
+ * suaves) y `data-tone-hc` si el id anuncia alto contraste. Se mide sobre los
+ * tokens ya aplicados (`--base` y `--text`), así vale igual para los doce temas
+ * de la hoja, los del bundle y los personalizados; la decisión vive en
+ * `modules/themes/tone.js`. Va después de `applyUiContrast()`, que es quien
+ * limpia el `--text` en línea del tema anterior. El resultado se guarda para
+ * que `boot.js` lo ponga en el próximo arranque, cuando aún no hay CSS de temas
+ * ni JSON que medir.
+ */
+function applyThemeTone(effective) {
+  const root = document.documentElement;
+  const cs = getComputedStyle(root);
+  const tone = toneFor(cs.getPropertyValue("--base"), effective, cs.getPropertyValue("--text"));
+  root.dataset.tone = tone;
+  root.toggleAttribute("data-tone-hc", isHighContrastThemeId(effective));
+  try {
+    localStorage.setItem(THEME_TONE_STORAGE_KEY, JSON.stringify({ theme: effective, tone }));
+  } catch {
+    // Sin almacenamiento, boot.js decide por el id del tema.
+  }
 }
 
 /**
@@ -810,6 +936,18 @@ function applyUiZoom(zoom) {
 }
 
 /* `clampUiZoom` vive ahora en `modules/num.js` (con tests). */
+
+/**
+ * Zoom vigente del chrome. Los elementos escalados miden su `left`/`top` en
+ * sus propias unidades: una posición calculada en píxeles de la ventana (un
+ * `getBoundingClientRect`, un clic) se divide por esto antes de asignarla.
+ */
+function uiZoomFactor() {
+  return clampUiZoom(Number(prefs?.uiZoom ?? 1));
+}
+
+/** Contenedores que escala el zoom de la interfaz (los de `styles.css`). */
+const UI_ZOOMED_SELECTOR = '#rail, #sidebar, #tab-bar, [role="dialog"], #script-rec-bar, #script-run-bar';
 
 function adjustUiZoom(delta) {
   const current = clampUiZoom(prefs.uiZoom ?? 1);
@@ -878,6 +1016,17 @@ function applyUiContrast(level) {
  */
 function applyReduceMotion(enabled) {
   document.body.classList.toggle("reduce-motion", !!enabled);
+}
+
+/**
+ * `behavior` para `scrollIntoView` según el movimiento reducido (la
+ * preferencia o el ajuste del sistema): un `"smooth"` explícito se salta el
+ * `scroll-behavior: auto` de la hoja de estilos.
+ */
+function scrollBehavior() {
+  const reduced = !!prefs.reduceMotion
+    || !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  return reduced ? "auto" : "smooth";
 }
 
 /** Refuerza el anillo de foco (grosor y contraste) para navegación por teclado. */
@@ -1026,9 +1175,12 @@ function appendCustomSwatch(picker, theme) {
   }
   label.className = "theme-option";
   label.dataset.theme = theme.id;
+  // Tono del filtro de la galería, una vez y a partir de la paleta: el mismo
+  // criterio que `applyThemeTone()` usa al aplicar el tema.
+  label.dataset.themeTone = galleryTone(theme.id, theme.name, theme.ui);
   const inputName = picker === "ui" ? "pref-theme" : "pref-terminal-theme";
   label.innerHTML = `
-    <input type="radio" name="${inputName}" value="${escHtml(theme.id)}" />
+    <input type="radio" class="visually-hidden" name="${inputName}" value="${escHtml(theme.id)}" />
     ${renderThemePreviewHtml(theme)}
     <span class="theme-label">${escHtml(theme.name)}</span>`;
   const radio = label.querySelector("input");
@@ -1036,7 +1188,9 @@ function appendCustomSwatch(picker, theme) {
     if (picker === "ui") selectUiTheme(theme.id);
     else selectTerminalTheme(theme.id);
   });
-  filterThemePickerOptions(root);
+  // Solo esta tarjeta: al registrar los 221 temas del bundle, refiltrar la
+  // galería entera por cada uno era cuadrático.
+  applyThemeOptionFilter(root, label);
   updateThemePickerButton(picker, picker === "ui" ? prefs.theme : (prefs.terminalTheme || "inherit"));
 }
 
@@ -1090,6 +1244,10 @@ function renderThemeTermLinesHtml(term, ui = {}) {
  */
 function upgradeStaticThemePreviews() {
   document.querySelectorAll(".theme-picker .theme-option").forEach((opt) => {
+    // Tono del filtro de la galería: las tarjetas de la hoja no tienen paleta
+    // en JS y deciden por id (un test lo ata a sus tokens de styles.css); las
+    // del bundle y las personalizadas lo traen de `appendCustomSwatch`.
+    if (!opt.dataset.themeTone) opt.dataset.themeTone = galleryTone(opt.dataset.theme, getThemeOptionLabel(opt));
     const term = TERMINAL_THEMES[opt.dataset.theme];
     const main = opt.querySelector(".theme-preview-main");
     if (!term || !main || main.querySelector(".theme-preview-term")) return;
@@ -1115,53 +1273,26 @@ function updateThemePickerButton(picker, value) {
 
 function filterThemePickerOptions(root) {
   if (!root) return;
-  const query = root.querySelector(".theme-picker-search")?.value.trim().toLowerCase() || "";
-  const tone = root.dataset.themeTone || "all";
-  root.querySelectorAll(".theme-option").forEach((option) => {
-    if (!option.dataset.themeTone) option.dataset.themeTone = detectThemeOptionTone(option);
-    const haystack = `${getThemeOptionLabel(option)} ${option.dataset.theme || ""}`.toLowerCase();
-    const matchesText = !query || haystack.includes(query);
-    const matchesTone = tone === "all" || option.dataset.themeTone === tone;
-    option.classList.toggle("is-filtered-out", !(matchesText && matchesTone));
-  });
+  const query = themePickerQuery(root);
+  root.querySelectorAll(".theme-option").forEach((option) => applyThemeOptionFilter(root, option, query));
+}
+
+function themePickerQuery(root) {
+  return root.querySelector(".theme-picker-search")?.value.trim().toLowerCase() || "";
 }
 
 /**
- * Detecta tonalidad de una option. Devuelve "light", "dark" o "hc"
- * (alto contraste). La detección de alto contraste se basa en el id/nombre
- * porque depende de la intención del autor del tema, no de un umbral
- * automático de luminancia.
+ * Enseña u oculta una tarjeta según la búsqueda y el chip de tono de su
+ * galería. El tono es el anotado al crearla (`data-theme-tone`): aquí no se
+ * mide nada, que con 221 tarjetas cada `getComputedStyle` se notaba al abrir
+ * y al teclear.
  */
-function detectThemeOptionTone(option) {
-  const id = (option.dataset.theme || "").toLowerCase();
-  const label = (option.querySelector(".theme-label")?.textContent || "").toLowerCase();
-  if (/(^|-)hc($|-)|high[-_ ]?contrast|alto[-_ ]?contraste/.test(id + " " + label)) return "hc";
-  const preview = option.querySelector(".theme-preview-main") || option.querySelector(".theme-preview");
-  if (preview) {
-    const bg = getComputedStyle(preview).backgroundColor;
-    const lum = relativeLuminanceFromColor(bg);
-    if (Number.isFinite(lum)) return lum > 0.55 ? "light" : "dark";
-  }
-  if (/light|day|lotus|latte|dawn|gruvbox-light|solarized-light/.test(id)) return "light";
-  return "dark";
-}
-
-/**
- * Devuelve la luminancia relativa [0..1] de un color CSS `rgb(r,g,b)`.
- * Acepta rgb / rgba. Si no se puede parsear, devuelve NaN.
- */
-function relativeLuminanceFromColor(css) {
-  if (!css) return NaN;
-  const m = /rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)/.exec(css);
-  if (!m) return NaN;
-  const toLin = (c) => {
-    const s = +c / 255;
-    return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
-  };
-  const r = toLin(m[1]);
-  const g = toLin(m[2]);
-  const b = toLin(m[3]);
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+function applyThemeOptionFilter(root, option, query = themePickerQuery(root)) {
+  if (!option.dataset.themeTone) option.dataset.themeTone = galleryTone(option.dataset.theme, getThemeOptionLabel(option));
+  const haystack = `${getThemeOptionLabel(option)} ${option.dataset.theme || ""}`.toLowerCase();
+  const matchesText = !query || haystack.includes(query);
+  const matchesTone = matchesToneFilter(option.dataset.themeTone, root.dataset.themeTone || "all");
+  option.classList.toggle("is-filtered-out", !(matchesText && matchesTone));
 }
 
 function setThemePickerOpen(root, open) {
@@ -1190,7 +1321,7 @@ function enhanceThemePickers() {
     const toggle = document.createElement("button");
     toggle.type = "button";
     toggle.className = "theme-picker-toggle";
-    toggle.setAttribute("aria-haspopup", "listbox");
+    toggle.setAttribute("aria-haspopup", "dialog");
     toggle.setAttribute("aria-expanded", "false");
     toggle.innerHTML = `
       <span class="theme-picker-toggle-preview" aria-hidden="true"></span>
@@ -1209,7 +1340,7 @@ function enhanceThemePickers() {
         <button type="button" class="theme-tone-chip" data-tone="hc" role="tab" aria-selected="false">${escHtml(t("prefs_appearance.tone_hc"))}</button>
         <button type="button" class="theme-picker-reset" data-action="reset-theme">${escHtml(t("prefs_appearance.theme_reset_system"))}</button>
       </div>
-      <div class="theme-options-list" role="listbox"></div>
+      <div class="theme-options-list" role="radiogroup" aria-label="${escHtml(t("prefs_appearance.theme"))}"></div>
     `;
     const list = panel.querySelector(".theme-options-list");
     options.forEach((option) => list.appendChild(option));
@@ -1240,10 +1371,32 @@ function enhanceThemePickers() {
       }
       setThemePickerOpen(root, false);
     });
+    // Con las flechas, el navegador marca el radio vecino (mismo `name`) y
+    // dispara `change`: el tema se aplica al vuelo y el panel sigue abierto,
+    // que cerrarlo dejaría el foco perdido y cortaría el recorrido. Enter o
+    // Espacio confirman y cierran; con el ratón, elegir cierra como siempre.
+    let keyboardChange = false;
     panel.addEventListener("keydown", (e) => {
       if (e.key === "Escape") {
         // Consumido: el diálogo de debajo (Preferencias) no debe cerrarse.
         e.preventDefault();
+        setThemePickerOpen(root, false);
+        toggle.focus();
+        return;
+      }
+      const radio = e.target instanceof HTMLElement ? e.target.closest('input[type="radio"]') : null;
+      if (!radio) return;
+      if (e.key.startsWith("Arrow")) {
+        keyboardChange = true;
+        setTimeout(() => { keyboardChange = false; }, 0);
+      } else if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        keyboardChange = true;
+        if (!radio.checked) {
+          radio.checked = true;
+          radio.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+        keyboardChange = false;
         setThemePickerOpen(root, false);
         toggle.focus();
       }
@@ -1252,7 +1405,7 @@ function enhanceThemePickers() {
       const radio = e.target.closest('input[type="radio"]');
       if (!radio) return;
       updateThemePickerButton(picker, radio.value);
-      setThemePickerOpen(root, false);
+      if (!keyboardChange) setThemePickerOpen(root, false);
     });
   });
 
@@ -1843,6 +1996,10 @@ function openSettingsModal() {
   if (resumeEl) resumeEl.checked = !!prefs.transferResume;
   const remoteSideEl = document.getElementById("pref-sftp-remote-side");
   if (remoteSideEl) remoteSideEl.value = prefs.sftpRemoteSide === "right" ? "right" : "left";
+  const diskSpaceEl = /** @type {HTMLInputElement|null} */ (document.getElementById("pref-sftp-disk-space"));
+  if (diskSpaceEl) diskSpaceEl.checked = prefs.sftpDiskSpace !== false;
+  const linkTargetsEl = /** @type {HTMLInputElement|null} */ (document.getElementById("pref-sftp-link-targets"));
+  if (linkTargetsEl) linkTargetsEl.checked = prefs.sftpLinkTargets !== false;
   populateFontFamilySelect(prefs.fontFamily || "");
   document.getElementById("pref-font-size").value           = prefs.fontSize;
   document.getElementById("pref-line-height").value         = prefs.lineHeight;
@@ -1867,6 +2024,10 @@ function openSettingsModal() {
   if (_reduceMotion) _reduceMotion.checked = !!prefs.reduceMotion;
   const _strongFocus = document.getElementById("pref-strong-focus");
   if (_strongFocus) _strongFocus.checked = !!prefs.strongFocus;
+  const _nativeSelects = document.getElementById("pref-native-selects");
+  if (_nativeSelects) _nativeSelects.checked = !!prefs.nativeSelects;
+  const _tooltips = document.getElementById("pref-tooltips");
+  if (_tooltips) _tooltips.checked = prefs.tooltips !== false;
   const _toastDuration = document.getElementById("pref-toast-duration");
   if (_toastDuration) _toastDuration.value = TOAST_DURATIONS.includes(prefs.toastDuration) ? prefs.toastDuration : "normal";
   const _viewFade = document.getElementById("pref-view-fade");
@@ -1880,8 +2041,7 @@ function openSettingsModal() {
   syncScrollbarPrefControls();
   const _terminalRenderer = document.getElementById("pref-terminal-renderer");
   if (_terminalRenderer) _terminalRenderer.value = prefs.terminalRenderer === "dom" ? "dom" : "auto";
-  const _searchAllWorkspaces = document.getElementById("pref-search-all-workspaces");
-  if (_searchAllWorkspaces) _searchAllWorkspaces.checked = prefs.searchAllWorkspaces !== false;
+  renderSearchScopeSelects();
   const _searchGrouped = document.getElementById("pref-search-grouped");
   if (_searchGrouped) _searchGrouped.checked = prefs.searchGroupedResults !== false;
   document.getElementById("pref-cursor-blink").checked      = prefs.cursorBlink;
@@ -1895,6 +2055,10 @@ function openSettingsModal() {
   if (_oscProgress) _oscProgress.checked = prefs.oscProgress !== false;
   const _remoteTitle = document.getElementById("pref-remote-title");
   if (_remoteTitle) _remoteTitle.value = normalizeRemoteTitleMode(prefs.remoteTitleMode);
+  const _tabWheel = document.getElementById("pref-tab-wheel");
+  if (_tabWheel) _tabWheel.value = normalizeTabWheel(prefs.tabWheel);
+  const _tabButtons = document.getElementById("pref-tab-buttons");
+  if (_tabButtons) _tabButtons.value = normalizeTabButtons(prefs.tabButtons);
   const _ligEl = document.getElementById("pref-terminal-ligatures");
   if (_ligEl) _ligEl.checked = !!prefs.terminalLigatures;
   document.getElementById("pref-scrollback").value          = prefs.scrollback;
@@ -1924,6 +2088,8 @@ function openSettingsModal() {
   if (_termCursorHv) _termCursorHv.checked = !!prefs.terminalCursorHighVis;
   const _shellIntegration = document.getElementById("pref-local-shell-integration");
   if (_shellIntegration) _shellIntegration.checked = prefs.localShellIntegration === true;
+  const _localStatusBar = document.getElementById("pref-local-status-bar");
+  if (_localStatusBar) _localStatusBar.checked = prefs.localShellStatusBar !== false;
   const _localCwdEl = document.getElementById("pref-local-cwd");
   if (_localCwdEl) _localCwdEl.value = prefs.localShellCwd || "";
   const _localCmdTimeout = document.getElementById("pref-localcmd-timeout");
@@ -2007,6 +2173,8 @@ function openSettingsModal() {
   // fuente solicitada, aunque el select aún no tenga sus opciones.
   _prefsFormSnapshot.fontFamily = prefs.fontFamily || "";
   document.getElementById("modal-prefs-overlay").classList.remove("hidden");
+  prefsDialogFrame?.apply();
+  updatePrefsNarrowLayout();
 }
 
 // ─── Sincronización: pestaña en Preferencias ────────────────────
@@ -3677,6 +3845,58 @@ function activityKindLabel(kind) {
   }[kind] || t("activity.kind_other");
 }
 
+function activityStatusLabel(status) {
+  return {
+    error: t("activity.status_error"),
+    warning: t("activity.status_warning"),
+    ok: t("activity.status_ok"),
+    success: t("activity.status_ok"),
+  }[status] || t("activity.status_info");
+}
+
+const activityTextLabels = () => ({ kindLabel: activityKindLabel, statusLabel: activityStatusLabel });
+
+/** Copia una entrada del historial como texto plano (fecha, tipo, estado, título y detalle). */
+async function copyActivityItem(id) {
+  const item = activityItems.find((entry) => entry.id === id);
+  if (!item) return;
+  try {
+    await writeSystemClipboardText(activityItemText(item, activityTextLabels()));
+    // Sin dejar rastro: copiar una entrada no es actividad que anotar en el
+    // propio historial (y redibujaría la lista bajo el puntero).
+    toast(t("activity.copied"), "success", { skipActivity: true });
+  } catch (err) { toast(`${err}`, "error"); }
+}
+
+/**
+ * Vuelca a un fichero local lo que el filtro tiene a la vista. El formato lo
+ * decide la extensión elegida en el diálogo: texto plano o JSON.
+ */
+async function exportActivityHistory() {
+  const visible = filterActivityItems(activityItems, _activityFilter);
+  if (!visible.length) { toast(t("activity.export_empty"), "info", { skipActivity: true }); return; }
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-");
+  let file;
+  try {
+    file = await files.pickFileToSave({
+      title: t("activity.export_title"),
+      defaultPath: `rustty-actividad-${stamp}.txt`,
+      filters: [
+        { name: t("activity.export_format_text"), extensions: ["txt", "log"] },
+        { name: "JSON", extensions: ["json"] },
+      ],
+    });
+  } catch (err) { toast(fileErrorText(err), "error"); return; }
+  if (!file) return;
+  const body = activityExportFormat(file.path) === "json"
+    ? activityExportJson(visible, { filter: _activityFilter })
+    : activityExportText(visible, activityTextLabels());
+  try {
+    await files.writeTextFile(file, body);
+    toast(t("activity.exported"), "success", { skipActivity: true });
+  } catch (err) { toast(fileErrorText(err), "error"); }
+}
+
 function activityTime(value) {
   const date = new Date(value);
   if (!Number.isFinite(date.getTime())) return "";
@@ -3707,6 +3927,45 @@ function loadActivityHistory() {
   } catch {
     return [];
   }
+}
+
+function markActivitySeen() {
+  const now = new Date().toISOString();
+  try { localStorage.setItem(ACTIVITY_SEEN_STORAGE_KEY, now); } catch { /* sin almacenamiento: vale para esta sesión */ }
+  return now;
+}
+
+function loadActivitySeenAt() {
+  try {
+    const raw = localStorage.getItem(ACTIVITY_SEEN_STORAGE_KEY);
+    if (raw && Number.isFinite(Date.parse(raw))) return raw;
+  } catch { /* se trata como primera vez */ }
+  // Primera vez: se parte de «todo visto», para que el historial que ya había
+  // no aparezca de golpe como errores pendientes.
+  return markActivitySeen();
+}
+
+/**
+ * Distintivo de «Historial y logs» en el rail: errores registrados desde la
+ * última vez que se abrió el centro de actividad. Con él abierto no hay nada
+ * pendiente.
+ */
+function updateActivityRailBadge() {
+  const badge = document.getElementById("rail-activity-badge");
+  const btn = document.querySelector('#rail [data-rail-action="activity"]');
+  if (!badge || !btn) return;
+  const overlay = document.getElementById("activity-center-overlay");
+  const open = !!overlay && !overlay.classList.contains("hidden");
+  const n = open ? 0 : countUnseenErrors(activityItems, _activitySeenAt);
+  badge.textContent = n > 99 ? "99+" : String(n);
+  badge.classList.toggle("hidden", n === 0);
+  const base = t("rail.activity");
+  const label = n === 0
+    ? base
+    : `${base} · ${n === 1 ? t("activity.unseen_errors_one") : t("activity.unseen_errors_many", { n })}`;
+  // El botón usa el sistema propio de tooltips (`data-tooltip`).
+  btn.setAttribute("data-tooltip", label);
+  btn.setAttribute("aria-label", label);
 }
 
 let _persistActivityHistoryTimer = 0;
@@ -3748,16 +4007,31 @@ function recordActivity({ kind = "toast", status = "info", title, detail = "", a
   if (activityItems.length > ACTIVITY_MAX_ITEMS) activityItems.splice(ACTIVITY_MAX_ITEMS);
   persistActivityHistory();
   renderActivityCenter();
+  if (item.status === "error") updateActivityRailBadge();
 }
 
 function openActivityCenter(filter = null) {
   if (filter) _activityFilter = filter;
-  document.getElementById("activity-center-overlay")?.classList.remove("hidden");
+  const overlay = document.getElementById("activity-center-overlay");
+  if (overlay?.classList.contains("hidden")) {
+    // Lo registrado desde la última apertura se rotula «Nuevo» mientras el
+    // centro siga abierto; para el distintivo del rail ya está visto.
+    _activityNewSince = _activitySeenAt;
+    _activitySeenAt = markActivitySeen();
+  }
+  overlay?.classList.remove("hidden");
   renderActivityCenter();
+  updateActivityRailBadge();
 }
 
 function closeActivityCenter() {
-  document.getElementById("activity-center-overlay")?.classList.add("hidden");
+  const overlay = document.getElementById("activity-center-overlay");
+  if (!overlay || overlay.classList.contains("hidden")) return;
+  overlay.classList.add("hidden");
+  // Lo que llegó con el centro abierto también se ha visto.
+  _activitySeenAt = markActivitySeen();
+  _activityNewSince = null;
+  updateActivityRailBadge();
 }
 
 function renderActivityCenter() {
@@ -3769,12 +4043,20 @@ function renderActivityCenter() {
   // el hilo principal lo suficiente para sacar el aviso "no responde".
   const overlay = document.getElementById("activity-center-overlay");
   if (overlay && overlay.classList.contains("hidden")) return;
+  const counts = activityFilterCounts(activityItems);
   document.querySelectorAll(".activity-filter").forEach((btn) => {
-    btn.classList.toggle("active", btn.dataset.activityFilter === _activityFilter);
+    const filter = btn.dataset.activityFilter || "all";
+    const active = filter === _activityFilter;
+    btn.classList.toggle("active", active);
+    // Los filtros son conmutadores excluyentes: el lector de pantalla sabe
+    // cuál está puesto sin depender del color.
+    btn.setAttribute("aria-pressed", active ? "true" : "false");
+    // El recuento va en un atributo y lo pinta el CSS: el texto del chip lo
+    // reescribe la traducción y se lo llevaría por delante.
+    if (counts[filter] > 0) btn.dataset.count = String(counts[filter]);
+    else delete btn.dataset.count;
   });
-  const visible = _activityFilter === "all"
-    ? activityItems
-    : activityItems.filter((item) => item.kind === _activityFilter);
+  const visible = filterActivityItems(activityItems, _activityFilter);
   if (!visible.length) {
     list.innerHTML = `<div class="activity-empty">${escHtml(t("activity.empty"))}</div>`;
     return;
@@ -3785,17 +4067,21 @@ function renderActivityCenter() {
   list.innerHTML = groups.map((g) => `
     <div class="activity-group-header">${escHtml(g.label)}</div>
     ${g.items.map((item) => `
-      <div class="activity-item ${escHtml(item.status)}" data-activity-id="${escHtml(item.id)}">
+      <div class="activity-item ${escHtml(item.status)}${isActivityUnseen(item, _activityNewSince) ? " is-new" : ""}" data-activity-id="${escHtml(item.id)}">
         <span class="activity-dot"></span>
         <div class="activity-body">
           <div class="activity-main">
             <span class="activity-kind">${escHtml(activityKindLabel(item.kind))}</span>
+            ${isActivityUnseen(item, _activityNewSince) ? `<span class="activity-new">${escHtml(t("activity.new"))}</span>` : ""}
             <span class="activity-title">${escHtml(item.title)}</span>
             <span class="activity-time">${escHtml(activityTime(item.timestamp))}</span>
           </div>
           ${item.detail ? `<div class="activity-detail">${escHtml(item.detail)}</div>` : ""}
         </div>
-        ${item.actionLabel && typeof item.action === "function" ? `<button type="button" class="activity-action">${escHtml(item.actionLabel)}</button>` : ""}
+        <div class="activity-actions">
+          ${item.actionLabel && typeof item.action === "function" ? `<button type="button" class="activity-action">${escHtml(item.actionLabel)}</button>` : ""}
+          <button type="button" class="btn-icon-sm activity-copy" title="${escHtml(t("activity.copy"))}" aria-label="${escHtml(t("activity.copy"))}"><svg class="row-icon-svg" aria-hidden="true"><use href="#ci-copy"/></svg></button>
+        </div>
       </div>
     `).join("")}
   `).join("");
@@ -3805,6 +4091,8 @@ function renderActivityCenter() {
     if (btn && typeof item?.action === "function") {
       btn.addEventListener("click", () => item.action());
     }
+    row.querySelector(".activity-copy")
+      ?.addEventListener("click", () => copyActivityItem(row.dataset.activityId));
   });
 }
 
@@ -3909,6 +4197,8 @@ function readPrefsFromModal() {
     })(),
     transferResume:  document.getElementById("pref-transfer-resume")?.checked ?? false,
     sftpRemoteSide:  document.getElementById("pref-sftp-remote-side")?.value === "right" ? "right" : "left",
+    sftpDiskSpace:   document.getElementById("pref-sftp-disk-space")?.checked ?? true,
+    sftpLinkTargets: document.getElementById("pref-sftp-link-targets")?.checked ?? true,
     fontFamily:      (document.getElementById("pref-font-family")?.value || "").trim(),
     fontSize:        parseInt(document.getElementById("pref-font-size").value, 10) || DEFAULT_PREFS.fontSize,
     lineHeight:      (() => {
@@ -3926,6 +4216,8 @@ function readPrefsFromModal() {
     oscNotify:       !!document.getElementById("pref-osc-notify")?.checked,
     oscProgress:     document.getElementById("pref-osc-progress")?.checked ?? true,
     remoteTitleMode: normalizeRemoteTitleMode(document.getElementById("pref-remote-title")?.value),
+    tabWheel: normalizeTabWheel(document.getElementById("pref-tab-wheel")?.value),
+    tabButtons: normalizeTabButtons(document.getElementById("pref-tab-buttons")?.value),
     terminalLigatures: !!document.getElementById("pref-terminal-ligatures")?.checked,
     scrollback:      parseInt(document.getElementById("pref-scrollback").value, 10) || DEFAULT_PREFS.scrollback,
     tmuxScrollbackLines: (() => {
@@ -3937,7 +4229,7 @@ function readPrefsFromModal() {
     rdpMode:         document.getElementById("pref-rdp-mode")?.value === "external" ? "external" : "embedded",
     rdpPerfProfile:  normalizeRdpPerfProfile(document.getElementById("pref-rdp-perf")?.value),
     rdpClipboard:    document.getElementById("pref-rdp-clipboard")?.checked ?? true,
-    rdpClipboardFiles: document.getElementById("pref-rdp-clipboard-files")?.checked ?? true,
+    rdpClipboardFiles: !!document.getElementById("pref-rdp-clipboard-files")?.checked,
     rdpSharedFolder: !!document.getElementById("pref-rdp-shared-folder")?.checked,
     metricsEnabled:  !!document.getElementById("pref-metrics-enabled")?.checked,
     metricsSecs:     parseInt(document.getElementById("pref-metrics-secs")?.value, 10) || DEFAULT_PREFS.metricsSecs,
@@ -3953,6 +4245,7 @@ function readPrefsFromModal() {
     terminalCursorHighVis: !!document.getElementById("pref-terminal-cursor-highvis")?.checked,
     localShellCwd:   (document.getElementById("pref-local-cwd")?.value || "").trim(),
     localShellIntegration: !!document.getElementById("pref-local-shell-integration")?.checked,
+    localShellStatusBar: document.getElementById("pref-local-status-bar")?.checked ?? true,
     localCmdTimeoutSecs: (() => {
       const v = Number(document.getElementById("pref-localcmd-timeout")?.value);
       return LOCALCMD_TIMEOUTS.includes(v) ? v : DEFAULT_PREFS.localCmdTimeoutSecs;
@@ -3972,6 +4265,8 @@ function readPrefsFromModal() {
     })(),
     reduceMotion:    !!document.getElementById("pref-reduce-motion")?.checked,
     strongFocus:     !!document.getElementById("pref-strong-focus")?.checked,
+    nativeSelects:   !!document.getElementById("pref-native-selects")?.checked,
+    tooltips:        document.getElementById("pref-tooltips")?.checked ?? true,
     toastDuration:   (() => {
       const v = document.getElementById("pref-toast-duration")?.value;
       return TOAST_DURATIONS.includes(v) ? v : "normal";
@@ -3984,7 +4279,10 @@ function readPrefsFromModal() {
       const v = document.getElementById("pref-terminal-renderer")?.value;
       return v === "dom" ? "dom" : "auto";
     })(),
-    searchAllWorkspaces: document.getElementById("pref-search-all-workspaces")?.checked ?? true,
+    ...(() => {
+      const scope = normalizeSearchScope(document.getElementById("pref-search-scope")?.value, prefs.searchAllWorkspaces);
+      return { searchScope: scope, searchAllWorkspaces: scope === "all" };
+    })(),
     searchGroupedResults: document.getElementById("pref-search-grouped")?.checked ?? true,
     keepassPath:     document.getElementById("pref-keepass-path").value.trim(),
     keepassKeyfile:  document.getElementById("pref-keepass-keyfile").value.trim(),
@@ -4025,6 +4323,10 @@ function savePrefsFromModal() {
   // Reaplica la disposición del panel SFTP (remoto izquierda/derecha) a los
   // paneles ya abiertos.
   applySftpRemoteSideToAll();
+  // Indicador de espacio en disco: aparece o desaparece en los paneles abiertos.
+  applySftpDiskSpacePrefToAll();
+  // Barra inferior de la consola local: aplicada a las consolas abiertas.
+  applyLocalStatusBarPref();
   // Dónde se ve el título remoto (OSC 0/2): se repinta en las pestañas abiertas.
   for (const [sid, s] of sessions) if (s.remoteTitle && !isTmuxPaneSession(s)) updateTabRemoteTitle(sid);
   // Persistir también la configuración de la pestaña de Sincronización
@@ -4054,7 +4356,8 @@ function savePrefsFromModal() {
   if (effectiveLang !== getLanguage()) {
     setLanguage(effectiveLang).then(() => {
       applyTranslations();
-      updateZenExitTooltip();
+      updateShortcutHints();
+      updateActivityRailBadge();
       // `applyTranslations` reescribe el tooltip del botón de túneles desde su
       // clave, y con él se va la lista de túneles activos: se vuelve a pintar.
       refreshTunnelIndicators();
@@ -4075,10 +4378,14 @@ function savePrefsFromModal() {
   applyUiContrast(prefs.uiContrast);
   applyReduceMotion(prefs.reduceMotion);
   applyStrongFocus(prefs.strongFocus);
+  applyNativeSelects(prefs.nativeSelects);
+  applyTooltips(prefs.tooltips !== false);
   applyViewFade(prefs.viewFade !== false);
+  applyTabButtons(prefs.tabButtons);
   applyScrollbarStyle();
   applyPrefsToAllTerminals();
   renderConnectionList();
+  updateAllTabStates();
   closeSettingsModal();
   toast(t("toast.prefs_saved"), "success");
 }
@@ -4152,8 +4459,29 @@ async function browseKeepassKeyfile() {
   }
 }
 
-function openKeepassUnlockModal() {
-  const path = document.getElementById("pref-keepass-path").value.trim();
+/**
+ * Quien espera a que el diálogo de desbloqueo se resuelva (`requestKeepassUnlock`):
+ * recibe `true` si la base quedó desbloqueada y `false` si se cerró sin más.
+ * @type {((unlocked: boolean) => void) | null}
+ */
+let keepassUnlockWaiter = null;
+/**
+ * El diálogo se abrió desde fuera de Preferencias: la base y el keyfile salen
+ * de lo guardado, no de los campos del formulario (que solo se rellenan al
+ * abrir Preferencias).
+ */
+let keepassUnlockFromPrefs = false;
+
+function settleKeepassUnlock(unlocked) {
+  const waiter = keepassUnlockWaiter;
+  keepassUnlockWaiter = null;
+  if (waiter) waiter(unlocked);
+}
+
+/** @param {string} [savedPath] Base guardada en las preferencias (ver `requestKeepassUnlock`). */
+function openKeepassUnlockModal(savedPath = "") {
+  keepassUnlockFromPrefs = !!savedPath;
+  const path = savedPath || document.getElementById("pref-keepass-path").value.trim();
   if (!path) { toast(t("toast.keepass_select_db"), "warning"); return; }
   document.getElementById("kp-modal-path").value = path;
   document.getElementById("kp-modal-password").value = "";
@@ -4165,16 +4493,50 @@ function openKeepassUnlockModal() {
 function closeKeepassModal() {
   document.getElementById("modal-keepass-overlay").classList.add("hidden");
   document.getElementById("kp-modal-password").value = "";
+  // Cerrado sin desbloquear (al desbloquear ya se avisó antes de llegar aquí).
+  settleKeepassUnlock(false);
+}
+
+/**
+ * Pide desbloquear la base KeePass guardada en Preferencias y espera a que el
+ * usuario lo haga (`true`) o cierre el diálogo (`false`). Para quien necesita
+ * la base en mitad de otra cosa, como el código TOTP de una conexión.
+ * @returns {Promise<boolean>}
+ */
+async function requestKeepassUnlock() {
+  // Quien llama viene de que el backend la dio por bloqueada: se le pregunta
+  // otra vez antes de fiarse de lo que la interfaz recordaba.
+  await refreshKeepassStatus();
+  if (keepassUnlocked) return true;
+  const path = String(prefs.keepassPath || "").trim();
+  if (!path) {
+    toast(t("toast.keepass_select_db"), "warning");
+    return false;
+  }
+  settleKeepassUnlock(false);
+  return new Promise((resolve) => {
+    keepassUnlockWaiter = resolve;
+    openKeepassUnlockModal(path);
+  });
 }
 
 async function submitKeepassUnlock() {
   const path = document.getElementById("kp-modal-path").value;
   const password = document.getElementById("kp-modal-password").value;
-  const keyfile = document.getElementById("pref-keepass-keyfile").value.trim() || null;
+  const keyfile = (keepassUnlockFromPrefs
+    ? String(prefs.keepassKeyfile || "").trim()
+    : document.getElementById("pref-keepass-keyfile").value.trim()) || null;
   const errRow = document.getElementById("kp-modal-error-row");
   const errEl  = document.getElementById("kp-modal-error");
+  /** @type {((unlocked: boolean) => void) | null} */
+  let waiter = null;
   try {
     await invoke("keepass_unlock", { path, password, keyfilePath: keyfile });
+    // Desbloqueada: quien esperaba lo sabrá al acabar (pase lo que pase con lo
+    // que sigue). Se retira antes de cerrar, porque `closeKeepassModal` da por
+    // no desbloqueado a quien siga esperando.
+    waiter = keepassUnlockWaiter;
+    keepassUnlockWaiter = null;
     closeKeepassModal();
     // Persistir rutas si no estaban
     prefs.keepassPath = path;
@@ -4187,6 +4549,8 @@ async function submitKeepassUnlock() {
   } catch (e) {
     errEl.textContent = e?.toString() || t("modal_kp.unlock_error");
     errRow.style.display = "";
+  } finally {
+    if (waiter) waiter(true);
   }
 }
 
@@ -4378,6 +4742,11 @@ async function init() {
   // ello, y en un inicio normal no hay nada que barrer. Si barre algo, lo deja
   // escrito el propio backend en el log.
   invoke("sweep_orphan_sessions").catch(() => {});
+  // Usuario por defecto de la conexión rápida: el del sistema, como `ssh host`
+  // (`root` de reserva si el backend no lo sabe). No bloquea el arranque.
+  invoke("local_username")
+    .then((u) => { localUsername = typeof u === "string" && u.trim() ? u.trim() : null; })
+    .catch(() => {});
   loadPrefs();
   // La pantalla de carga (#boot-screen) ya está pintada con el HTML y el CSS
   // estáticos, así que la ventana puede enseñarse ya: es lo que ve el usuario
@@ -4437,6 +4806,7 @@ async function initMain() {
     new Map((Array.isArray(workspaceIndex) ? workspaceIndex : []).map((w) => [String(w?.id || ""), String(w?.name || "")])),
   );
   syncWorkspaceIndex();
+  syncCliLanguage();
   await refreshNotesIndex();
   loadSnapshotIndex();
 
@@ -4466,6 +4836,7 @@ async function initMain() {
   await initRdpCertPrompt().catch((e) => console.error("[rdpcert] init", e));
   rdpEmbedAvailable = await invoke("rdp_embed_available").catch(() => false) === true;
   await initAuthPrompt().catch((e) => console.error("[auth-prompt] init", e));
+  await initAuthTotpWait().catch((e) => console.error("[auth-totp] init", e));
   // La interfaz está montada, responde y ya sabe preguntar por host keys,
   // certificados y segundo factor: fuera la pantalla de carga. Lo que sigue
   // (sync de arranque, comprobación de versión, KeePass) es trabajo de fondo
@@ -4816,8 +5187,39 @@ function renderSidebarSkeleton(rows = 6) {
   return `<div class="sidebar-skeleton" role="status" aria-label="${escHtml(t("sidebar.loading"))}">${items.join("")}</div>`;
 }
 
+/**
+ * Modelo del árbol tal y como se ha pintado (mismo orden que el DOM), para la
+ * navegación por teclado (`modules/tree-nav.js`). Lo fija cada rama de
+ * `renderConnectionListInner`.
+ * @type {import("./modules/tree-nav.js").TreeModelNode[]}
+ */
+let _sidebarTreeModel = [];
+/** Clave de la última fila del árbol que tuvo el foco (tabindex itinerante). */
+let _sidebarTreeFocusKey = null;
+/** Fila que lleva ahora el `tabindex="0"` del árbol. */
+let _sidebarTreeRovingEl = null;
+
 function renderConnectionList() {
   const container = document.getElementById("connection-list");
+  // Repintar reconstruye el árbol con innerHTML y expulsaba el foco de la
+  // fila (sync, favorito, renombrar…): se recuerda qué fila lo tenía y se
+  // vuelve a enfocar por su clave (id de la conexión, o carpeta y workspace).
+  const active = document.activeElement;
+  const hadFocus = !!container && active instanceof HTMLElement && container.contains(active);
+  const focusedKey = hadFocus ? (active.closest("[data-tree-key]")?.dataset.treeKey ?? null) : null;
+  _sidebarTreeModel = [];
+  _sidebarTreeRovingEl = null;
+  renderConnectionListInner(container);
+  if (!container) return;
+  bindTreeKeyboard(container);
+  const roving = applySidebarTreeTabindex(container);
+  if (hadFocus) {
+    const target = (focusedKey && sidebarTreeRowByKey(container, focusedKey)) || roving;
+    target?.focus({ preventScroll: true });
+  }
+}
+
+function renderConnectionListInner(container) {
   container?.classList.toggle("compact", Boolean(prefs.sidebarCompact));
   persistSidebarOpenFolders();
   scheduleTrayQuickLauncherUpdate();
@@ -4827,13 +5229,16 @@ function renderConnectionList() {
   const sidebarQuery = _sidebarSearchQuery.trim();
   if (sidebarQuery) {
     if (prefs.searchGroupedResults !== false) {
-      container.innerHTML = renderSidebarSearchResults(sidebarQuery);
+      const grouped = groupedConnectionSearch(sidebarQuery);
+      container.innerHTML = renderSidebarSearchResults(grouped);
+      _sidebarTreeModel = searchTreeModel(grouped);
     } else {
       // Lista plana clásica (pref desactivada): cualquier coincidencia, alfabética.
       const matches = sidebarSearchCandidates(sidebarQuery);
       container.innerHTML = matches.length
         ? matches.map((profile) => renderConnectionItem(profile, 0)).join("")
         : `<div class="empty-state sidebar-empty-search">${escHtml(t("sidebar.search_no_results"))}</div>`;
+      _sidebarTreeModel = matches.map(connectionTreeModelNode);
     }
     bindTreeEvents(container);
     bindSidebarSearchFolderRows(container);
@@ -4843,6 +5248,7 @@ function renderConnectionList() {
 
   if (prefs.sidebarViewMode === "all") {
     container.innerHTML = renderAllWorkspacesTree();
+    _sidebarTreeModel = allWorkspacesTreeModel();
     bindTreeEvents(container);
     renderDashboard();
     return;
@@ -4850,6 +5256,7 @@ function renderConnectionList() {
 
   if (prefs.sidebarViewMode === "favorites") {
     container.innerHTML = renderFavoritesTree();
+    _sidebarTreeModel = favoriteProfilesSorted().map(connectionTreeModelNode);
     bindTreeEvents(container);
     renderDashboard();
     return;
@@ -4877,8 +5284,246 @@ function renderConnectionList() {
 
   const tree = buildFolderTree();
   container.innerHTML = renderTreeNode(tree, 0);
+  _sidebarTreeModel = treeModelFromNode(tree, getActiveWorkspaceId());
   bindTreeEvents(container);
   renderDashboard();
+}
+
+// ─── Árbol de conexiones: modelo para el teclado ────────────────
+// El mismo orden que pinta `renderTreeNode` (`orderedTreeChildren`), con la
+// identidad de cada fila en `data-tree-key`: el id de la conexión; la carpeta
+// con su workspace (la misma ruta puede existir en dos workspaces en la vista
+// «Todos»); `__ws__/<id>` para la raíz de un workspace; y las carpetas de una
+// búsqueda con su propio prefijo.
+
+function folderTreeKey(path, workspaceId) {
+  return `folder:${workspaceId}|${path}`;
+}
+
+function searchFolderTreeKey(path, workspaceId) {
+  return `sfolder:${workspaceId}|${path}`;
+}
+
+function connectionTreeModelNode(profile) {
+  return { key: profile.id, label: profile.name, kind: "connection" };
+}
+
+/** Hijos de un nodo del árbol en el orden en que se pintan (carpetas primero o no). */
+function orderedTreeChildren(node, workspaceId) {
+  const folders = sortedFolderEntries(node, workspaceId).map(([name, child]) => ({ kind: "folder", name, node: child }));
+  const connections = node.connections.map((profile) => ({ kind: "conn", profile }));
+  return prefs.foldersFirst !== false ? [...folders, ...connections] : [...connections, ...folders];
+}
+
+function treeModelFromNode(node, workspaceId) {
+  return orderedTreeChildren(node, workspaceId).map((child) => (child.kind === "folder"
+    ? {
+      key: folderTreeKey(child.node.path, workspaceId),
+      openKey: child.node.path,
+      label: child.name,
+      kind: "folder",
+      children: treeModelFromNode(child.node, workspaceId),
+    }
+    : connectionTreeModelNode(child.profile)));
+}
+
+function allWorkspacesTreeModel() {
+  return prefs.workspaces.map((w) => ({
+    key: `__ws__/${w.id}`,
+    label: workspaceLabel(w),
+    kind: "workspace",
+    children: treeModelFromNode(workspaceTreeRoot(w.id), w.id),
+  }));
+}
+
+/** Modelo de una búsqueda: las mismas secciones y orden que `renderSidebarSearchResults`. */
+function searchTreeModel(grouped) {
+  return [
+    ...grouped.connections.map((match) => connectionTreeModelNode(match.profile)),
+    ...grouped.folders.map((folder) => ({
+      key: searchFolderTreeKey(folder.path, folder.workspaceId),
+      label: folder.name,
+      kind: "search-folder",
+    })),
+    ...grouped.notes.map((match) => connectionTreeModelNode(match.profile)),
+  ];
+}
+
+function sidebarTreeRowByKey(container, key) {
+  if (!container || !key) return null;
+  return container.querySelector(`[data-tree-key="${CSS.escape(key)}"]`);
+}
+
+/**
+ * Pliega o despliega una carpeta (o la raíz de un workspace) en el DOM sin
+ * repintar: lo mismo que hacía el clic en su cabecera.
+ */
+function toggleSidebarFolderRow(item, force) {
+  const header = item.querySelector(":scope > .folder-header");
+  // La raíz de un workspace (vista «Todos») lleva la ruta `__ws__/<id>` en
+  // la cabecera, no en el item: leyendo solo el item todas compartían la
+  // clave `undefined` y el render las reabría.
+  const path = header?.dataset.folderPath || item.dataset.folderPath;
+  if (!path) return;
+  const open = typeof force === "boolean" ? force : !openFolders.has(path);
+  if (open) openFolders.add(path);
+  else openFolders.delete(path);
+  item.querySelector(":scope > .folder-children")?.classList.toggle("hidden", !open);
+  header?.querySelector(".folder-arrow")?.classList.toggle("open", open);
+  item.setAttribute("aria-expanded", open ? "true" : "false");
+}
+
+// ─── Árbol de conexiones: teclado (patrón APG «tree») ────────────
+// Un único `tabindex="0"` en todo el árbol (la última fila enfocada, si no la
+// conexión activa, si no la primera) y `-1` en el resto; las flechas, Inicio,
+// Fin, `*` y la búsqueda tecleando mueven el foco entre las filas visibles
+// (`modules/tree-nav.js`). Los botones de acción de una fila solo entran en
+// el orden de Tab en la fila que lleva el 0: así Tab atraviesa el árbol en
+// una parada (más sus acciones), no una por conexión.
+
+const _treeKeyboardBound = new WeakSet();
+let _treeTypeAhead = { text: "", at: 0 };
+const TREE_TYPE_AHEAD_MS = 700;
+
+function bindTreeKeyboard(container) {
+  if (_treeKeyboardBound.has(container)) return;
+  _treeKeyboardBound.add(container);
+  container.addEventListener("focusin", (e) => {
+    const row = e.target instanceof HTMLElement ? e.target.closest("[data-tree-key]") : null;
+    if (row && container.contains(row)) setSidebarTreeRovingRow(row);
+  });
+  container.addEventListener("keydown", (e) => handleSidebarTreeKeydown(e, container));
+}
+
+function rowActionButtons(row) {
+  return row.querySelectorAll(":scope > .conn-item-actions [data-action]");
+}
+
+function setSidebarTreeRovingRow(row) {
+  const prev = _sidebarTreeRovingEl;
+  if (prev && prev !== row && prev.isConnected) {
+    prev.setAttribute("tabindex", "-1");
+    rowActionButtons(prev).forEach((b) => b.setAttribute("tabindex", "-1"));
+  }
+  row.setAttribute("tabindex", "0");
+  rowActionButtons(row).forEach((b) => b.setAttribute("tabindex", "0"));
+  _sidebarTreeRovingEl = row;
+  _sidebarTreeFocusKey = row.dataset.treeKey || null;
+}
+
+/** Tras pintar: decide qué fila lleva el `tabindex="0"` y la devuelve. */
+function applySidebarTreeTabindex(container) {
+  const nodes = visibleNodes(_sidebarTreeModel, openFolders);
+  const key = rovingKey(nodes, _sidebarTreeFocusKey, activeProfileId());
+  const row = key ? sidebarTreeRowByKey(container, key) : null;
+  if (row) setSidebarTreeRovingRow(row);
+  return row;
+}
+
+function focusSidebarTreeRow(container, key, { select = false } = {}) {
+  const row = sidebarTreeRowByKey(container, key);
+  if (!row) return false;
+  setSidebarTreeRovingRow(row);
+  row.focus();
+  if (select && row.classList.contains("conn-item") && row.dataset.id) {
+    // Como un clic simple: la selección sigue al foco.
+    sidebarLastSelectedConnectionId = row.dataset.id;
+    setSidebarConnectionSelection([row.dataset.id], container);
+  }
+  return true;
+}
+
+function activateSidebarTreeRow(row) {
+  if (row.classList.contains("conn-item")) {
+    if (row.dataset.id) connectProfile(row.dataset.id);
+  } else if (row.classList.contains("search-folder-row")) {
+    revealSearchFolder(row.dataset.searchFolderWs, row.dataset.searchFolder);
+  } else if (row.classList.contains("folder-item")) {
+    toggleSidebarFolderRow(row);
+  }
+}
+
+/**
+ * Tecla Menú o Shift+F10: el menú contextual de la fila, abierto sobre su
+ * rectángulo por el mismo camino que el clic derecho (así vale para
+ * conexiones, carpetas y raíces de workspace, y Escape devuelve el foco).
+ */
+function openSidebarRowContextMenu(row) {
+  const anchor = row.querySelector(":scope > .folder-header") || row;
+  const rect = anchor.getBoundingClientRect();
+  anchor.dispatchEvent(new MouseEvent("contextmenu", {
+    bubbles: true,
+    cancelable: true,
+    clientX: Math.round(rect.left + Math.min(28, rect.width / 2)),
+    clientY: Math.round(rect.top + rect.height / 2),
+  }));
+}
+
+function handleSidebarTreeKeydown(e, container) {
+  if (e.defaultPrevented) return;
+  const target = e.target instanceof HTMLElement ? e.target : null;
+  if (!target || target.closest("input, textarea, [contenteditable=\"true\"]")) return;
+  const row = target.closest("[data-tree-key]");
+  if (!row || !container.contains(row)) return;
+  const currentKey = row.dataset.treeKey || null;
+
+  if (e.key === "ContextMenu" || (e.key === "F10" && e.shiftKey)) {
+    e.preventDefault();
+    openSidebarRowContextMenu(row);
+    return;
+  }
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  // Los botones de la fila (favorito, editar, eliminar) se activan solos.
+  if (target.closest("[data-action]") && (e.key === "Enter" || e.key === " ")) return;
+
+  const nodes = visibleNodes(_sidebarTreeModel, openFolders);
+
+  // Shift+↑/↓ amplía la selección múltiple, como Shift+clic: el rango va del
+  // ancla (la última conexión elegida) a la fila destino, entre las visibles.
+  if (e.shiftKey && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+    e.preventDefault();
+    const result = treeKey(nodes, currentKey, e.key);
+    if (!result?.focus) return;
+    const connIds = nodes.filter((n) => n.kind === "connection").map((n) => n.key);
+    if (connIds.includes(result.focus)) {
+      const last = sidebarLastSelectedConnectionId;
+      const anchor = last && sidebarSelectedConnectionIds.has(last) && connIds.includes(last)
+        ? last
+        : (currentKey && connIds.includes(currentKey) ? currentKey : result.focus);
+      const from = connIds.indexOf(anchor);
+      const to = connIds.indexOf(result.focus);
+      const [start, end] = from < to ? [from, to] : [to, from];
+      sidebarLastSelectedConnectionId = anchor;
+      setSidebarConnectionSelection(connIds.slice(start, end + 1), container);
+    }
+    focusSidebarTreeRow(container, result.focus);
+    return;
+  }
+
+  // Búsqueda tecleando: las letras se acumulan durante un instante.
+  if (e.key.length === 1 && e.key !== " " && e.key !== "*") {
+    e.preventDefault();
+    const now = performance.now();
+    const text = now - _treeTypeAhead.at > TREE_TYPE_AHEAD_MS ? e.key : _treeTypeAhead.text + e.key;
+    _treeTypeAhead = { text, at: now };
+    const hit = typeAhead(nodes, currentKey, text);
+    if (hit) focusSidebarTreeRow(container, hit, { select: true });
+    return;
+  }
+
+  const result = treeKey(nodes, currentKey, e.key);
+  if (!result) return;
+  e.preventDefault();
+  if (result.toggle) {
+    const item = sidebarTreeRowByKey(container, result.toggle);
+    if (item) toggleSidebarFolderRow(item);
+  }
+  for (const key of result.expand) {
+    const item = sidebarTreeRowByKey(container, key);
+    if (item) toggleSidebarFolderRow(item, true);
+  }
+  if (result.focus) focusSidebarTreeRow(container, result.focus, { select: true });
+  if (result.activate) activateSidebarTreeRow(row);
 }
 
 function activeProfileId() {
@@ -4909,7 +5554,7 @@ function markSidebarProfile(profileId, { scroll = false } = {}) {
   const item = container.querySelector(`.conn-item[data-id="${CSS.escape(profileId)}"]`);
   if (!item) return;
   if (scroll) {
-    item.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    item.scrollIntoView({ block: "nearest", behavior: scrollBehavior() });
   }
 }
 
@@ -5001,26 +5646,32 @@ function restoreSidebarTreeState(state) {
   }
 }
 
+/** Árbol (carpetas + conexiones) de un workspace, para la vista «Todos». */
+function workspaceTreeRoot(workspaceId) {
+  const root = { connections: [], folders: {} };
+  for (const fp of getWorkspaceFolders(workspaceId)) ensureFolderPath(root, fp);
+  for (const p of profiles) {
+    if ((p.workspace_id || "default") !== workspaceId) continue;
+    if (!p.group) root.connections.push(p);
+    else ensureFolderPath(root, p.group).connections.push(p);
+  }
+  return root;
+}
+
 function renderAllWorkspacesTree() {
   if (!prefs.workspaces.length) return `<div class="empty-state"><p>—</p></div>`;
   return prefs.workspaces.map((w) => {
-    const wsProfiles = profiles.filter((p) => (p.workspace_id || "default") === w.id);
-    const wsFolders = getWorkspaceFolders(w.id);
-    const root = { connections: [], folders: {} };
-    for (const fp of wsFolders) ensureFolderPath(root, fp);
-    for (const p of wsProfiles) {
-      if (!p.group) root.connections.push(p);
-      else ensureFolderPath(root, p.group).connections.push(p);
-    }
+    const root = workspaceTreeRoot(w.id);
     const inner = renderTreeNode(root, 1, w.id);
     const open = openFolders.has(`__ws__/${w.id}`) ? "open" : "";
     const childrenHidden = open ? "" : "hidden";
-    const count = wsProfiles.length;
-    return `<div class="folder-item ws-folder-item" data-ws-root="${escHtml(w.id)}" role="treeitem" aria-expanded="${open ? "true" : "false"}"${workspaceTintAttrs(w.id)}>
+    const count = countConnections(root);
+    const labelId = nextTreeLabelId();
+    return `<div class="folder-item ws-folder-item" data-ws-root="${escHtml(w.id)}" data-tree-key="__ws__/${escHtml(w.id)}" role="treeitem" tabindex="-1" aria-level="1" aria-expanded="${open ? "true" : "false"}" aria-labelledby="${labelId}"${workspaceTintAttrs(w.id)}>
       <div class="folder-header" data-folder-path="__ws__/${escHtml(w.id)}">
-        <span class="folder-arrow ${open}">▶</span>
+        <span class="folder-arrow ${open}" aria-hidden="true"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-chevron"/></svg></span>
         <span class="folder-icon">${folderIconSvg()}</span>
-        <span class="folder-name">${escHtml(w.name)}</span>
+        <span class="folder-name" id="${labelId}">${escHtml(workspaceLabel(w))}</span>
         <span class="folder-count">${count}</span>
       </div>
       <div class="folder-children ${childrenHidden}" role="group">
@@ -5040,11 +5691,15 @@ function renderFavoritesTree() {
         <p class="empty-state__hint">${escHtml(t("sidebar.favorites_empty_hint"))}</p>
       </div>`;
   }
-  favs.sort((a, b) => a.name.localeCompare(b.name));
-  return favs.map((p) => renderConnectionItem(p, 0)).join("");
+  return favoriteProfilesSorted().map((p) => renderConnectionItem(p, 0)).join("");
+}
+
+function favoriteProfilesSorted() {
+  return profiles.filter((p) => isFavoriteProfile(p.id)).sort((a, b) => a.name.localeCompare(b.name));
 }
 
 function renderWorkspaceSwitcher() {
+  renderSearchScopeSelects();
   const ctxLabel = document.getElementById("sidebar-context-label");
   const ctxIcon  = document.querySelector("#sidebar-context-bar .app-folder-icon");
   const menu     = document.getElementById("workspace-menu");
@@ -5086,21 +5741,36 @@ function renderWorkspaceSwitcher() {
   }
 
   if (!menu) return;
+  // Cada perfil es una fila: el botón que lo selecciona y «⋯», que abre su
+  // menú de opciones (el mismo del clic derecho: renombrar, mover, eliminar…).
   const items = prefs.workspaces.map((w) => {
     const isActive = w.id === getActiveWorkspaceId() && prefs.sidebarViewMode === "current";
     const color = getWorkspaceColor(w.id)?.color || "var(--overlay1)";
-    return `<button class="ws-item${isActive ? " active" : ""}" data-ws-action="select" data-ws-id="${escHtml(w.id)}">
-      <span class="ws-color-dot" style="--workspace-tint:${color}">${isActive ? "●" : "○"}</span>
-      <span>${escHtml(w.name)}</span>
-    </button>`;
+    const label = workspaceLabel(w);
+    const options = escHtml(t("sidebar.workspace_options", { name: label }));
+    return `<div class="ws-row" data-ws-id="${escHtml(w.id)}">
+      <button class="ws-item${isActive ? " active" : ""}" data-ws-action="select" data-ws-id="${escHtml(w.id)}" draggable="true" aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown">
+        <span class="ws-color-dot${isActive ? " active" : ""}" style="--workspace-tint:${color}" aria-hidden="true"></span>
+        <span class="ws-item-name">${escHtml(label)}</span>
+      </button>
+      <button type="button" class="ws-more" data-ws-id="${escHtml(w.id)}" aria-haspopup="menu" aria-label="${options}" title="${options}"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-more"/></svg></button>
+    </div>`;
   }).join("");
-  const canDelete = prefs.workspaces.length > 1;
   menu.innerHTML = `${items}
     <div class="ws-sep"></div>
-    <button class="ws-item" data-ws-action="new"><span>＋ ${escHtml(t("sidebar.workspace_new"))}</span></button>
-    <button class="ws-item" data-ws-action="health"><span><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-refresh"/></svg> ${escHtml(t("health.workspace_action"))}</span></button>
-    <button class="ws-item" data-ws-action="rename"><span><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-edit"/></svg> ${escHtml(t("sidebar.workspace_rename"))}</span></button>
-    <button class="ws-item danger" data-ws-action="delete" ${canDelete ? "" : "disabled"}><span><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-x"/></svg> ${escHtml(t("sidebar.workspace_delete"))}</span></button>`;
+    <button class="ws-item" data-ws-action="new"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-plus"/></svg><span>${escHtml(t("sidebar.workspace_new"))}</span></button>`;
+}
+
+/** Abre el menú de opciones de un perfil (workspace) en un punto de la ventana. */
+function showWorkspaceOptionsMenu(x, y, workspaceId) {
+  if (!prefs.workspaces.some((w) => w.id === workspaceId)) return;
+  showContextMenu(x, y, "workspace", null, null, { workspaceId });
+}
+
+/** Cierra el popover de herramientas de la barra lateral solo si está abierto. */
+function closeSidebarToolsIfOpen() {
+  const popover = document.getElementById("sidebar-tools-popover");
+  if (popover && !popover.classList.contains("hidden")) toggleSidebarTools(false);
 }
 
 /**
@@ -5157,8 +5827,12 @@ function positionSidebarToolsPopover(anchorId = "btn-sidebar-tools") {
     top = Math.max(margin, triggerRect.top - popRect.height - margin);
   }
 
-  popover.style.top = `${top}px`;
-  popover.style.left = `${left}px`;
+  // El popover vive dentro del sidebar, que lleva el zoom de la interfaz: sus
+  // `top`/`left` se multiplican por él, mientras que las medidas del viewport
+  // son visuales. Se calcula en visual y se divide al escribir.
+  const zoom = clampUiZoom(prefs.uiZoom ?? 1);
+  popover.style.top = `${top / zoom}px`;
+  popover.style.left = `${left / zoom}px`;
 }
 // Compatibilidad con llamadas previas
 function toggleWorkspaceMenu(open) { toggleSidebarTools(open); }
@@ -5213,15 +5887,12 @@ function updateRailActiveState() {
     if (view === "favorites") active = prefs.sidebarViewMode === "favorites";
     else if (view === "profiles") active = prefs.sidebarViewMode !== "favorites";
     btn.classList.toggle("active", active);
+    // Son dos vistas excluyentes: el estado se anuncia, no solo se colorea.
+    btn.setAttribute("aria-pressed", active ? "true" : "false");
   });
 }
 
 async function handleWorkspaceMenuClick(action, wsId) {
-  if (action === "health") {
-    toggleWorkspaceMenu(false);
-    runHealthCheck(profiles.filter(profileBelongsToActiveWorkspace), t("health.scope_workspace"));
-    return;
-  }
   if (action === "select" && wsId) {
     if (wsId !== getActiveWorkspaceId()) {
       prefs.activeWorkspaceId = wsId;
@@ -5252,34 +5923,94 @@ async function handleWorkspaceMenuClick(action, wsId) {
       renderConnectionList();
       scheduleProfileAutoSync();
     }
-    return;
   }
-  if (action === "rename") {
-    const cur = prefs.workspaces.find((w) => w.id === getActiveWorkspaceId());
-    if (!cur) return;
-    toggleWorkspaceMenu(false);
-    const name = await promptTextValue({
-      title: t("sidebar.workspace_rename"),
-      label: t("sidebar.workspace_prompt_rename"),
-      initialValue: cur.name,
-    });
-    if (name && name !== cur.name) {
-      cur.name = name;
-      prefs._prefsUpdatedAt = new Date().toISOString();
-      savePrefs();
-      renderConnectionList();
-      scheduleProfileAutoSync();
+  // Renombrar, mover, comprobar la salud y eliminar van en el menú de
+  // opciones de cada perfil (clic derecho o «⋯»): `handleContextMenuAction`.
+}
+
+// ─── Orden de los perfiles (workspaces) ─────────────────────────
+// El orden es el de `prefs.workspaces` (`modules/profiles/workspace-order.js`)
+// y viaja en la sincronización: se fecha el bundle como al renombrar.
+
+/** @param {string[]|object[]} next */
+function commitWorkspaceOrder(next) {
+  if (next === prefs.workspaces) return false;
+  prefs.workspaces = next;
+  prefs._prefsUpdatedAt = new Date().toISOString();
+  savePrefs();
+  renderConnectionList();
+  scheduleProfileAutoSync();
+  return true;
+}
+
+/** Sube (-1) o baja (+1) un workspace una posición. */
+function reorderWorkspace(wsId, delta) {
+  return commitWorkspaceOrder(moveWorkspace(prefs.workspaces, wsId, delta));
+}
+
+/** Coloca un workspace antes o después de otro (arrastrar y soltar). */
+function reorderWorkspaceTo(wsId, targetId, place) {
+  return commitWorkspaceOrder(moveWorkspaceTo(prefs.workspaces, wsId, targetId, place));
+}
+
+/**
+ * Arrastrar y soltar y Alt+↑/↓ en la lista de perfiles del popover de la
+ * barra lateral. Se engancha una vez al contenedor (la lista se repinta).
+ */
+function bindWorkspaceMenuReorder(menu) {
+  const DRAG_TYPE = "application/x-rustty-workspace";
+  let draggedId = null;
+  const clearMarks = () => menu.querySelectorAll(".ws-item.drop-before, .ws-item.drop-after")
+    .forEach((el) => el.classList.remove("drop-before", "drop-after"));
+  const placeFor = (item, ev) => {
+    const r = item.getBoundingClientRect();
+    return ev.clientY < r.top + r.height / 2 ? "before" : "after";
+  };
+  menu.addEventListener("dragstart", (ev) => {
+    const item = ev.target.closest?.('.ws-item[data-ws-action="select"]');
+    if (!item) return;
+    draggedId = item.dataset.wsId;
+    ev.dataTransfer.effectAllowed = "move";
+    ev.dataTransfer.setData(DRAG_TYPE, draggedId);
+    item.classList.add("is-dragging");
+  });
+  menu.addEventListener("dragover", (ev) => {
+    const item = ev.target.closest?.('.ws-item[data-ws-action="select"]');
+    if (!draggedId || !item || item.dataset.wsId === draggedId) { clearMarks(); return; }
+    ev.preventDefault();
+    ev.dataTransfer.dropEffect = "move";
+    const place = placeFor(item, ev);
+    clearMarks();
+    item.classList.add(place === "before" ? "drop-before" : "drop-after");
+  });
+  menu.addEventListener("dragleave", (ev) => {
+    if (!menu.contains(ev.relatedTarget)) clearMarks();
+  });
+  menu.addEventListener("drop", (ev) => {
+    const item = ev.target.closest?.('.ws-item[data-ws-action="select"]');
+    clearMarks();
+    if (!draggedId || !item) return;
+    ev.preventDefault();
+    reorderWorkspaceTo(draggedId, item.dataset.wsId, placeFor(item, ev));
+    draggedId = null;
+  });
+  menu.addEventListener("dragend", () => {
+    draggedId = null;
+    clearMarks();
+    menu.querySelectorAll(".ws-item.is-dragging").forEach((el) => el.classList.remove("is-dragging"));
+  });
+  menu.addEventListener("keydown", (ev) => {
+    if (!ev.altKey || (ev.key !== "ArrowUp" && ev.key !== "ArrowDown")) return;
+    const item = ev.target.closest?.('.ws-item[data-ws-action="select"]');
+    if (!item) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    const id = item.dataset.wsId;
+    if (reorderWorkspace(id, ev.key === "ArrowUp" ? -1 : 1)) {
+      // La lista se ha repintado: el foco sigue al workspace movido.
+      menu.querySelector(`.ws-item[data-ws-id="${CSS.escape(id)}"]`)?.focus();
     }
-    return;
-  }
-  if (action === "delete") {
-    toggleWorkspaceMenu(false);
-    // La vía común: diálogos tematizados (wry no implementa `window.confirm`:
-    // en Linux no mostraba nada), confirmación tecleada si tiene
-    // conexiones y papelera con Deshacer también para un workspace vacío.
-    await deleteWorkspaceById(getActiveWorkspaceId());
-    return;
-  }
+  });
 }
 
 function loadRecentConnections() {
@@ -5726,29 +6457,39 @@ async function initHostKeyPrompt() {
  * Cada pregunta de la ronda se pide por separado y en orden. Cancelar
  * cualquiera de ellas cancela el intercambio entero: el backend aborta la
  * conexión en vez de mandar una respuesta a medias.
+ *
+ * Si el perfil ha activado el TOTP de KeePass y la pregunta es la del código,
+ * el diálogo ofrece además «Usar código de KeePass» (`p.totpKeepass`). El
+ * código no pasa por aquí: se pide al backend que conteste él
+ * (`answerAuthPromptWithKeepass`) y solo vuelve si lo hizo o por qué no.
  */
 async function initAuthPrompt() {
   await listen(
     EVENT.sshAuthPrompt,
     async (/** @type {{ payload: SshAuthPromptEvent }} */ event) => {
-      const p = event.payload || {};
+      const p = event.payload || /** @type {SshAuthPromptEvent} */ ({});
       const prompts = Array.isArray(p.prompts) ? p.prompts : [];
       const target = `${p.username || ""}@${p.host || ""}`;
+      // El plazo es el de la ronda entera, contado desde que llegó.
+      const expiresAt = Date.now() + BACKEND_AUTH_PROMPT_MS;
+      const totp = createTotpPromptState(p);
       /** @type {string[] | null} */
       let responses = [];
 
       for (let i = 0; i < prompts.length; i++) {
         const field = prompts[i] || {};
-        // El servidor manda el texto ya con sus dos puntos y su espacio final
-        // («Verification code: »); recortarlo evita el «Código:  :» del diálogo.
-        const label = String(field.prompt || "").trim()
-          || t("modal_auth_prompt.default_label");
+        // La pregunta la escribe el servidor: se pinta saneada y acotada. Llega
+        // con sus dos puntos y su espacio final («Verification code: »);
+        // recortarla evita el «Código:  :» del diálogo.
+        const label = promptLabel(field.prompt) || t("modal_auth_prompt.default_label");
+        const noticeKey = totpNoticeKey(totp.notice);
         const message = [
           t("modal_auth_prompt.intro", { target }),
           String(p.instructions || "").trim(),
           prompts.length > 1
             ? t("modal_auth_prompt.step", { current: i + 1, total: prompts.length })
             : "",
+          noticeKey ? t(noticeKey) : "",
         ].filter(Boolean).join("\n\n");
 
         const result = await promptCredential({
@@ -5758,11 +6499,26 @@ async function initAuthPrompt() {
           // `echo: false` = contraseña o código de un solo uso: no se enseña.
           inputType: field.echo ? "text" : "password",
           submitLabel: t("modal_auth_prompt.submit"),
-          expiresAt: Date.now() + BACKEND_AUTH_PROMPT_MS,
+          expiresAt,
+          extraActions: totp.offered
+            ? [{ label: t("modal_auth_prompt.use_keepass"), value: AUTH_PROMPT_KEEPASS_ACTION }]
+            : [],
         });
         if (!result) {
           responses = null;
           break;
+        }
+        if (result.action === AUTH_PROMPT_KEEPASS_ACTION) {
+          const outcome = await answerAuthPromptWithKeepass(p, totp);
+          // Contestada por el backend: aquí no hay respuesta que mandar.
+          if (outcome === "done") return;
+          if (outcome === "expired") {
+            toast(t("toast.prompt_expired", { host: p.host || "" }), "warning");
+            return;
+          }
+          // No se pudo: la misma pregunta otra vez, ya con el motivo a la vista.
+          i -= 1;
+          continue;
         }
         responses.push(String(result.value ?? ""));
       }
@@ -5778,6 +6534,66 @@ async function initAuthPrompt() {
       else if (responses === null) toast(t("toast.auth_prompt_canceled"), "warning");
     }
   );
+}
+
+/** Acción del botón «Usar código de KeePass» del diálogo de MFA. */
+const AUTH_PROMPT_KEEPASS_ACTION = "keepass-totp";
+
+/**
+ * Pide al backend que conteste la pregunta `p.promptId` con el TOTP de KeePass
+ * del perfil. El código se calcula y se entrega allí: de vuelta solo llega un
+ * estado, que `totp.resolve` convierte en lo que toca hacer.
+ *
+ * Con la base bloqueada se ofrece desbloquearla (una vez) y se reintenta; si el
+ * usuario no quiere, o el motivo no tiene arreglo, se vuelve al diálogo manual.
+ *
+ * @param {SshAuthPromptEvent} p
+ * @param {ReturnType<typeof createTotpPromptState>} totp
+ * @returns {Promise<"done" | "manual" | "expired">}
+ */
+async function answerAuthPromptWithKeepass(p, totp) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    let reply = null;
+    try {
+      reply = await invoke("ssh_auth_prompt_totp", { promptId: p.promptId });
+    } catch (e) {
+      console.error("[auth-prompt] totp", e);
+    }
+    const action = totp.resolve(reply);
+    if (action.kind === "done" || action.kind === "scheduled") {
+      // Sacar el código es uso real de la base: reinicia su autobloqueo.
+      touchKeepass();
+      if (action.kind === "scheduled") {
+        toast(t("toast.auth_totp_scheduled", { host: p.host || "", seconds: action.seconds }), "info", 8000);
+      }
+      return "done";
+    }
+    if (action.kind === "expired") return "expired";
+    if (action.kind === "manual") return "manual";
+    // Base bloqueada: se ofrece desbloquearla y, si se hace, se vuelve a pedir.
+    if (attempt > 0 || !(await requestKeepassUnlock())) {
+      totp.unlockDeclined();
+      return "manual";
+    }
+  }
+  return "manual";
+}
+
+/**
+ * Atiende `ssh-auth-totp-wait`: el modo automático del TOTP de KeePass espera
+ * al código siguiente (el de este periodo ya se entregó a ese servidor, que no
+ * lo aceptaría otra vez). No hay diálogo ni nada que contestar: solo se avisa,
+ * para que la conexión no parezca colgada.
+ */
+async function initAuthTotpWait() {
+  await listen(EVENT.sshAuthTotpWait, (/** @type {{ payload: SshAuthTotpWaitEvent }} */ event) => {
+    const p = event.payload || /** @type {SshAuthTotpWaitEvent} */ ({});
+    toast(
+      t("toast.auth_totp_scheduled", { host: String(p.host || ""), seconds: totpWaitSeconds(p.waitSecs) }),
+      "info",
+      8000
+    );
+  });
 }
 
 async function initTrayQuickLauncher() {
@@ -6145,8 +6961,63 @@ function sidebarSearchCandidates(query = "") {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/** Alcance de los buscadores ya resuelto: el perfil activo, uno concreto o todos. */
+function currentSearchScope() {
+  return resolveSearchScope(prefs.searchScope, {
+    activeId: getActiveWorkspaceId(),
+    workspaceIds: prefs.workspaces.map((w) => w.id),
+  });
+}
+
 function connectionSearchIncludesProfile(profile) {
-  return prefs.searchAllWorkspaces !== false || profileBelongsToActiveWorkspace(profile);
+  return scopeIncludesWorkspace(currentSearchScope(), profileWorkspaceId(profile));
+}
+
+const SEARCH_SCOPE_SELECT_IDS = ["sidebar-search-scope", "dashboard-search-scope", "pref-search-scope"];
+let _searchScopeOptionsKey = "";
+
+/**
+ * Rellena los selectores de alcance (barra lateral, inicio y Preferencias)
+ * y los pone en el valor guardado. Las opciones solo se rehacen si cambian
+ * los workspaces o el idioma: rehacerlas en cada repintado de la lista
+ * cerraría un desplegable abierto.
+ */
+function renderSearchScopeSelects() {
+  const options = searchScopeOptions(
+    prefs.workspaces.map((w) => ({ id: w.id, label: workspaceLabel(w) })),
+    { current: t("search_scope.current"), all: t("search_scope.all") },
+  );
+  const key = JSON.stringify([getLanguage(), options]);
+  const value = normalizeSearchScope(prefs.searchScope, prefs.searchAllWorkspaces);
+  for (const id of SEARCH_SCOPE_SELECT_IDS) {
+    const select = document.getElementById(id);
+    if (!select) continue;
+    if (key !== _searchScopeOptionsKey || !select.options.length) {
+      const base = options.filter((o) => o.group === "base");
+      const named = options.filter((o) => o.group === "workspaces");
+      const opt = (o) => `<option value="${escHtml(o.value)}">${escHtml(o.label)}</option>`;
+      select.innerHTML = base.map(opt).join("")
+        + (named.length ? `<optgroup label="${escHtml(t("search_scope.group"))}">${named.map(opt).join("")}</optgroup>` : "");
+    }
+    // Un workspace guardado que ya no existe se enseña como «actual», que es
+    // lo que de verdad se busca.
+    const shown = [...select.options].some((o) => o.value === value) ? value : "current";
+    if (select.value !== shown) select.value = shown;
+  }
+  _searchScopeOptionsKey = key;
+}
+
+/** Cambia el alcance desde uno de los buscadores; se guarda y se sincroniza. */
+function setSearchScope(value) {
+  const scope = normalizeSearchScope(value, prefs.searchAllWorkspaces);
+  if (scope === prefs.searchScope) return;
+  prefs.searchScope = scope;
+  prefs.searchAllWorkspaces = scope === "all";
+  prefs._prefsUpdatedAt = new Date().toISOString();
+  savePrefs();
+  renderSearchScopeSelects();
+  renderConnectionList();
+  scheduleProfileAutoSync();
 }
 
 /**
@@ -6158,8 +7029,9 @@ function groupedConnectionSearch(query) {
   const scoped = profiles.filter(connectionSearchIncludesProfile);
   const folders = [];
   const byWorkspace = prefs.userFoldersByWorkspace || {};
+  const scope = currentSearchScope();
   for (const [workspaceId, paths] of Object.entries(byWorkspace)) {
-    if (prefs.searchAllWorkspaces === false && workspaceId !== getActiveWorkspaceId()) continue;
+    if (!scopeIncludesWorkspace(scope, workspaceId)) continue;
     for (const path of paths || []) folders.push({ path, workspaceId });
   }
   return groupConnectionSearch({ profiles: scoped, folders, notes: notesIndex, query });
@@ -6221,8 +7093,8 @@ function highlightHtml(text, tokens) {
  * todas sus conexiones sueltas) y coincidencias en notas, cada resultado con
  * su ruta y el texto coincidente resaltado.
  */
-function renderSidebarSearchResults(query) {
-  const grouped = groupedConnectionSearch(query);
+/** @param {ReturnType<typeof groupedConnectionSearch>} grouped */
+function renderSidebarSearchResults(grouped) {
   const sections = [];
   if (grouped.connections.length) {
     sections.push(searchSection(
@@ -6279,7 +7151,8 @@ function searchFolderContext(folder) {
 function renderSearchFolderRow(folder, tokens) {
   const context = searchFolderContext(folder);
   return `
-    <div class="search-folder-row" role="treeitem" aria-selected="false" tabindex="0"
+    <div class="search-folder-row" role="treeitem" aria-level="1" aria-selected="false" tabindex="-1"
+         data-tree-key="${escHtml(searchFolderTreeKey(folder.path, folder.workspaceId))}"
          data-search-folder="${escHtml(folder.path)}"
          data-search-folder-ws="${escHtml(folder.workspaceId)}"
          title="${escHtml(folder.path)}">
@@ -6293,14 +7166,9 @@ function renderSearchFolderRow(folder, tokens) {
 }
 
 function bindSidebarSearchFolderRows(container) {
+  // Enter y Espacio los atiende el teclado del árbol (`handleSidebarTreeKeydown`).
   container.querySelectorAll(".search-folder-row").forEach((row) => {
-    const open = () => revealSearchFolder(row.dataset.searchFolderWs, row.dataset.searchFolder);
-    row.addEventListener("click", open);
-    row.addEventListener("keydown", (event) => {
-      if (event.key !== "Enter" && event.key !== " ") return;
-      event.preventDefault();
-      open();
-    });
+    row.addEventListener("click", () => revealSearchFolder(row.dataset.searchFolderWs, row.dataset.searchFolder));
   });
 }
 
@@ -6339,7 +7207,7 @@ function revealSearchFolder(workspaceId, path) {
     // Acotado al workspace destino: en vista "all" puede existir una carpeta
     // homónima en otro workspace y el selector plano scrollearía a la primera.
     const el = findSidebarFolderItem(document.getElementById("connection-list"), path, targetWorkspace);
-    el?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    el?.scrollIntoView({ block: "nearest", behavior: scrollBehavior() });
   });
 }
 
@@ -6377,22 +7245,19 @@ function focusConnectionSearch() {
 
 function renderTreeNode(node, depth, workspaceId = getActiveWorkspaceId()) {
   let html = "";
-  const renderConnections = () => {
-    for (const p of node.connections) html += renderConnectionItem(p, depth);
-  };
-  const renderFolders = () => {
-    for (const [name, child] of sortedFolderEntries(node, workspaceId)) {
-      html += renderFolderNode(name, child, depth, workspaceId);
-    }
-  };
-  if (prefs.foldersFirst !== false) {
-    renderFolders();
-    renderConnections();
-  } else {
-    renderConnections();
-    renderFolders();
+  for (const child of orderedTreeChildren(node, workspaceId)) {
+    html += child.kind === "folder"
+      ? renderFolderNode(child.name, child.node, depth, workspaceId)
+      : renderConnectionItem(child.profile, depth);
   }
   return html;
+}
+
+let _treeLabelSeq = 0;
+/** Id para el `aria-labelledby` de una carpeta: su nombre, no todo el subárbol. */
+function nextTreeLabelId() {
+  _treeLabelSeq += 1;
+  return `tree-label-${_treeLabelSeq}`;
 }
 
 function renderFolderNode(name, node, depth, workspaceId) {
@@ -6401,13 +7266,14 @@ function renderFolderNode(name, node, depth, workspaceId) {
   const count = countConnections(node);
   const indent = 14 + depth * 12;
   const tintAttrs = folderTintAttrs(path, workspaceId);
+  const labelId = nextTreeLabelId();
 
   return `
-    <div class="folder-item" data-folder-path="${escHtml(path)}" draggable="true" role="treeitem" aria-expanded="${isOpen ? "true" : "false"}"${tintAttrs}>
+    <div class="folder-item" data-folder-path="${escHtml(path)}" data-tree-key="${escHtml(folderTreeKey(path, workspaceId))}" draggable="true" role="treeitem" tabindex="-1" aria-level="${depth + 1}" aria-expanded="${isOpen ? "true" : "false"}" aria-labelledby="${labelId}"${tintAttrs}>
       <div class="folder-header" style="padding-left:${indent}px; padding-right:14px">
-        <span class="folder-arrow ${isOpen ? "open" : ""}">▶</span>
+        <span class="folder-arrow ${isOpen ? "open" : ""}" aria-hidden="true"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-chevron"/></svg></span>
         <span class="folder-icon">${folderIconSvg()}</span>
-        <span class="folder-name">${escHtml(name)}</span>
+        <span class="folder-name" id="${labelId}">${escHtml(name)}</span>
         <span class="folder-count">${count}</span>
       </div>
       <div class="folder-children${isOpen ? "" : " hidden"}" role="group">
@@ -6589,9 +7455,11 @@ function renderConnectionItem(p, depth, opts = {}) {
   return `
     <div class="${cls}"
          data-id="${p.id}"
+         data-tree-key="${escHtml(p.id)}"
          draggable="true"
-         tabindex="0"
+         tabindex="-1"
          role="treeitem"
+         aria-level="${depth + 1}"
          aria-selected="${isActiveTab || isSelected ? "true" : "false"}"
          aria-label="${escHtml(`${p.name} — ${p.username}@${p.host}:${p.port}`)}"
          style="padding-left:${indent}px">
@@ -6610,9 +7478,11 @@ function renderConnectionItem(p, depth, opts = {}) {
         ${contextLine}${noteLine}
       </div>
       <div class="conn-item-actions">
-        <button class="btn-icon-sm conn-fav${isFavoriteProfile(p.id) ? " on" : ""}" data-action="toggle-favorite" data-id="${p.id}" title="${escHtml(t("ctx.toggle_favorite"))}"><svg class="row-icon-svg${isFavoriteProfile(p.id) ? " filled" : ""}" aria-hidden="true"><use href="#ci-star"/></svg></button>
-        <button class="btn-icon-sm" data-action="edit" data-id="${p.id}" title="${escHtml(t("ctx.edit"))}"><svg class="row-icon-svg" aria-hidden="true"><use href="#ci-edit"/></svg></button>
-        <button class="btn-icon-sm danger" data-action="delete" data-id="${p.id}" title="${escHtml(t("ctx.delete"))}"><svg class="row-icon-svg" aria-hidden="true"><use href="#ci-x"/></svg></button>
+        <button class="btn-icon-sm" data-action="connect" data-id="${p.id}" tabindex="-1" title="${escHtml(t("ctx.connect"))}" aria-label="${escHtml(t("ctx.connect"))}"><svg class="row-icon-svg" aria-hidden="true"><use href="#ci-play"/></svg></button>
+        ${noteSummary ? `<button class="btn-icon-sm conn-note-action" data-action="view-note" data-id="${p.id}" tabindex="-1" title="${escHtml(t("ctx.view_note"))}" aria-label="${escHtml(t("ctx.view_note"))}"><svg class="row-icon-svg" aria-hidden="true"><use href="#ci-note"/></svg></button>` : ""}
+        <button class="btn-icon-sm conn-fav${isFavoriteProfile(p.id) ? " on" : ""}" data-action="toggle-favorite" data-id="${p.id}" tabindex="-1" title="${escHtml(t("ctx.toggle_favorite"))}"><svg class="row-icon-svg${isFavoriteProfile(p.id) ? " filled" : ""}" aria-hidden="true"><use href="#ci-star"/></svg></button>
+        <button class="btn-icon-sm" data-action="edit" data-id="${p.id}" tabindex="-1" title="${escHtml(t("ctx.edit"))}"><svg class="row-icon-svg" aria-hidden="true"><use href="#ci-edit"/></svg></button>
+        <button class="btn-icon-sm danger" data-action="delete" data-id="${p.id}" tabindex="-1" title="${escHtml(t("ctx.delete"))}"><svg class="row-icon-svg" aria-hidden="true"><use href="#ci-x"/></svg></button>
       </div>
     </div>`;
 }
@@ -6724,17 +7594,7 @@ function bindTreeEvents(container) {
       // abierta de este perfil (force evita reutilizar la pestaña existente).
       connectProfile(el.dataset.id, { force: true });
     });
-    // Teclado: Enter/Espacio conectan (reutilizan pestaña si ya está abierta).
-    // El foco sobre la fila ya hace de «selección», así que aquí el activador
-    // abre la conexión, como el clic. Las acciones internas (favorito/editar/
-    // eliminar) son <button> propios y se gestionan aparte.
-    el.addEventListener("keydown", (e) => {
-      if (e.target.closest("[data-action]")) return;
-      if (e.key === "Enter" || e.key === " " || e.key === "Spacebar") {
-        e.preventDefault();
-        connectProfile(el.dataset.id);
-      }
-    });
+    // Teclado (Enter conecta, flechas, menú contextual…): `bindTreeKeyboard`.
   });
 
   // Clic en botones de acción
@@ -6756,10 +7616,18 @@ function bindTreeEvents(container) {
       toggleFavoriteProfile(btn.dataset.id);
     });
   });
-  container.querySelectorAll("[data-action='open-note']").forEach((btn) => {
+  // El distintivo de nota y el botón de la fila abren la nota en lectura; de
+  // ahí, «Editar» lleva al editor.
+  container.querySelectorAll("[data-action='open-note'], [data-action='view-note']").forEach((btn) => {
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
-      openNoteEditor(btn.dataset.id);
+      openNoteViewer(btn.dataset.id);
+    });
+  });
+  container.querySelectorAll("[data-action='connect']").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      connectProfile(btn.dataset.id);
     });
   });
 
@@ -6767,23 +7635,7 @@ function bindTreeEvents(container) {
   container.querySelectorAll(".folder-header").forEach((header) => {
     header.addEventListener("click", () => {
       const item = header.closest(".folder-item");
-      // La raíz de un workspace (vista «Todos») lleva la ruta `__ws__/<id>` en
-      // la cabecera, no en el item: leyendo solo el item todas compartían la
-      // clave `undefined` y el render las reabría.
-      const path = header.dataset.folderPath || item.dataset.folderPath;
-      const children = item.querySelector(".folder-children");
-      const arrow = header.querySelector(".folder-arrow");
-      if (openFolders.has(path)) {
-        openFolders.delete(path);
-        children.classList.add("hidden");
-        arrow.classList.remove("open");
-        item.setAttribute("aria-expanded", "false");
-      } else {
-        openFolders.add(path);
-        children.classList.remove("hidden");
-        arrow.classList.add("open");
-        item.setAttribute("aria-expanded", "true");
-      }
+      if (item) toggleSidebarFolderRow(item);
     });
   });
 
@@ -7148,10 +8000,12 @@ function showContextMenu(x, y, type, id = null, folderPath = null, extra = {}) {
   menu.querySelectorAll(".ctx-script-only").forEach((el) =>
     el.classList.toggle("hidden", type !== "connection" || !canScript)
   );
-  // Nota: etiqueta dinámica (Añadir/Editar) y visibilidad de "Eliminar nota".
+  // Nota: sin nota, «Añadir nota»; con ella, el submenú «Nota ▸» (ver,
+  // editar, eliminar).
   const hasNote = type === "connection" && id ? profileHasNote(id) : false;
-  const noteLabel = document.getElementById("ctx-note-label");
-  if (noteLabel) noteLabel.textContent = hasNote ? t("ctx.edit_note") : t("ctx.add_note");
+  menu.querySelectorAll(".ctx-note-missing").forEach((el) =>
+    el.classList.toggle("hidden", type !== "connection" || hasNote)
+  );
   // Plantilla: etiqueta según si el perfil ya está marcado como tal.
   const tplLabel = document.getElementById("ctx-template-label");
   if (tplLabel && type === "connection" && id) {
@@ -7163,6 +8017,16 @@ function showContextMenu(x, y, type, id = null, folderPath = null, extra = {}) {
   menu.querySelectorAll(".ctx-ws-only").forEach((el) =>
     el.classList.toggle("hidden", type !== "workspace")
   );
+  if (type === "workspace") {
+    const moves = workspaceMoves(prefs.workspaces, ctxTarget?.workspaceId || "");
+    const up = menu.querySelector('[data-ctx="move-ws-up"]');
+    const down = menu.querySelector('[data-ctx="move-ws-down"]');
+    if (up) up.disabled = !moves.up;
+    if (down) down.disabled = !moves.down;
+    // El último perfil no se puede eliminar.
+    const del = menu.querySelector('[data-ctx="delete-ws"]');
+    if (del) del.disabled = prefs.workspaces.length <= 1;
+  }
   menu.querySelectorAll(".ctx-colorable").forEach((el) =>
     el.classList.toggle("hidden", type !== "folder" && type !== "workspace")
   );
@@ -7274,13 +8138,17 @@ function showContextMenu(x, y, type, id = null, folderPath = null, extra = {}) {
     restoreEl.classList.toggle("hidden", !hasSnapshot);
   }
 
+  updateBulkEditMenuEntries(type, id, folderPath, ctxTarget.workspaceId, isRealFolder);
+
   const { left: finalX, width } = positionFloatingMenu(menu, x, y);
   // Si el menú queda en la mitad derecha, abrir los submenús hacia la izquierda;
   // y si el ítem que los abre cae en la mitad baja de la ventana, abrirlos hacia
   // arriba (anclados por abajo) para que no se corten contra el borde inferior.
   // Cada submenú se mide contra SU ítem: son varios y están a distinta altura.
   const openLeft = finalX + width + 190 > window.innerWidth;
-  for (const [item, sub] of [[connectAsEl, submenu], [viaEl, viaSubmenu], [tunnelsEl, tunnelsSubmenu]]) {
+  const noteEl = document.getElementById("ctx-note");
+  const noteSubmenu = document.getElementById("ctx-note-submenu");
+  for (const [item, sub] of [[connectAsEl, submenu], [viaEl, viaSubmenu], [tunnelsEl, tunnelsSubmenu], [noteEl, noteSubmenu]]) {
     if (!sub) continue;
     sub.classList.toggle("open-left", openLeft);
     const itemRect = item && !item.classList.contains("hidden")
@@ -7308,7 +8176,7 @@ function hideContextMenu() {
 // anillo de foco solo se ve si la apertura fue por teclado, por la heurística de
 // `:focus-visible`); las flechas / Inicio / Fin recorren los ítems visibles; y
 // Tab o Escape cierran devolviendo el foco al elemento que abrió el menú.
-const FLOATING_MENU_IDS = ["context-menu", "tab-context-menu", "terminal-context-menu", "sftp-context-menu", "route-menu"];
+const FLOATING_MENU_IDS = ["context-menu", "tab-context-menu", "terminal-context-menu", "sftp-context-menu", "sftp-transfer-menu", "route-menu", "text-context-menu"];
 let menuReturnFocus = null;
 /**
  * Cuándo se cerró por última vez un menú visible. Un diálogo que se abre con
@@ -7322,6 +8190,7 @@ const MENU_OPENER_WINDOW_MS = 3000;
 /** @param {string} id */
 function noteFloatingMenuHidden(id) {
   const el = document.getElementById(id);
+  releaseMenuSubmenuLayers(el);
   if (el && !el.classList.contains("hidden")) menuHiddenAt = performance.now();
 }
 
@@ -7333,15 +8202,151 @@ function openFloatingMenuEl() {
   return null;
 }
 
-function floatingMenuItems(menu) {
-  return [...menu.querySelectorAll("button")].filter(
-    (b) => !b.disabled && !b.classList.contains("hidden") && b.offsetParent !== null
-  );
+const MENU_ENTRY_SELECTOR = 'button, [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], .ctx-sep';
+
+/** Nivel (el menú o uno de sus submenús) al que pertenece un elemento. */
+function floatingMenuLevel(menu, el) {
+  const level = el instanceof Element ? el.closest('[role="menu"]') : null;
+  return level && menu.contains(level) ? level : menu;
+}
+
+/**
+ * Entradas visibles de UN nivel, en orden del DOM: ítems, padres con submenú
+ * y separadores. Lo que cuelga de un submenú pertenece a su propio nivel.
+ */
+function floatingMenuEntries(level) {
+  return [...level.querySelectorAll(MENU_ENTRY_SELECTOR)].filter((el) =>
+    el.closest('[role="menu"]') === level && !el.classList.contains("hidden") && el.offsetParent !== null);
+}
+
+/** Ítems enfocables de un nivel (sin separadores ni desactivados). */
+function floatingMenuItems(level) {
+  return floatingMenuEntries(level).filter((el) =>
+    !el.classList.contains("ctx-sep") && el.disabled !== true && el.getAttribute("aria-disabled") !== "true");
+}
+
+/**
+ * Resaltado del teclado: la clase `is-active` va al ítem enfocado y a los
+ * padres con submenú que lo contienen (como el :hover, que también alcanza al
+ * padre mientras el puntero está en su submenú). El puntero la quita.
+ */
+function markMenuKeyboardFocus(menu, el) {
+  menu.querySelectorAll(".ctx-item.is-active").forEach((it) => it.classList.remove("is-active"));
+  for (let node = el; node && node !== menu; node = node.parentElement) {
+    if (node.classList.contains("ctx-item")) node.classList.add("is-active");
+  }
+}
+
+function focusMenuEntry(menu, el) {
+  if (!(el instanceof HTMLElement)) return;
+  el.focus();
+  markMenuKeyboardFocus(menu, el);
+}
+
+/**
+ * Margen para cruzar con el puntero del ítem padre a su submenú. Entre los
+ * dos hay una franja que no es ni uno ni otro (el borde del menú, su barra de
+ * desplazamiento, el hueco que los separa): si el submenú se plegara nada más
+ * salir del ítem, desaparecería antes de llegar a él.
+ */
+const SUBMENU_CLOSE_GRACE_MS = 350;
+/** @type {WeakMap<Element, ReturnType<typeof setTimeout>>} */
+const submenuCloseTimers = new WeakMap();
+
+function cancelSubmenuClose(parent) {
+  const timer = submenuCloseTimers.get(parent);
+  if (timer === undefined) return;
+  clearTimeout(timer);
+  submenuCloseTimers.delete(parent);
+}
+
+/** Pliega el submenú que abrió el puntero; si el foco está dentro, manda el teclado. */
+function collapseHoverSubmenu(parent) {
+  cancelSubmenuClose(parent);
+  if (!parent.contains(document.activeElement)) parent.setAttribute("aria-expanded", "false");
+}
+
+function scheduleSubmenuClose(parent) {
+  cancelSubmenuClose(parent);
+  submenuCloseTimers.set(parent, setTimeout(() => {
+    submenuCloseTimers.delete(parent);
+    collapseHoverSubmenu(parent);
+  }, SUBMENU_CLOSE_GRACE_MS));
+}
+
+/**
+ * Apertura del submenú con el puntero. Lo abre `aria-expanded` y no el
+ * `:hover` del padre: con el submenú en la capa superior (`popover`) WebKit
+ * no considera al padre bajo el puntero mientras este recorre el submenú.
+ * Al salir del padre:
+ *  - hacia otra opción del menú, se pliega ya;
+ *  - hacia el borde o la barra de desplazamiento del menú, sigue abierto
+ *    (es el camino hacia el submenú);
+ *  - fuera del menú, se pliega tras `SUBMENU_CLOSE_GRACE_MS` si no se vuelve.
+ * @param {Element} parent `.ctx-has-submenu`
+ */
+function bindSubmenuHover(parent) {
+  parent.addEventListener("mouseenter", () => {
+    cancelSubmenuClose(parent);
+    parent.setAttribute("aria-expanded", "true");
+  });
+  parent.addEventListener("mouseleave", (e) => {
+    const to = e.relatedTarget instanceof Element ? e.relatedTarget : null;
+    const menu = parent.parentElement?.closest('[role="menu"]') ?? parent.parentElement;
+    if (to && menu?.contains(to)) {
+      if (to.closest(".ctx-item")) collapseHoverSubmenu(parent);
+    } else {
+      scheduleSubmenuClose(parent);
+    }
+  });
+}
+
+/**
+ * `aria-expanded` de cada padre con submenú según dónde esté el foco. El
+ * submenú se ve con el foco dentro del padre (`:focus-within`) salvo que
+ * Escape o ← lo hayan plegado (`ctx-sub-collapsed`); al salir del padre, el
+ * pliegue se olvida.
+ */
+function syncSubmenuExpansion(menu) {
+  const active = document.activeElement;
+  menu.querySelectorAll(".ctx-has-submenu").forEach((parent) => {
+    const inside = parent.contains(active);
+    if (!inside) parent.classList.remove("ctx-sub-collapsed");
+    parent.setAttribute("aria-expanded", inside && !parent.classList.contains("ctx-sub-collapsed") ? "true" : "false");
+  });
+}
+
+function resetMenuKeyboardState(menu) {
+  menu.querySelectorAll(".ctx-item.is-active").forEach((it) => it.classList.remove("is-active"));
+  menu.querySelectorAll(".ctx-has-submenu").forEach((parent) => {
+    parent.classList.remove("ctx-sub-collapsed");
+    parent.setAttribute("aria-expanded", "false");
+  });
+}
+
+/** Despliega el submenú de un padre y enfoca su primer ítem. */
+function openSubmenuByKeyboard(menu, parent) {
+  if (!(parent instanceof HTMLElement)) return;
+  parent.classList.remove("ctx-sub-collapsed");
+  parent.setAttribute("aria-expanded", "true");
+  const sub = parent.querySelector('[role="menu"]');
+  const first = sub ? floatingMenuItems(sub)[0] : null;
+  if (first) focusMenuEntry(menu, first);
+}
+
+/** Pliega el submenú en el que está el foco y devuelve el foco a su padre. */
+function closeSubmenuByKeyboard(menu, level) {
+  const parent = level.closest(".ctx-has-submenu");
+  if (!parent) return;
+  parent.classList.add("ctx-sub-collapsed");
+  parent.setAttribute("aria-expanded", "false");
+  focusMenuEntry(menu, parent);
 }
 
 /** Tras abrir un menú flotante: recuerda el disparador y enfoca el primer ítem. */
 function onFloatingMenuOpened(menu) {
   menuReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  resetMenuKeyboardState(menu);
   floatingMenuItems(menu)[0]?.focus();
 }
 
@@ -7352,47 +8357,367 @@ function closeFloatingMenus({ restoreFocus = false } = {}) {
   hideTabContextMenu();
   hideTerminalContextMenu();
   hideSftpContextMenu();
+  hideSftpTransferMenu();
   hideRouteMenu();
+  hideTextContextMenu();
   if (restoreFocus && wasOpen && menuReturnFocus && document.contains(menuReturnFocus)) {
     menuReturnFocus.focus();
   }
   menuReturnFocus = null;
 }
 
+/**
+ * Teclado de los menús flotantes (`modules/menu-nav.js`): ↑/↓/Inicio/Fin en
+ * el nivel actual, → abre el submenú del ítem, ← y Escape vuelven al padre
+ * desde un submenú, Escape en el primer nivel y Tab cierran el menú
+ * devolviendo el foco. Escape se consume aquí para que el controlador de
+ * diálogos no cierre además el diálogo de debajo.
+ */
 function handleFloatingMenuKeydown(e) {
   const menu = openFloatingMenuEl();
-  if (!menu) return;
-  if (e.key === "Tab") {
-    e.preventDefault();
-    closeFloatingMenus({ restoreFocus: true });
-    return;
+  if (!menu || e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
+  const active = document.activeElement;
+  const level = floatingMenuLevel(menu, active);
+  const entries = floatingMenuEntries(level);
+  const index = entries.indexOf(active);
+  const result = menuKey(e.key, {
+    entries: entries.map((el) => ({
+      separator: el.classList.contains("ctx-sep"),
+      disabled: el.disabled === true || el.getAttribute("aria-disabled") === "true",
+      submenu: el.getAttribute("aria-haspopup") === "menu",
+    })),
+    index,
+    inSubmenu: level !== menu,
+  });
+  switch (result.action) {
+    case "focus":
+      e.preventDefault();
+      focusMenuEntry(menu, entries[result.index]);
+      break;
+    case "open":
+      e.preventDefault();
+      openSubmenuByKeyboard(menu, entries[index]);
+      break;
+    case "parent":
+      e.preventDefault();
+      closeSubmenuByKeyboard(menu, level);
+      break;
+    case "activate":
+      // Un <button> ya se activa solo con Enter/Espacio; los demás ítems, aquí.
+      if (!(active instanceof HTMLButtonElement) && active instanceof HTMLElement) {
+        e.preventDefault();
+        active.click();
+      }
+      break;
+    case "close":
+      e.preventDefault();
+      closeFloatingMenus({ restoreFocus: true });
+      break;
+    default:
+      break;
   }
-  const step = { ArrowDown: 1, ArrowUp: -1, Home: "first", End: "last" };
-  if (!(e.key in step)) return;
-  const items = floatingMenuItems(menu);
-  if (items.length === 0) return;
+}
+
+// ─── Menú contextual de los campos de texto ─────────────────────
+// La app bloquea el menú nativo del WebView en toda la ventana (traía Atrás,
+// Recargar o Inspeccionar), así que los campos de texto se quedaban sin
+// Copiar ni Pegar con el botón derecho. Este menú los devuelve en cualquier
+// campo —también dentro de los diálogos: vive fuera de #app— y, en los campos
+// Markdown (la nota), añade el submenú «Formato». Qué entradas salen lo decide
+// `modules/text-menu.js`.
+
+/** @type {{ el: HTMLElement | null, start: number | null, end: number | null, selText: string } | null} */
+let textMenuTarget = null;
+
+const TEXT_MENU_ITEMS = {
+  undo: { icon: "ci-undo", label: "text_menu.undo" },
+  redo: { icon: "ci-redo", label: "text_menu.redo" },
+  cut: { icon: "ci-cut", label: "text_menu.cut" },
+  copy: { icon: "ci-copy", label: "text_menu.copy" },
+  paste: { icon: "ci-paste", label: "text_menu.paste" },
+  delete: { icon: "ci-trash", label: "text_menu.delete" },
+  "select-all": { icon: "ci-select-all", label: "text_menu.select_all" },
+  "copy-source": { icon: "ci-note", label: "text_menu.copy_markdown" },
+  format: { icon: "ci-format", label: "text_menu.format" },
+};
+
+const MARKDOWN_FORMAT_LABELS = {
+  bold: "notes.tool_bold",
+  italic: "notes.tool_italic",
+  code: "notes.tool_code",
+  codeblock: "notes.tool_codeblock",
+  link: "notes.tool_link",
+  h: "notes.tool_heading",
+  ul: "notes.tool_list",
+  ol: "notes.tool_ol",
+  task: "notes.tool_task",
+  quote: "notes.tool_quote",
+};
+
+/**
+ * Texto Markdown de origen de cada región pintada (`[data-text-region]`), para
+ * «Copiar como Markdown» desde el clic derecho de una nota en lectura.
+ * @type {WeakMap<Element, string>}
+ */
+const textRegionSources = new WeakMap();
+
+function hideTextContextMenu() {
+  noteFloatingMenuHidden("text-context-menu");
+  document.getElementById("text-context-menu")?.classList.add("hidden");
+  textMenuTarget = null;
+}
+
+/** ¿El campo es un `<input>`/`<textarea>` (con `value`)? */
+function isValueField(el) {
+  return el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement;
+}
+
+/** Selección de un campo, o `null` si su tipo no la expone (email, number). */
+function fieldSelection(el) {
+  try {
+    if (el.selectionStart == null || el.selectionEnd == null) return null;
+    return { start: el.selectionStart, end: el.selectionEnd };
+  } catch {
+    return null;
+  }
+}
+
+/** ¿El editor puede deshacer/rehacer ahora? `undefined` si no lo dice. */
+function queryEditCommand(cmd) {
+  try {
+    return document.queryCommandEnabled(cmd);
+  } catch {
+    return undefined;
+  }
+}
+
+/** Ítem (botón) del menú de texto, con icono del sprite y etiqueta. */
+function textMenuButton(icon, label, data) {
+  const item = document.createElement("button");
+  item.type = "button";
+  item.className = "ctx-item";
+  item.setAttribute("role", "menuitem");
+  Object.assign(item.dataset, data);
+  const ic = document.createElement("span");
+  ic.className = "ctx-icon";
+  ic.innerHTML = icon.startsWith("<svg")
+    ? icon
+    : `<svg class="ctx-icon-svg" aria-hidden="true"><use href="#${icon}"/></svg>`;
+  const text = document.createElement("span");
+  text.textContent = label;
+  item.append(ic, text);
+  return item;
+}
+
+/** Icono de un formato: el mismo de la barra del editor de notas. */
+function markdownFormatIcon(action) {
+  const svg = document.querySelector(`#note-editor-toolbar .note-tool[data-md="${action}"] svg`);
+  return svg ? svg.outerHTML : "ci-format";
+}
+
+/**
+ * Abre el menú de texto en `(x, y)` para `field` (o, sin campo, para el texto
+ * seleccionado `selText`).
+ * @param {number} x
+ * @param {number} y
+ * @param {HTMLElement | null} field
+ * @param {"editable" | "readonly" | "selection"} kind
+ * @param {string} selText
+ */
+function showTextContextMenu(x, y, field, kind, selText) {
+  closeFloatingMenus();
+  const menu = document.getElementById("text-context-menu");
+  if (!menu) return;
+  const valueField = isValueField(field) ? field : null;
+  const sel = valueField ? fieldSelection(valueField) : null;
+  const value = valueField ? valueField.value : (field?.textContent || "");
+  const hasSelection = valueField
+    ? (sel ? sel.start !== sel.end : value !== "")
+    : selText !== "";
+  const entries = textMenuEntries({
+    kind,
+    hasSelection,
+    hasValue: value !== "",
+    secret: valueField instanceof HTMLInputElement && valueField.type === "password",
+    canUndo: queryEditCommand("undo"),
+    canRedo: queryEditCommand("redo"),
+    formats: field?.dataset?.markdown === "true",
+    hasSource: kind === "region" && !!field && !!textRegionSources.get(field),
+  });
+
+  menu.innerHTML = "";
+  /** @type {HTMLElement | null} */
+  let formatParent = null;
+  for (const entry of entries) {
+    if ("separator" in entry) {
+      const sep = document.createElement("div");
+      sep.className = "ctx-sep";
+      menu.appendChild(sep);
+      continue;
+    }
+    const meta = TEXT_MENU_ITEMS[entry.id];
+    if (entry.id === "format") {
+      formatParent = document.createElement("div");
+      formatParent.className = "ctx-item ctx-has-submenu";
+      formatParent.id = "text-menu-format";
+      formatParent.tabIndex = -1;
+      formatParent.setAttribute("role", "menuitem");
+      formatParent.setAttribute("aria-haspopup", "menu");
+      formatParent.setAttribute("aria-expanded", "false");
+      formatParent.setAttribute("aria-labelledby", "text-menu-format-label");
+      formatParent.innerHTML = `<span class="ctx-icon"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#${meta.icon}"/></svg></span>`
+        + `<span id="text-menu-format-label">${escHtml(t(meta.label))}</span>`
+        + `<span class="ctx-submenu-arrow" aria-hidden="true"><svg class="ctx-icon-svg"><use href="#ci-chevron"/></svg></span>`;
+      const sub = document.createElement("div");
+      sub.className = "ctx-submenu";
+      sub.setAttribute("role", "menu");
+      sub.setAttribute("aria-labelledby", "text-menu-format-label");
+      MARKDOWN_FORMATS.forEach((action, i) => {
+        // Dos grupos: en línea y de línea.
+        if (action === "h" && i > 0) {
+          const sep = document.createElement("div");
+          sep.className = "ctx-sep";
+          sub.appendChild(sep);
+        }
+        sub.appendChild(textMenuButton(markdownFormatIcon(action), t(MARKDOWN_FORMAT_LABELS[action]), {
+          textMenu: "format",
+          format: action,
+        }));
+      });
+      formatParent.appendChild(sub);
+      bindSubmenuHover(formatParent);
+      menu.appendChild(formatParent);
+      continue;
+    }
+    const btn = textMenuButton(meta.icon, t(meta.label), { textMenu: entry.id });
+    btn.disabled = !!entry.disabled;
+    menu.appendChild(btn);
+  }
+
+  textMenuTarget = { el: field, start: sel?.start ?? null, end: sel?.end ?? null, selText };
+  const { left, width } = positionFloatingMenu(menu, x, y);
+  const sub = formatParent?.querySelector(".ctx-submenu");
+  if (sub && formatParent) {
+    sub.classList.toggle("open-left", left + width + 190 > window.innerWidth);
+    const r = formatParent.getBoundingClientRect();
+    sub.classList.toggle("open-up", r.top + r.height / 2 > window.innerHeight / 2);
+  }
+  onFloatingMenuOpened(menu);
+}
+
+/** Texto de un pegado para un campo de una sola línea: sin saltos. */
+function pasteTextFor(field, text) {
+  if (!(field instanceof HTMLInputElement)) return text;
+  return text.replace(/[\r\n]+$/, "").replace(/\r?\n/g, " ");
+}
+
+/** Ejecuta una acción del menú de texto sobre el campo que lo abrió. */
+async function runTextMenuAction(action, format) {
+  const target = textMenuTarget;
+  hideTextContextMenu();
+  if (!target) return;
+  const el = target.el;
+  const field = isValueField(el) ? el : null;
+  const hasRange = field && target.start != null && target.end != null;
+  if (el && document.contains(el)) {
+    el.focus();
+    if (hasRange) {
+      try { field.setSelectionRange(target.start, target.end); } catch { /* tipo sin selección */ }
+    }
+  }
+  const selected = hasRange ? field.value.slice(target.start, target.end) : target.selText;
+  switch (action) {
+    case "undo":
+    case "redo":
+      document.execCommand(action);
+      break;
+    case "copy":
+      if (selected) await writeSystemClipboardText(selected);
+      break;
+    case "cut":
+    case "delete":
+      if (action === "cut" && selected) await writeSystemClipboardText(selected);
+      if (hasRange) replaceFieldText(field, target.start, target.end, "");
+      else document.execCommand("delete");
+      break;
+    case "paste": {
+      const text = await readSystemClipboardText();
+      if (!text) break;
+      const insert = pasteTextFor(field, text);
+      if (hasRange) replaceFieldText(field, target.start, target.end, insert);
+      else document.execCommand("insertText", false, insert);
+      break;
+    }
+    case "select-all":
+      if (field) field.select();
+      else if (el?.hasAttribute("data-text-region") && document.contains(el)) {
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        const sel = window.getSelection();
+        sel?.removeAllRanges();
+        sel?.addRange(range);
+      } else document.execCommand("selectAll");
+      break;
+    case "copy-source": {
+      const source = el ? textRegionSources.get(el) : "";
+      if (source) await writeSystemClipboardText(source);
+      break;
+    }
+    case "format":
+      if (field && format) applyMarkdownFormatToField(field, format);
+      break;
+    default:
+      break;
+  }
+}
+
+/**
+ * Clic derecho en cualquier parte: si nadie más lo ha atendido (los menús de
+ * la app hacen `preventDefault`) y cae en un campo de texto o sobre texto
+ * seleccionado, abre el menú de texto. El terminal y el escritorio remoto
+ * tienen el suyo.
+ * @param {MouseEvent} e
+ */
+function handleTextContextMenu(e) {
+  const target = e.target instanceof Element ? e.target : null;
+  const menu = document.getElementById("text-context-menu");
+  if (menu && !menu.classList.contains("hidden") && !menu.contains(target)) hideTextContextMenu();
+  if (e.defaultPrevented || !target) return;
+  if (target.closest(".xterm, .rdp-canvas-host, .ctx-menu, #context-menu, #route-menu")) return;
+  const field = /** @type {HTMLElement | null} */ (target.closest("input, textarea, [contenteditable]"));
+  const region = field ? null : /** @type {HTMLElement | null} */ (target.closest("[data-text-region]"));
+  const selText = window.getSelection()?.toString() || "";
+  const kind = textTargetKind({
+    tagName: field?.tagName || target.tagName,
+    type: field instanceof HTMLInputElement ? field.type : "",
+    readOnly: isValueField(field) ? field.readOnly : false,
+    disabled: isValueField(field) ? field.disabled : false,
+    isContentEditable: !!field?.isContentEditable,
+    hasDocumentSelection: !field && selText.trim() !== "",
+    inTextRegion: !!region,
+  });
+  if (!kind) return;
   e.preventDefault();
-  const cur = items.indexOf(document.activeElement);
-  const move = step[e.key];
-  let next;
-  if (move === "first") next = 0;
-  else if (move === "last") next = items.length - 1;
-  else if (cur < 0) next = move === 1 ? 0 : items.length - 1;
-  else next = (cur + move + items.length) % items.length;
-  items[next].focus();
+  const menuTarget = kind === "selection" ? null : kind === "region" ? region : field;
+  showTextContextMenu(e.clientX, e.clientY, menuTarget, kind, selText);
 }
 
 function handleContextMenuAction(action) {
   const { id, folderPath, workspaceId } = ctxTarget;
   const targetWs = workspaceId || getActiveWorkspaceId();
+  // Ojo: `hideContextMenu()` vacía `ctxTarget`. Todo lo que haga falta del
+  // objetivo se lee de las constantes de arriba, nunca de `ctxTarget` después
+  // (las acciones de perfil lo leían tarde y no hacían nada).
   hideContextMenu();
 
   switch (action) {
     case "new-connection":
+      closeSidebarToolsIfOpen();
       // La carpeta contextual se pasa como prefijo
       openNewConnectionModal(folderPath, targetWs);
       break;
     case "new-folder":
+      closeSidebarToolsIfOpen();
       startInlineFolderCreation(folderPath, targetWs);
       break;
     case "rename-folder":
@@ -7445,6 +8770,9 @@ function handleContextMenuAction(action) {
     case "copy-host":
       if (id) copyProfileHost(id);
       break;
+    case "view-note":
+      if (id) openNoteViewer(id);
+      break;
     case "edit-note":
       if (id) openNoteEditor(id);
       break;
@@ -7478,11 +8806,35 @@ function handleContextMenuAction(action) {
     case "delete-conn":
       deleteSelectedProfiles(id);
       break;
+    case "bulk-edit-selection":
+      openBulkEditForSelection(id);
+      break;
+    case "bulk-edit-folder":
+      if (folderPath) openBulkEditForFolder(folderPath, targetWs);
+      break;
+    case "bulk-edit-ws":
+      closeSidebarToolsIfOpen();
+      if (workspaceId) openBulkEditForWorkspace(workspaceId);
+      break;
     case "rename-ws":
-      renameWorkspaceById(ctxTarget.workspaceId);
+      closeSidebarToolsIfOpen();
+      renameWorkspaceById(workspaceId);
+      break;
+    case "health-ws":
+      closeSidebarToolsIfOpen();
+      if (workspaceId) {
+        runHealthCheck(profilesInWorkspace(workspaceId), workspaceDisplayName(workspaceId));
+      }
+      break;
+    case "move-ws-up":
+      if (workspaceId) reorderWorkspace(workspaceId, -1);
+      break;
+    case "move-ws-down":
+      if (workspaceId) reorderWorkspace(workspaceId, 1);
       break;
     case "delete-ws":
-      deleteWorkspaceById(ctxTarget.workspaceId);
+      closeSidebarToolsIfOpen();
+      deleteWorkspaceById(workspaceId);
       break;
     case "open-trash":
       openTrashModal();
@@ -7491,7 +8843,8 @@ function handleContextMenuAction(action) {
       if (folderPath) exportConnections(folderPath, targetWs);
       break;
     case "export-ws":
-      if (ctxTarget.workspaceId) exportConnectionsByWorkspace(ctxTarget.workspaceId);
+      closeSidebarToolsIfOpen();
+      if (workspaceId) exportConnectionsByWorkspace(workspaceId);
       break;
     case "open-data-dir":
       openDataDirectory();
@@ -7505,9 +8858,9 @@ async function renameWorkspaceById(wsId) {
   const name = await promptTextValue({
     title: t("sidebar.workspace_rename"),
     label: t("sidebar.workspace_prompt_rename"),
-    initialValue: ws.name,
+    initialValue: workspaceLabel(ws),
   });
-  if (!name || name === ws.name) return;
+  if (!name || name === ws.name || name === workspaceLabel(ws)) return;
   ws.name = name;
   prefs._prefsUpdatedAt = new Date().toISOString();
   savePrefs();
@@ -7519,24 +8872,23 @@ async function deleteWorkspaceById(wsId) {
   if (prefs.workspaces.length <= 1) return;
   const ws = prefs.workspaces.find((w) => w.id === wsId);
   if (!ws) return;
-  const inUse = profiles.some((p) => (p.workspace_id || "default") === ws.id);
-  if (inUse) {
-    const ok = await confirmDestructiveTyped({
-      title: t("sidebar.workspace_delete"),
-      message: t("sidebar.workspace_confirm_delete_full"),
-      expectedText: ws.name,
-      danger: true,
-    });
-    if (!ok) return;
-  } else {
-    const ok = await confirmThemed({
-      title: t("sidebar.workspace_delete"),
-      message: t("sidebar.workspace_confirm_delete"),
-      submitLabel: t("modal_destructive.submit"),
-      danger: true,
-    });
-    if (!ok) return;
-  }
+  const name = workspaceLabel(ws);
+  const count = profiles.filter((p) => (p.workspace_id || "default") === ws.id).length;
+  const inUse = count > 0;
+  // Siempre se dice QUÉ perfil se va a eliminar y cuántas conexiones se lleva,
+  // y siempre se pide teclear su nombre: también vacío, que es fácil
+  // equivocarse de perfil en la lista.
+  const ok = await confirmDestructiveTyped({
+    title: t("sidebar.workspace_delete"),
+    message: count === 0
+      ? t("sidebar.workspace_confirm_delete_empty", { name })
+      : count === 1
+        ? t("sidebar.workspace_confirm_delete_one", { name })
+        : t("sidebar.workspace_confirm_delete_many", { name, n: count }),
+    expectedText: name,
+    danger: true,
+  });
+  if (!ok) return;
   const finalize = () => {
     if (prefs.userFoldersByWorkspace) delete prefs.userFoldersByWorkspace[ws.id];
     deleteWorkspaceColors(ws.id);
@@ -7564,14 +8916,14 @@ async function deleteWorkspaceById(wsId) {
       .then(() => {
         wsTrashPayload.profileTrashIds = lastDeletionTrashIds;
         finalize();
-        const wsTrashId = trashAdd("workspace", ws.name, wsTrashPayload);
-        showUndoDeleteToast(t("trash.workspace_deleted", { name: ws.name }), [wsTrashId]);
+        const wsTrashId = trashAdd("workspace", workspaceLabel(ws), wsTrashPayload);
+        showUndoDeleteToast(t("trash.workspace_deleted", { name: workspaceLabel(ws) }), [wsTrashId]);
       })
       .catch((err) => console.error("[workspace] delete_profiles", err));
   } else {
     finalize();
-    const wsTrashId = trashAdd("workspace", ws.name, wsTrashPayload);
-    showUndoDeleteToast(t("trash.workspace_deleted", { name: ws.name }), [wsTrashId]);
+    const wsTrashId = trashAdd("workspace", workspaceLabel(ws), wsTrashPayload);
+    showUndoDeleteToast(t("trash.workspace_deleted", { name: workspaceLabel(ws) }), [wsTrashId]);
   }
 }
 
@@ -7984,6 +9336,181 @@ function readRemoteLaunchFields() {
   };
 }
 
+// ── TOTP de KeePass (segundo factor) en el formulario del perfil ──
+//
+// Opt-in y por perfil. El formulario solo guarda la elección: de qué entrada
+// sale la semilla, si se contesta sin preguntar y con qué regex se reconoce la
+// pregunta. El código lo calcula el backend al conectar (modules/auth-totp.js).
+
+/** Entrada elegida para la semilla ("" = la misma que la contraseña). */
+let totpKeepassEntrySelected = "";
+/** Último veredicto del backend sobre la regex escrita (`totp_prompt_pattern_check`). */
+let totpKeepassRegexCheck = { pattern: "", valid: true };
+let totpKeepassRegexCheckSeq = 0;
+
+/** Entrada KeePass de la que el formulario saca la contraseña, si la saca de ahí. */
+function formKeepassPasswordEntryUuid() {
+  const connType = document.getElementById("f-conn-type")?.value || "ssh";
+  const authType = (isExternalLauncherType(connType) || isFileTransferConnectionType(connType))
+    ? "password"
+    : document.getElementById("f-auth-type")?.value;
+  if (authType !== "password" || getPasswordSource() !== "keepass") return null;
+  return document.getElementById("f-keepass-entry")?.value || null;
+}
+
+/** Aviso bajo un campo del TOTP + `setCustomValidity`, como el resto del formulario. */
+function setTotpKeepassFieldError(id, message) {
+  const el = /** @type {HTMLInputElement | HTMLSelectElement | null} */ (document.getElementById(id));
+  if (!el) return;
+  el.setCustomValidity(message);
+  el.classList.toggle("input-invalid", !!message);
+  const errEl = document.querySelector(`.form-error[data-error-for="${id}"]`);
+  if (errEl) {
+    errEl.textContent = message;
+    errEl.classList.toggle("hidden", !message);
+  }
+}
+
+/**
+ * Repinta las opciones del TOTP de KeePass (visibilidad, selector de entrada,
+ * estado de la entrada y avisos) con lo que hay en el formulario y en la base.
+ * Devuelve `false` si algo impide guardar.
+ */
+function refreshTotpKeepassFields() {
+  const enabledEl = /** @type {HTMLInputElement | null} */ (document.getElementById("f-totp-keepass"));
+  const box = document.getElementById("totp-keepass-options");
+  const select = /** @type {HTMLSelectElement | null} */ (document.getElementById("f-totp-keepass-entry"));
+  const regexEl = /** @type {HTMLInputElement | null} */ (document.getElementById("f-totp-keepass-regex"));
+  if (!enabledEl || !box || !select || !regexEl) return true;
+
+  // Solo en perfiles SSH (los demás no pasan por keyboard-interactive).
+  const isSsh = (document.getElementById("f-conn-type")?.value || "ssh") === "ssh";
+  const enabled = isSsh && enabledEl.checked;
+  box.hidden = !enabledEl.checked;
+  const passwordEntryUuid = formKeepassPasswordEntryUuid();
+
+  select.replaceChildren();
+  const first = document.createElement("option");
+  first.value = "";
+  first.textContent = passwordEntryUuid
+    ? t("modal_conn.totp_keepass_entry_same")
+    : t("modal_conn.totp_keepass_entry_none");
+  select.appendChild(first);
+  for (const choice of totpEntryChoices(keepassEntries, totpKeepassEntrySelected)) {
+    const option = document.createElement("option");
+    option.value = choice.uuid;
+    // Con la base bloqueada no se sabe el título: se enseña un trozo del id.
+    option.textContent = choice.entry
+      ? formatKeepassEntryLine(choice.entry)
+      : t("modal_conn.totp_keepass_entry_saved", { id: choice.uuid.slice(0, 8) });
+    select.appendChild(option);
+  }
+  select.value = totpKeepassEntrySelected;
+
+  const status = document.getElementById("totp-keepass-entry-status");
+  if (status) {
+    const state = enabled
+      ? totpEntryStatus({
+        entryUuid: totpKeepassEntrySelected,
+        passwordEntryUuid,
+        entries: keepassEntries,
+        unlocked: keepassUnlocked,
+      })
+      : "none";
+    status.classList.remove("ok", "warning", "error");
+    const visible = state === "locked" || state === "missing" || state === "no_seed";
+    status.classList.toggle("hidden", !visible);
+    status.textContent = visible ? t(`modal_conn.totp_keepass_status_${state}`) : "";
+    if (visible) status.classList.add(state === "locked" ? "warning" : "error");
+  }
+
+  const regex = regexEl.value.trim();
+  const issue = totpFormIssue({
+    enabled,
+    entryUuid: totpKeepassEntrySelected,
+    passwordEntryUuid,
+    regex,
+    // Sin veredicto todavía para lo escrito, no se da por mala.
+    regexValid: totpKeepassRegexCheck.pattern === regex ? totpKeepassRegexCheck.valid : true,
+  });
+  setTotpKeepassFieldError(
+    "f-totp-keepass-entry",
+    issue?.field === "entry" ? t("modal_conn.totp_keepass_err_need_entry") : ""
+  );
+  setTotpKeepassFieldError(
+    "f-totp-keepass-regex",
+    issue?.code === "regex_too_long"
+      ? t("modal_conn.totp_keepass_err_regex_long", { max: MAX_TOTP_PROMPT_PATTERN_LEN })
+      : issue?.code === "regex_invalid" ? t("modal_conn.totp_keepass_err_regex") : ""
+  );
+  return !issue;
+}
+
+/**
+ * Pregunta al backend si la regex escrita sirve (la aplica su motor, no el de
+ * JavaScript) y repinta el aviso. Devuelve el veredicto de lo que hay escrito
+ * al terminar.
+ */
+async function checkTotpKeepassRegex() {
+  const pattern = (document.getElementById("f-totp-keepass-regex")?.value || "").trim();
+  if (totpKeepassRegexCheck.pattern === pattern) return totpKeepassRegexCheck.valid;
+  const seq = ++totpKeepassRegexCheckSeq;
+  let valid = true;
+  if (pattern) {
+    try {
+      valid = (await invoke("totp_prompt_pattern_check", { pattern })) === true;
+    } catch (e) {
+      console.warn("[totp] regex check", e);
+      valid = false;
+    }
+  }
+  // Si mientras tanto se siguió escribiendo, manda la comprobación más nueva.
+  if (seq === totpKeepassRegexCheckSeq) {
+    totpKeepassRegexCheck = { pattern, valid };
+    refreshTotpKeepassFields();
+  }
+  return valid;
+}
+
+/** Rellena las opciones del TOTP de KeePass con las del perfil (o apagadas). */
+function fillTotpKeepassFields(profile) {
+  const set = (id, prop, v) => { const el = document.getElementById(id); if (el) el[prop] = v; };
+  set("f-totp-keepass", "checked", !!profile?.totp_keepass);
+  set("f-totp-keepass-auto", "checked", !!profile?.totp_keepass && !!profile?.totp_keepass_auto);
+  set("f-totp-keepass-regex", "value", profile?.totp_keepass_prompt_regex || "");
+  // La regex por defecto se enseña como ejemplo: es la que se usa si se deja vacío.
+  set("f-totp-keepass-regex", "placeholder", DEFAULT_TOTP_PROMPT_PATTERN);
+  totpKeepassEntrySelected = profile?.totp_keepass_entry_uuid || "";
+  totpKeepassRegexCheck = { pattern: "", valid: true };
+  refreshTotpKeepassFields();
+  void checkTotpKeepassRegex();
+}
+
+/** Los campos del TOTP de KeePass tal como los guarda el perfil. */
+function readTotpKeepassFields(connType) {
+  return totpProfileFields({
+    enabled: connType === "ssh" && !!document.getElementById("f-totp-keepass")?.checked,
+    auto: !!document.getElementById("f-totp-keepass-auto")?.checked,
+    entryUuid: totpKeepassEntrySelected,
+    regex: document.getElementById("f-totp-keepass-regex")?.value,
+  });
+}
+
+/**
+ * Antes de guardar: espera el veredicto de la regex (pudo teclearse y pulsar
+ * Guardar de seguido) y, si algo no vale, lleva al campo.
+ */
+async function validateTotpKeepassBeforeSave() {
+  await checkTotpKeepassRegex();
+  if (refreshTotpKeepassFields()) return true;
+  const form = /** @type {HTMLFormElement | null} */ (document.getElementById("form-connection"));
+  if (form) {
+    revealFirstInvalidPane(form);
+    form.reportValidity();
+  }
+  return false;
+}
+
 // Renderiza las casillas con el estado del perfil y ajusta la visibilidad.
 async function applyLegacyAlgorithmsUI(selectedIds) {
   const catalog = await ensureLegacyAlgoCatalog();
@@ -8006,6 +9533,7 @@ function collectLegacyAlgorithms() {
 
 function openNewConnectionModal(preselectedFolder = null, workspaceId = getActiveWorkspaceId()) {
   editingProfileId = null;
+  duplicatingFromId = null;
   resetConnectionTestPanel();
   document.getElementById("modal-title").textContent = t("modal_conn.title_new");
   document.getElementById("form-connection").reset();
@@ -8019,6 +9547,7 @@ function openNewConnectionModal(preselectedFolder = null, workspaceId = getActiv
   applyLegacyAlgorithmsUI(null);
   updatePersistSessionFields();
   fillRemoteLaunchFields(null);
+  fillTotpKeepassFields(null);
   setPasswordSource("own");
   populateMasterCredSelect(null);
   refreshKeepassStatus().then(() => {
@@ -8036,6 +9565,7 @@ function openNewConnectionModal(preselectedFolder = null, workspaceId = getActiv
   renderConnectionSummary();
   applyConnectionModalSize();
   document.getElementById("modal-overlay").classList.remove("hidden");
+  connectionDialogFrame?.apply();
   document.getElementById("f-name").focus();
 }
 
@@ -8271,7 +9801,7 @@ function populateWorkspaceFormSelect(selectedId) {
   }
   field.classList.remove("hidden");
   sel.innerHTML = list
-    .map((w) => `<option value="${escHtml(w.id)}"${w.id === selectedId ? " selected" : ""}>${escHtml(w.name)}</option>`)
+    .map((w) => `<option value="${escHtml(w.id)}"${w.id === selectedId ? " selected" : ""}>${escHtml(workspaceLabel(w))}</option>`)
     .join("");
 }
 
@@ -8280,6 +9810,7 @@ function openEditConnectionModal(profileId) {
   if (!profile) return;
 
   editingProfileId = profileId;
+  duplicatingFromId = null;
   resetConnectionTestPanel();
   setupModalNotePane();
   document.getElementById("field-template")?.classList.add("hidden");
@@ -8355,9 +9886,11 @@ function openEditConnectionModal(profileId) {
   // Después de limpiar avisos: unas variables inválidas (llegadas por sync o
   // import) se señalan ya al abrir.
   fillRemoteLaunchFields(profile);
+  fillTotpKeepassFields(profile);
   renderConnectionSummary();
   applyConnectionModalSize();
   document.getElementById("modal-overlay").classList.remove("hidden");
+  connectionDialogFrame?.apply();
 }
 
 // ─── Usuarios adicionales (identidades múltiples por conexión) ──────────────
@@ -8739,6 +10272,9 @@ function selectKeepassEntry(uuid) {
 }
 
 function updateKeepassEntryValidation() {
+  // Las opciones del TOTP de KeePass dependen de lo mismo que esto (base
+  // abierta, entrada elegida, origen de la contraseña): se repintan a la vez.
+  refreshTotpKeepassFields();
   const status = document.getElementById("keepass-entry-status");
   const hidden = document.getElementById("f-keepass-entry");
   const useKp = document.getElementById("f-use-keepass")?.checked;
@@ -8823,14 +10359,19 @@ function closeModal() {
   if (hiddenKp) hiddenKp.value = "";
   document.getElementById("btn-keepass-clear")?.classList.add("hidden");
   editingProfileId = null;
+  duplicatingFromId = null;
 }
 
 function getConnectionModalSizeLimits() {
+  // En unidades del diálogo, que va escalado por el zoom de la interfaz.
+  const z = uiZoomFactor();
+  const vw = window.innerWidth / z;
+  const vh = window.innerHeight / z;
   return {
-    minWidth: Math.min(CONNECTION_MODAL_MIN_WIDTH, Math.floor(window.innerWidth * 0.95)),
-    minHeight: Math.min(CONNECTION_MODAL_MIN_HEIGHT, Math.floor(window.innerHeight * 0.9)),
-    maxWidth: Math.floor(window.innerWidth * 0.95),
-    maxHeight: Math.floor(window.innerHeight * 0.9),
+    minWidth: Math.min(CONNECTION_MODAL_MIN_WIDTH, Math.floor(vw * 0.95)),
+    minHeight: Math.min(CONNECTION_MODAL_MIN_HEIGHT, Math.floor(vh * 0.9)),
+    maxWidth: Math.floor(vw * 0.95),
+    maxHeight: Math.floor(vh * 0.9),
   };
 }
 
@@ -8867,6 +10408,68 @@ function resetConnectionModalSize() {
   modal.style.height = "";
 }
 
+// ─── Diálogos movibles y redimensionables ───────────────────────
+// Preferencias se mueve arrastrando la cabecera y se redimensiona desde
+// cualquier borde o esquina; el de conexión se mueve (su tamaño ya lo maneja
+// el `resize` de CSS, con su propia persistencia). Posición y tamaño se
+// recuerdan en este equipo; doble clic en la cabecera los restablece.
+let prefsDialogFrame = null;
+let connectionDialogFrame = null;
+
+function initDialogFrames() {
+  const zoom = () => clampUiZoom(prefs.uiZoom ?? 1);
+  const prefsDialog = document.getElementById("modal-prefs");
+  const prefsHeader = prefsDialog?.querySelector(":scope > .modal-header");
+  if (prefsDialog && prefsHeader) {
+    prefsDialogFrame = attachDialogFrame(prefsDialog, {
+      handle: prefsHeader,
+      storageKey: "rustty-dialog-frame-prefs",
+      limits: { minWidth: 460, minHeight: 360 },
+      zoom,
+    });
+    if (typeof ResizeObserver !== "undefined") {
+      new ResizeObserver(() => updatePrefsNarrowLayout()).observe(prefsDialog);
+    }
+  }
+  const connDialog = document.getElementById("modal-connection");
+  const connHeader = connDialog?.querySelector(":scope > .modal-header");
+  if (connDialog && connHeader) {
+    connectionDialogFrame = attachDialogFrame(connDialog, {
+      handle: connHeader,
+      storageKey: "rustty-dialog-frame-connection",
+      limits: { minWidth: CONNECTION_MODAL_MIN_WIDTH, minHeight: CONNECTION_MODAL_MIN_HEIGHT },
+      resizable: false,
+      zoom,
+    });
+  }
+  window.addEventListener("resize", () => {
+    if (!document.getElementById("modal-prefs-overlay")?.classList.contains("hidden")) prefsDialogFrame?.apply();
+    if (!document.getElementById("modal-overlay")?.classList.contains("hidden")) connectionDialogFrame?.apply();
+  });
+}
+
+/**
+ * Preferencias estrecha (por debajo de 640 px del diálogo): la barra de
+ * secciones se queda en iconos y el nombre de cada una pasa a su tooltip.
+ */
+function updatePrefsNarrowLayout() {
+  const dialog = document.getElementById("modal-prefs");
+  if (!dialog || dialog.getClientRects().length === 0) return;
+  const width = dialog.getBoundingClientRect().width / clampUiZoom(prefs.uiZoom ?? 1);
+  const narrow = width < 640;
+  dialog.classList.toggle("is-narrow", narrow);
+  dialog.querySelectorAll(".prefs-nav-item").forEach((item) => {
+    const label = item.querySelector(".prefs-nav-label")?.textContent?.trim() || "";
+    if (narrow && label) {
+      item.setAttribute("data-tooltip", label);
+      item.setAttribute("data-tooltip-pos", "right");
+    } else {
+      item.removeAttribute("data-tooltip");
+      item.removeAttribute("data-tooltip-pos");
+    }
+  });
+}
+
 function initConnectionModalResizePersistence() {
   const modal = document.getElementById("modal-connection");
   const overlay = document.getElementById("modal-overlay");
@@ -8875,8 +10478,11 @@ function initConnectionModalResizePersistence() {
   let saveTimer = null;
   const saveSize = () => {
     if (overlay.classList.contains("hidden")) return;
+    // El rectángulo viene en píxeles de la ventana; el tamaño se aplica en
+    // unidades del diálogo escalado.
     const rect = modal.getBoundingClientRect();
-    const size = clampConnectionModalSize(rect.width, rect.height);
+    const z = uiZoomFactor();
+    const size = clampConnectionModalSize(rect.width / z, rect.height / z);
     localStorage.setItem(CONNECTION_MODAL_SIZE_KEY, JSON.stringify(size));
   };
 
@@ -8936,7 +10542,7 @@ function renderFolderTreeNodes(nodes, selectedPath, openSet, depth = 0) {
     html += `<div class="ft-row${isSel ? " selected" : ""}" role="treeitem"`
       + ` aria-selected="${isSel}" data-path="${escHtml(node.path)}" style="padding-left:${pad}px">`;
     html += hasChildren
-      ? `<span class="ft-arrow${isOpen ? " open" : ""}" data-arrow="1">▶</span>`
+      ? `<span class="ft-arrow${isOpen ? " open" : ""}" data-arrow="1"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-chevron"/></svg></span>`
       : `<span class="ft-arrow ft-arrow-empty"></span>`;
     html += `<svg class="ft-icon" aria-hidden="true"><use href="#ci-folder"/></svg>`;
     html += `<span class="ft-label">${escHtml(node.name)}</span>`;
@@ -9821,6 +11427,7 @@ function buildProfileFromConnectionForm({ persistIdentity = false } = {}) {
     persist_session_tool: document.getElementById("f-persist-tool")?.value || null,
     persist_session_name: (document.getElementById("f-persist-name")?.value || "").trim() || null,
     ...readRemoteLaunchFields(),
+    ...readTotpKeepassFields(connType),
     tmux_control: document.getElementById("f-tmux-control")?.checked ?? false,
     cmd_notify_secs: keepAliveFromInput(document.getElementById("f-cmd-notify-secs")?.value ?? ""),
     prompt_regex: (document.getElementById("f-prompt-regex")?.value || "").trim() || null,
@@ -10015,6 +11622,9 @@ async function runConnectionTestFromModal() {
  * @param {boolean} shouldConnect
  */
 async function saveAndClose(shouldConnect) {
+  // La regex del TOTP de KeePass la valida el backend (es asíncrono): sin su
+  // visto bueno no se guarda.
+  if (!(await validateTotpKeepassBeforeSave())) return;
   const connType = document.getElementById("f-conn-type").value;
   const authType       = (isExternalLauncherType(connType) || isFileTransferConnectionType(connType))
     ? "password"
@@ -10050,8 +11660,14 @@ async function saveAndClose(shouldConnect) {
   const profileId = editingProfileId || crypto.randomUUID();
   const { creds: extraCredentials, passwordWrites: extraPwWrites, deletes: extraPwDeletes } =
     collectExtraCredsFromForm(profileId);
+  // «Duplicar»: lo que el formulario no recoge viaja del original (como hacía
+  // la copia directa); lo que sí recoge manda.
+  const duplicateSource = !editingProfileId && duplicatingFromId
+    ? profiles.find((p) => p.id === duplicatingFromId) || null
+    : null;
 
   const profile = {
+    ...(duplicateSource || {}),
     id:                  profileId,
     name:                document.getElementById("f-name").value.trim(),
     host:                document.getElementById("f-host").value.trim(),
@@ -10076,6 +11692,7 @@ async function saveAndClose(shouldConnect) {
     persist_session_tool: document.getElementById("f-persist-tool")?.value || null,
     persist_session_name: (document.getElementById("f-persist-name")?.value || "").trim() || null,
     ...readRemoteLaunchFields(),
+    ...readTotpKeepassFields(connType),
     tmux_control:        document.getElementById("f-tmux-control")?.checked ?? false,
     cmd_notify_secs:     keepAliveFromInput(document.getElementById("f-cmd-notify-secs")?.value ?? ""),
     prompt_regex:        (document.getElementById("f-prompt-regex")?.value || "").trim() || null,
@@ -10092,7 +11709,7 @@ async function saveAndClose(shouldConnect) {
     mac_address:         (document.getElementById("f-mac-address").value || "").trim() || null,
     wol_broadcast:       (document.getElementById("f-wol-broadcast").value || "").trim() || null,
     wol_port:            wolPortFromInput(document.getElementById("f-wol-port").value),
-    ssh_tunnels:         profiles.find((p) => p.id === editingProfileId)?.ssh_tunnels || [],
+    ssh_tunnels:         profiles.find((p) => p.id === (editingProfileId || duplicateSource?.id))?.ssh_tunnels || [],
     created_at: editingProfileId
       ? (profiles.find((p) => p.id === editingProfileId)?.created_at ?? new Date().toISOString())
       : new Date().toISOString(),
@@ -10114,6 +11731,9 @@ async function saveAndClose(shouldConnect) {
     }
     for (const key of extraPwDeletes) {
       await deleteStoredSecret(key);
+    }
+    if (duplicateSource) {
+      await copyDuplicatedExtraSecrets(duplicateSource, profile, new Set(extraPwWrites.map((w) => w.key)));
     }
 
     // Si se especificó una carpeta nueva, persiste en el workspace del perfil.
@@ -10141,6 +11761,8 @@ async function saveAndClose(shouldConnect) {
       } else {
         await connectProfileWithCredentials(profile.id, password, passphrase, savePassphrase);
       }
+    } else if (duplicateSource) {
+      toast(t("toast.conn_duplicated", { name: profile.name }), "success");
     } else {
       toast(t("toast.profile_saved"), "success");
     }
@@ -10564,7 +12186,7 @@ function openRouteMenu() {
   // Encima de la píldora, que vive al pie de la barra lateral.
   const r = pill.getBoundingClientRect();
   const { height } = positionFloatingMenu(menu, r.left, r.top);
-  menu.style.top = `${Math.max(6, r.top - height - 4)}px`;
+  menu.style.top = `${Math.max(6, r.top - height - 4) / uiZoomFactor()}px`;
   pill.setAttribute("aria-expanded", "true");
   onFloatingMenuOpened(menu);
 }
@@ -11027,6 +12649,39 @@ function refreshRouteIndicators() {
   updateStatusBar();
 }
 
+/**
+ * Segmento de la barra inferior con los túneles abiertos de la conexión
+ * activa: un túnel sigue vivo en segundo plano aunque el panel esté cerrado,
+ * y desde el pie de la sesión se ve de un vistazo (el número) y en el tooltip
+ * cuáles son. Pulsarlo abre el panel de túneles de la sesión. Se cuenta como
+ * en la barra lateral: todos los túneles de las sesiones de ese perfil.
+ * @param {{ id: string } | null | undefined} profile
+ */
+function renderStatusTunnels(profile) {
+  const el = document.getElementById("status-tunnels");
+  const textEl = document.getElementById("status-tunnels-text");
+  if (!el || !textEl) return;
+  const active = profile ? activeTunnelsForProfile(profile.id) : [];
+  el.classList.toggle("hidden", !active.length);
+  if (!active.length) {
+    textEl.textContent = "";
+    el.title = "";
+    el.setAttribute("aria-label", t("status.tunnels_none"));
+    return;
+  }
+  textEl.textContent = String(active.length);
+  const lines = active.map(({ tunnel }) => `• ${describeTunnel(tunnel)}`);
+  el.title = [t("status.tunnels_open"), ...lines].join("\n");
+  el.setAttribute("aria-label", `${t("tunnels.active_count", { n: active.length })}: ${lines.join(", ")}`);
+}
+
+/** Repinta el segmento de túneles de la barra inferior para la sesión activa. */
+function refreshStatusTunnels() {
+  const s = activeSessionId ? sessions.get(activeSessionId) : null;
+  const profile = s?.profileId ? profiles.find((p) => p.id === s.profileId) : null;
+  renderStatusTunnels(profile && (profile.connection_type || "ssh") === "ssh" ? profile : null);
+}
+
 /** Segmento de la barra inferior con la ruta de la sesión activa. */
 function renderStatusRoute(s) {
   const wrap = document.getElementById("status-route");
@@ -11404,7 +13059,7 @@ async function connectProfileWithCredentials(profileId, password, passphrase, _s
   // Conectar un perfil que saca su contraseña de KeePass **es** uso de la base
   // (la resuelve el backend en `resolve_password_from_keepass`), así que
   // reinicia el contador de autobloqueo.
-  if (profile.keepass_entry_uuid) touchKeepass();
+  if (profile.keepass_entry_uuid || profile.totp_keepass) touchKeepass();
 
   // Preguntas `${ask:}` (si las hay) antes de crear la pestaña: si el usuario
   // cancela, abortamos sin dejar nada a medias.
@@ -11802,8 +13457,8 @@ let rdpEmbedAvailable = false;
 
 /**
  * ¿Abrir este perfil RDP en la pestaña (IronRDP) en vez de en el cliente
- * externo? En la pestaña por defecto; Ajustes › Sistema lo cambia a la ventana
- * externa (`prefs.rdpMode`). Sin cliente integrado en la build, siempre externo.
+ * externo? En la pestaña por defecto (este fork); Preferencias › RDP lo cambia
+ * a la ventana externa (`prefs.rdpMode`). Sin él en la build, siempre externo.
  * @param {any} _profile
  */
 function useEmbeddedRdp(_profile) {
@@ -11822,9 +13477,14 @@ function rdpEmbedOptions() {
   const clipboard = prefs.rdpClipboard !== false;
   return {
     clipboard,
-    clipboardFiles: clipboard && prefs.rdpClipboardFiles !== false,
+    clipboardFiles: clipboard && prefs.rdpClipboardFiles === true,
     sharedFolder: !!prefs.rdpSharedFolder,
     perfProfile: normalizeRdpPerfProfile(prefs.rdpPerfProfile),
+    // Idioma de los diálogos nativos del backend (ficheros sensibles).
+    lang: getLanguage(),
+    // Un certificado cambiado se pregunta según la preferencia de RDP, la
+    // misma que usa el cliente externo.
+    certChangePrompt: prefs.rdpCertChangePrompt !== false,
   };
 }
 
@@ -11842,7 +13502,7 @@ function loadRdpEmbeddedPrefs() {
   const clipEl = /** @type {HTMLInputElement|null} */ (document.getElementById("pref-rdp-clipboard"));
   if (clipEl) clipEl.checked = prefs.rdpClipboard !== false;
   const filesEl = /** @type {HTMLInputElement|null} */ (document.getElementById("pref-rdp-clipboard-files"));
-  if (filesEl) filesEl.checked = prefs.rdpClipboardFiles !== false;
+  if (filesEl) filesEl.checked = prefs.rdpClipboardFiles === true;
   const folderEl = /** @type {HTMLInputElement|null} */ (document.getElementById("pref-rdp-shared-folder"));
   if (folderEl) folderEl.checked = !!prefs.rdpSharedFolder;
   syncRdpEmbeddedPrefsUi();
@@ -11869,38 +13529,85 @@ function syncRdpEmbeddedPrefsUi() {
 /** @param {string|null} path */
 function showRdpSharedFolder(path) {
   const el = document.getElementById("rdp-shared-folder-path");
-  if (el) el.textContent = path || t("prefs_system.rdp_shared_folder_none");
+  if (el) el.textContent = path || t("prefs_rdp.shared_folder_none");
 }
 
 async function pickRdpSharedFolder() {
   try {
-    const r = await invoke("rdp_shared_folder_pick", { title: t("prefs_system.rdp_shared_folder_pick") });
+    const r = await invoke("rdp_shared_folder_pick", { title: t("prefs_rdp.shared_folder_pick") });
     if (!r) return;
     showRdpSharedFolder(r.path ?? null);
     const folderEl = /** @type {HTMLInputElement|null} */ (document.getElementById("pref-rdp-shared-folder"));
     if (folderEl) folderEl.checked = true;
   } catch (err) {
-    toast(t("toast.rdp_shared_folder_failed", { error: String(err) }), "error");
+    // El backend no deja compartir la carpeta personal entera ni nada que
+    // contenga (o esté dentro de) ~/.ssh o la carpeta de datos.
+    if (localFsError(err)?.code === "protected") {
+      toast(t("toast.rdp_shared_folder_protected"), "warning", 10000);
+      return;
+    }
+    toast(t("toast.rdp_shared_folder_failed", { error: ipcErrorText(err) }), "error");
   }
 }
 
 /**
- * Avisos del portapapeles de una sesión integrada (ficheros copiados en el
- * remoto que se descargan para poder pegarlos en local).
+ * Guarda los ficheros que el remoto ofreció: el backend abre el diálogo de
+ * carpeta (el renderer no nombra ninguna ruta) y empieza la descarga.
+ * @param {string} sessionId
+ * @param {number} offer id de la oferta (`files-offered`)
+ */
+async function saveRdpClipboardFiles(sessionId, offer) {
+  try {
+    await invoke("rdp_embed_clipboard_save", {
+      sessionId,
+      offer,
+      title: t("rdp_embed.clip_save_title"),
+    });
+  } catch (err) {
+    // Ni la carpeta personal entera ni nada que toque ~/.ssh o los datos de
+    // Rustty: el remoto podría dejar ahí ficheros que el sistema ejecuta.
+    if (localFsError(err)?.code === "protected") {
+      toast(t("toast.rdp_clip_save_protected"), "warning", 10000);
+      return;
+    }
+    toast(t("toast.rdp_clip_save_failed", { error: ipcErrorText(err) }), "error");
+  }
+}
+
+/**
+ * Avisos del portapapeles de una sesión integrada. Los ficheros copiados en el
+ * remoto se **ofrecen** (`files-offered`) y solo se descargan si el usuario
+ * pulsa «Guardar en…» y elige carpeta.
+ * @param {string} sessionId
  * @param {string} name nombre del perfil
  * @param {import("./modules/ipc/events.js").RdpEmbedClipEvent} info
  */
-function onRdpEmbedClip(name, info) {
+function onRdpEmbedClip(sessionId, name, info) {
   const mb = (/** @type {number|undefined} */ b) => ((b || 0) / (1024 * 1024)).toFixed(1);
   switch (info.kind) {
+    case "files-offered": {
+      const offer = info.offer;
+      if (typeof offer !== "number") break;
+      toast(t("toast.rdp_clip_files_offered", { name, files: info.files ?? 0, size: mb(info.total) }), "info", 20000, {
+        actionLabel: t("rdp_embed.clip_save"),
+        onAction: () => { void saveRdpClipboardFiles(sessionId, offer); },
+      });
+      break;
+    }
+    case "files-withheld":
+      toast(t("toast.rdp_clip_withheld", { name }), "warning", 10000);
+      break;
     case "download-start":
       // Lo pequeño termina antes de que el aviso se lea: solo se anuncia lo grande.
       if ((info.total || 0) >= 8 * 1024 * 1024) {
-        toast(t("toast.rdp_clip_download_start", { name, files: info.files ?? 0, size: mb(info.total) }), "info");
+        toast(t("toast.rdp_clip_download_start", { name, files: info.files ?? 0, size: mb(info.total) }), "info", 10000, {
+          actionLabel: t("rdp_embed.clip_cancel"),
+          onAction: () => { invoke("rdp_embed_clipboard_cancel", { sessionId }).catch(() => {}); },
+        });
       }
       break;
     case "download-done":
-      toast(t("toast.rdp_clip_download_done", { name, files: info.files ?? 0 }), "success");
+      toast(t("toast.rdp_clip_download_done", { name, files: info.files ?? 0, folder: info.folder || "" }), "success", 8000);
       break;
     case "download-error": {
       const key = `rdp_embed.clip_err.${String(info.reason || "generic").replace(/-/g, "_")}`;
@@ -11979,12 +13686,36 @@ async function connectRdpEmbedded(profileId, { credId = null, reuse = null, rout
   updateTabRoute(sessionId);
 
   const pane = sessionObj.pane;
-  const rdpView = createRdpCanvasView({ sessionId, invoke, Channel });
+  // Resolución de la pestaña: «Ajustar a la pestaña» o la fija elegida en su
+  // menú, que se conserva al reconectar en la misma pestaña.
+  const resolution = sessionObj.rdpResolution || RDP_FIT;
+  /** @type {ReturnType<typeof createRdpResizeController>|null} */
+  let resizer = null;
+  const rdpView = createRdpCanvasView({
+    sessionId,
+    invoke,
+    Channel,
+    onDesktopSize: () => resizer?.desktopChanged(),
+    onPaneResize: () => resizer?.paneChanged(),
+    onDispose: () => resizer?.dispose(),
+  });
+  resizer = createRdpResizeController({
+    resolution,
+    measure: () => rdpView.paneBox(),
+    desktopSize: () => rdpView.desktopSize(),
+    sendResize: (req) => {
+      invoke("rdp_embed_resize", { sessionId, width: req.width, height: req.height, scale: req.scale })
+        .catch(() => {});
+    },
+    reconnect: (req, res) => reconnectRdpEmbeddedAt(sessionId, req, res),
+  });
   sessionObj.rdpView = rdpView;
+  sessionObj.rdpResizer = resizer;
   pane?.appendChild(rdpView.element);
 
   const markClosed = () => {
     sessionObj.status = "closed";
+    resizer?.setConnected(false);
     rdpView.setActive(false);
     pane?.classList.remove("rdp-embedded-live");
     updateTabStatus(sessionId, "error");
@@ -12000,9 +13731,12 @@ async function connectRdpEmbedded(profileId, { credId = null, reuse = null, rout
       updateTabStatus(sessionId, "connected");
       pane?.classList.add("rdp-embedded-live");
       rdpView.setActive(true);
+      resizer?.setConnected(true);
       if (activeSessionId === sessionId) rdpView.focus();
       if (!sessionObj.private) recordRecentConnection(profileId);
       renderConnectionList();
+    } else if (info.state === "display-control") {
+      resizer?.setDisplayControl(typeof info.displayControl === "boolean" ? info.displayControl : null);
     } else if (info.state === "closed") {
       markClosed();
       toast(t("toast.rdp_closed", { name: profile.name }), "info");
@@ -12014,7 +13748,7 @@ async function connectRdpEmbedded(profileId, { credId = null, reuse = null, rout
   sessionObj.unlisteners.push(unlisten);
   const unlistenClip = await listen(eventName("rdpEmbedClip", sessionId), (event) => {
     if (sessionObj.rdpView !== rdpView) return;
-    onRdpEmbedClip(profile.name, /** @type {any} */ (event?.payload) || {});
+    onRdpEmbedClip(sessionId, profile.name, /** @type {any} */ (event?.payload) || {});
   });
   sessionObj.unlisteners.push(unlistenClip);
 
@@ -12032,7 +13766,9 @@ async function connectRdpEmbedded(profileId, { credId = null, reuse = null, rout
   };
 
   try {
-    const size = rdpView.measure();
+    // Fuera de la vista (pestaña de fondo) el panel mide 0: entonces el hueco
+    // mínimo, y el ajuste lo corrige al verse.
+    const size = rdpDesiredDesktopSize(resolution, rdpView.paneBox()) ?? rdpView.measure();
     const args = {
       sessionId,
       profileId,
@@ -12068,6 +13804,68 @@ async function connectRdpEmbedded(profileId, { credId = null, reuse = null, rout
   } catch (err) {
     fail(err);
   }
+}
+
+/**
+ * El servidor no admite cambiar el tamaño en caliente (sin Display Control):
+ * la resolución elegida en el menú se aplica reconectando en la misma pestaña.
+ * @param {string} sessionId
+ * @param {{ width: number, height: number }} req
+ * @param {import("./modules/rdp/resolution.js").RdpResolution} res
+ */
+function reconnectRdpEmbeddedAt(sessionId, req, res) {
+  const s = sessions.get(sessionId);
+  if (!s?.embedded || s.status !== "connected") return;
+  s.rdpResolution = res;
+  toast(t("toast.rdp_resolution_reconnect", { width: req.width, height: req.height }), "info", 6000);
+  connectRdpEmbedded(s.profileId, { credId: s.credentialId || null, reuse: sessionId });
+}
+
+/**
+ * Rellena el submenú «Resolución» de una pestaña RDP integrada.
+ * @param {HTMLElement} submenu
+ * @param {any} session
+ */
+function fillRdpResolutionSubmenu(submenu, session) {
+  submenu.innerHTML = "";
+  const current = session.rdpResizer?.resolution ?? session.rdpResolution ?? RDP_FIT;
+  for (const entry of rdpResolutionMenuModel(current)) {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.setAttribute("role", "menuitemradio");
+    item.setAttribute("aria-checked", entry.checked ? "true" : "false");
+    item.className = entry.checked ? "ctx-item active" : "ctx-item";
+    item.dataset.tabctx = "rdp-resolution";
+    item.dataset.rdpRes = entry.key;
+    const icon = document.createElement("span");
+    icon.className = "ctx-icon";
+    if (entry.checked) icon.innerHTML = '<svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-check"/></svg>';
+    const label = document.createElement("span");
+    label.textContent = entry.fit
+      ? t("tabctx.rdp_resolution_fit")
+      : t("tabctx.rdp_resolution_size", { width: entry.width, height: entry.height });
+    item.append(icon, label);
+    submenu.appendChild(item);
+    if (entry.fit) {
+      const sep = document.createElement("div");
+      sep.className = "ctx-sep";
+      submenu.appendChild(sep);
+    }
+  }
+}
+
+/**
+ * Elección del submenú «Resolución». Con Display Control se pide sin cortar;
+ * sin él, reconecta. Desconectada, solo se recuerda para la próxima conexión.
+ * @param {string} sessionId
+ * @param {string|undefined} key
+ */
+function chooseRdpResolution(sessionId, key) {
+  const s = sessions.get(sessionId);
+  const res = parseRdpResolution(key);
+  if (!s?.embedded || !res) return;
+  s.rdpResolution = res;
+  s.rdpResizer?.choose(res);
 }
 
 /**
@@ -12886,10 +14684,16 @@ function createTab(sessionId, profile, initialStatus, { sftp = true, private: is
   if (sessionAlias) tab.classList.add("has-alias");
   if (isPrivate) tab.classList.add("is-private");
   tab.draggable = true;
-  tab.tabIndex = 0;
+  // Tabindex itinerante: solo la pestaña activa entra con Tab; las demás se
+  // alcanzan con las flechas (`updateTabSelectionClasses` lo mantiene).
+  tab.tabIndex = sessionId === activeSessionId ? 0 : -1;
   tab.setAttribute("aria-label", tabLabel);
   tab.setAttribute("role", "tab");
   tab.setAttribute("aria-selected", sessionId === activeSessionId ? "true" : "false");
+  // El estado (conectada, caída, actividad, solo lectura…) solo se ve por el
+  // color: aquí va en palabras, como descripción de la pestaña.
+  const stateId = `tab-state-${++_tabStateSeq}`;
+  tab.setAttribute("aria-describedby", stateId);
   const sftpBtn = sftp ? `<button class="tab-sftp" title="${escHtml(t("sftp.panel"))}" aria-label="${escHtml(t("sftp.panel"))}">${TAB_SFTP_ICON_SVG}</button>` : "";
   const tunnelBtn = sftp ? `<button class="tab-tunnels" title="${escHtml(t("tunnels.panel"))}" aria-label="${escHtml(t("tunnels.panel"))}">${TAB_TUNNELS_ICON_SVG}</button>` : "";
   // Botón de nota/runbook solo para sesiones de un perfil guardado real
@@ -12913,7 +14717,9 @@ function createTab(sessionId, profile, initialStatus, { sftp = true, private: is
     ${sftpBtn}
     ${tunnelBtn}
     ${runbookBtn}
-    <button class="tab-close" title="${t("toast.close")}" aria-label="${t("toast.close")}">${TAB_CLOSE_ICON_SVG}</button>`;
+    <button class="tab-close" title="${t("toast.close")}" aria-label="${t("toast.close")}">${TAB_CLOSE_ICON_SVG}</button>
+    <span class="sr-only tab-state" id="${stateId}"></span>`;
+  updateTabStateText(tab);
   tab.addEventListener("click", (e) => {
     if (e.target.classList.contains("tab-close")) return;
     if (e.target.classList.contains("tab-sftp")) return;
@@ -12951,6 +14757,56 @@ function createTab(sessionId, profile, initialStatus, { sftp = true, private: is
   // selectSession/renderView llega más tarde, así no parpadea).
   updateTabSelectionClasses();
   return tab;
+}
+
+/**
+ * Paneles que ofrece una pestaña: los mismos que sus botones (SFTP, túneles,
+ * nota). Se lee de los botones del DOM, que existen aunque la preferencia
+ * «Botones de la pestaña» los oculte: el menú contextual y los atajos ofrecen
+ * así exactamente lo mismo que los botones.
+ * @param {Element|null|undefined} tab
+ */
+function tabPanelAvailability(tab) {
+  return {
+    sftp: !!tab?.querySelector(".tab-sftp"),
+    tunnels: !!tab?.querySelector(".tab-tunnels"),
+    runbook: !!tab?.querySelector(".tab-notes"),
+  };
+}
+
+/** Abre o cierra un panel de la pestaña de `sessionId` (botón, menú o atajo). */
+function toggleTabPanel(sessionId, kind) {
+  if (kind === "sftp") toggleSftpPanel(sessionId);
+  else if (kind === "tunnels") toggleTunnelPanel(sessionId);
+  else if (kind === "runbook") toggleRunbookPanel(sessionId);
+}
+
+/**
+ * Atajo: el panel de túneles o la nota de la pestaña activa. Si la pestaña no
+ * lo tiene (consola local, RDP, perfil sin guardar), lo dice en vez de callar.
+ * @param {"tunnels"|"runbook"} kind
+ */
+function toggleActiveTabPanel(kind) {
+  const tab = activeSessionId
+    ? document.querySelector(`.tab[data-session="${CSS.escape(activeSessionId)}"]`)
+    : null;
+  const sessionId = tab?.dataset.session;
+  if (!sessionId || !tabPanelAvailability(tab)[kind]) {
+    toast(kind === "runbook" ? t("notes.toast_no_profile") : t("toast.select_ssh_first"), "warning");
+    return;
+  }
+  toggleTabPanel(sessionId, kind);
+}
+
+/**
+ * Botones de la pestaña (SFTP, túneles, nota): «always» (de serie: siempre,
+ * y las ancladas solo en la activa, al pasar el ratón o con foco), «active»
+ * (solo en la pestaña activa) o «never». Lo aplica la hoja desde
+ * `body[data-tab-buttons]`; sus funciones siguen en el menú contextual de la
+ * pestaña y en los atajos.
+ */
+function applyTabButtons(mode) {
+  document.body.dataset.tabButtons = normalizeTabButtons(mode);
 }
 
 /**
@@ -13101,9 +14957,51 @@ function updateBroadcastClasses() {
     const eligible = !!s && !!s.terminal && s.type !== "rdp" && viewSelection.includes(sid)
       && !isSessionReadOnly(s);
     p.classList.toggle("pane-broadcasting", on && eligible);
+    // La pestaña también lo sabe (solo para la descripción accesible).
+    const tab = document.querySelector(`.tab[data-session="${CSS.escape(sid)}"]`);
+    if (tab && tab.classList.contains("is-broadcasting") !== (on && eligible)) {
+      tab.classList.toggle("is-broadcasting", on && eligible);
+      updateTabStateText(tab);
+    }
   });
   const btn = document.querySelector('#view-layout-bar button[data-action="broadcast"]');
   if (btn) btn.classList.toggle("active", on);
+}
+
+let _tabStateSeq = 0;
+
+/**
+ * Pone en palabras el estado de una pestaña (`modules/tab-state.js`) en su
+ * descripción accesible, a partir de las mismas clases que pintan el color.
+ */
+function updateTabStateText(tab) {
+  if (!(tab instanceof HTMLElement)) return;
+  const stateEl = tab.querySelector(".tab-state");
+  if (!stateEl) return;
+  const dot = tab.querySelector(".tab-dot");
+  const keys = tabStateKeys(tabStateFromClasses(tab.classList, dot ? dot.classList : []));
+  stateEl.textContent = keys.map((k) => t(k)).join(", ");
+}
+
+/** Tras cambiar de idioma: el estado de cada pestaña, en el idioma nuevo. */
+function updateAllTabStates() {
+  document.querySelectorAll("#tabs-container .tab").forEach(updateTabStateText);
+}
+
+/**
+ * Flechas en la barra de pestañas (patrón tablist): ←/→ y Inicio/Fin mueven
+ * el foco entre pestañas sin activarlas; Enter o Espacio activan (ya en cada
+ * pestaña). El tabindex itinerante sigue al foco.
+ */
+function handleTabListKeydown(e) {
+  if (!(e.target instanceof HTMLElement) || !e.target.classList.contains("tab")) return;
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  const tabs = [...document.querySelectorAll("#tabs-container .tab")];
+  const next = tabIndexForKey(tabs.indexOf(e.target), tabs.length, e.key);
+  if (next === null) return;
+  e.preventDefault();
+  tabs.forEach((tab, i) => tab.setAttribute("tabindex", i === next ? "0" : "-1"));
+  tabs[next].focus();
 }
 
 // Niveles de aviso en la pestaña, de menor a mayor severidad:
@@ -13123,6 +15021,7 @@ function markTabActivity(sessionId, { important = false, kind = null } = {}) {
   } else if (important && !tab.classList.contains("has-unread-disconnect")) {
     tab.classList.add("has-unread-important");
   }
+  updateTabStateText(tab);
 }
 
 function clearTabActivity(sessionId) {
@@ -13133,6 +15032,7 @@ function clearTabActivity(sessionId) {
     "has-unread-important",
     "has-unread-disconnect",
   );
+  updateTabStateText(tab);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -13214,6 +15114,7 @@ function updateTabReadOnly(sessionId) {
   if (!tab) return;
   const on = !!sessions.get(sessionId)?.readOnly;
   tab.classList.toggle("is-read-only", on);
+  updateTabStateText(tab);
   let badge = tab.querySelector(".tab-readonly-badge");
   if (!on) {
     badge?.remove();
@@ -14065,6 +15966,9 @@ async function wireLocalShellStreams(s, sessionId, { refreshDashboard = false } 
   };
   const ulClose = await listen(eventName("shellClosed", sessionId), () => {
     s.status = "closed";
+    // Sin consola no hay a quién atribuir las muestras: el sondeo se para (el
+    // monitor sigue encendido y vuelve al reabrirla).
+    syncLocalMetricsPoller(s);
     updateTabStatus(sessionId, "error");
     if (refreshDashboard) renderDashboard();
     showReconnectOverlay(sessionId, t("terminal.console_closed"));
@@ -14101,6 +16005,7 @@ async function reconnectLocalInPlace(s) {
       hideReconnectOverlay(sessionId);
       updateTabStatus(sessionId, "connected");
       renderDashboard();
+      resumeLocalMetrics(s);
     }
   } catch (err) {
     for (const ul of s.unlisteners) { try { ul(); } catch {} }
@@ -14265,6 +16170,99 @@ function selectHomeTab() {
 
 let _statusLatencyTimer = null;
 
+/**
+ * Este equipo, para la barra inferior de la consola local: usuario, nombre y
+ * si el backend sabe muestrear sus recursos (solo Linux). Se pide una vez.
+ * @type {{ user: string | null, host: string | null, metrics: boolean }}
+ */
+let localMachine = { user: null, host: null, metrics: false };
+/** @type {Promise<void> | null} */
+let _localMachinePromise = null;
+
+/**
+ * Pide (una sola vez) los datos de este equipo; al llegar, repinta la barra si
+ * la pestaña activa es una consola local. Sin respuesta, `localhost` y sin
+ * monitor.
+ * @returns {Promise<void>}
+ */
+function ensureLocalMachineInfo() {
+  if (!_localMachinePromise) {
+    _localMachinePromise = invoke("local_machine_info")
+      .then((/** @type {any} */ info) => {
+        localMachine = {
+          user: typeof info?.user === "string" ? info.user : null,
+          host: typeof info?.host === "string" ? info.host : null,
+          metrics: info?.metrics === true,
+        };
+      })
+      .catch(() => { /* sin datos del equipo: la barra cae a «localhost» */ })
+      .then(() => {
+        const s = activeSessionId ? sessions.get(activeSessionId) : null;
+        if (isLocalShellSession(s)) updateStatusBar();
+      });
+  }
+  return _localMachinePromise;
+}
+
+/**
+ * Qué lleva la barra inferior para una sesión (null = sin barra); la regla
+ * vive en `modules/status-bar.js`.
+ * @param {any} s
+ */
+function statusBarModelFor(s) {
+  if (!s) return null;
+  const profile = s.profileId ? profiles.find((p) => p.id === s.profileId) : null;
+  return statusBarModel({
+    local: isLocalShellSession(s),
+    profile,
+    localBarEnabled: prefs.localShellStatusBar !== false,
+    localMetrics: localMachine.metrics,
+    childShell: !!s._parentSessionId,
+  });
+}
+
+/** Para el sondeo de latencia de la barra y deja su valor en blanco. */
+function stopStatusLatency() {
+  if (_statusLatencyTimer) {
+    clearInterval(_statusLatencyTimer);
+    _statusLatencyTimer = null;
+  }
+  const latEl = document.getElementById("status-latency");
+  if (latEl) latEl.textContent = "—";
+}
+
+/** La latencia (y su separador) solo se ve donde se mide: en SSH. */
+function setStatusLatencyVisible(visible) {
+  document.getElementById("status-latency-wrap")?.classList.toggle("hidden", !visible);
+  document.getElementById("status-latency-sep")?.classList.toggle("hidden", !visible);
+}
+
+/**
+ * El punto de estado abre el diagnóstico de la conexión en SSH. En la consola
+ * local no hay conexión que diagnosticar: solo enseña el estado, sin foco ni
+ * clic, y lo dice a los lectores de pantalla.
+ * @param {boolean} interactive
+ * @param {any} [s]
+ */
+function setStatusDotInteractive(interactive, s = null) {
+  const dot = document.getElementById("status-dot");
+  if (!dot) return;
+  dot.classList.toggle("static", !interactive);
+  if (interactive) {
+    dot.setAttribute("role", "button");
+    dot.setAttribute("tabindex", "0");
+    dot.title = t("terminal.diagnostics_title");
+    dot.removeAttribute("aria-label");
+    return;
+  }
+  const stateKey = tabStateKeys({ status: s?.status })[0];
+  const label = t("status.local_state", { state: stateKey ? t(stateKey) : "—" });
+  dot.setAttribute("role", "img");
+  dot.removeAttribute("tabindex");
+  dot.title = label;
+  dot.setAttribute("aria-label", label);
+}
+
 function refitVisibleTerminals() {
   requestAnimationFrame(() => {
     viewSelection.forEach((sid) => {
@@ -14297,6 +16295,7 @@ function setStatusBarVisible(visible) {
 
 function clearStatusBar() {
   setStatusBarVisible(false);
+  renderStatusTunnels(null);
   const userHostEl = document.getElementById("status-user-host");
   if (userHostEl) userHostEl.textContent = "—";
   const envEl = document.getElementById("status-env");
@@ -14366,8 +16365,8 @@ function renderStatusMetrics(s) {
 }
 
 /**
- * Refleja el estado on/off del monitor en el botón de la barra (visible solo en
- * sesiones SSH vivas).
+ * Refleja el estado on/off del monitor en el botón de la barra (en SSH y, donde
+ * el backend sabe muestrear este equipo, en la consola local).
  * @param {ReturnType<typeof sessions.get>} s
  */
 function updateMetricsToggle(s) {
@@ -14375,7 +16374,8 @@ function updateMetricsToggle(s) {
   if (!btn) return;
   // Shell hija: el monitor es de la conexión y sus muestras llegan bajo el id
   // de la pestaña raíz — el toggle aquí solo pisaría la cadencia de la raíz.
-  if (s?._parentSessionId) {
+  // Consola local fuera de Linux: no hay con qué muestrear.
+  if (!statusBarModelFor(s)?.metrics) {
     btn.classList.add("hidden");
     updateMetricsExpandBtn(s);
     return;
@@ -14390,12 +16390,12 @@ function updateMetricsToggle(s) {
   updateMetricsExpandBtn(s);
 }
 
-/** Estado del botón de expandir el panel (visible solo en sesión SSH viva). */
+/** Estado del botón de expandir el panel (donde hay monitor: ver `updateMetricsToggle`). */
 function updateMetricsExpandBtn(s) {
   const btn = document.getElementById("status-metrics-expand");
   if (!btn) return;
-  // Shell hija: sin monitor propio (ver `updateMetricsToggle`).
-  if (s?._parentSessionId) {
+  // Shell hija o consola local sin monitor (ver `updateMetricsToggle`).
+  if (!statusBarModelFor(s)?.metrics) {
     btn.classList.add("hidden");
     return;
   }
@@ -14491,8 +16491,12 @@ function openMetricsPanel(sessionId) {
   panel.innerHTML = `
     <div class="metrics-resize-handle"></div>
     <div class="metrics-panel-header">
-      <span class="metrics-panel-title">${escHtml(t("metrics.title"))}</span>
+      <span class="metrics-panel-title">${escHtml(t("metrics.title"))}<span class="metrics-paused-badge hidden">${escHtml(t("metrics.paused"))}</span></span>
       <span class="metrics-panel-actions">
+        <button type="button" class="metrics-panel-btn" data-metrics-act="pause" aria-pressed="false"
+                title="${escHtml(t("metrics.pause"))}" aria-label="${escHtml(t("metrics.pause"))}">
+          <svg class="icon-x-svg" aria-hidden="true"><use href="#ci-pause"/></svg>
+        </button>
         <button type="button" class="metrics-panel-btn" data-metrics-act="export"
                 title="${escHtml(t("metrics.export"))}" aria-label="${escHtml(t("metrics.export"))}">
           <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2.5v7"/><path d="M4.5 6.5 8 10l3.5-3.5"/><path d="M2.5 13h11"/></svg>
@@ -14513,11 +16517,44 @@ function openMetricsPanel(sessionId) {
   panel.querySelector(".metrics-resize-handle")?.addEventListener("mousedown", (e) => startMetricsResize(e, panel, pane, s));
   panel.querySelector('[data-metrics-act="close"]')?.addEventListener("click", () => closeMetricsPanel(sessionId));
   panel.querySelector('[data-metrics-act="export"]')?.addEventListener("click", () => exportMetricsSnapshot(sessionId));
-  // El cuerpo se repinta entero con cada muestra: el click de «terminar proceso»
-  // se delega aquí, que sobrevive a los repintados.
-  panel.querySelector(".metrics-body")?.addEventListener("click", (e) => {
+  panel.querySelector('[data-metrics-act="pause"]')?.addEventListener("click", () => toggleMetricsPause(sessionId));
+  // El resumen se repinta entero con cada muestra y las filas de la tabla
+  // también: el click de «terminar proceso» y el de las cabeceras se delegan
+  // aquí, que sobrevive a los repintados.
+  const body = panel.querySelector(".metrics-body");
+  body?.addEventListener("click", (e) => {
     const btn = e.target.closest?.("[data-kill-pid]");
-    if (btn) confirmKillRemoteProcess(sessionId, Number(btn.dataset.killPid), btn.dataset.killCmd || "");
+    if (btn) {
+      confirmKillRemoteProcess(sessionId, Number(btn.dataset.killPid), btn.dataset.killCmd || "");
+      return;
+    }
+    const sortBtn = e.target.closest?.("[data-proc-sort]");
+    if (sortBtn) {
+      const cur = sessions.get(sessionId);
+      if (!cur) return;
+      const view = metricsProcView(cur);
+      Object.assign(view, nextProcSort(view, sortBtn.dataset.procSort));
+      renderMetricsProcTable(cur);
+    }
+  });
+  body?.addEventListener("input", (e) => {
+    if (!e.target.classList?.contains("metrics-proc-filter")) return;
+    const cur = sessions.get(sessionId);
+    if (!cur) return;
+    metricsProcView(cur).filter = e.target.value;
+    renderMetricsProcTable(cur);
+  });
+  body?.addEventListener("keydown", (e) => {
+    // Escape vacía el filtro; ya vacío, deja pasar la tecla. Se marca como
+    // atendida para que nada de debajo la use también.
+    if (e.key !== "Escape" || !e.target.classList?.contains("metrics-proc-filter") || !e.target.value) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.target.value = "";
+    const cur = sessions.get(sessionId);
+    if (!cur) return;
+    metricsProcView(cur).filter = "";
+    renderMetricsProcTable(cur);
   });
   panel.querySelector('[data-metrics-act="orientation"]')?.addEventListener("click", () => {
     const cur = sessions.get(sessionId);
@@ -14527,6 +16564,7 @@ function openMetricsPanel(sessionId) {
     refitMetricsPane(cur);
   });
 
+  updateMetricsPauseUi(s);
   renderMetricsPanel(s);
   refitMetricsPane(s);
   updateMetricsExpandBtn(s);
@@ -14539,9 +16577,77 @@ function closeMetricsPanel(sessionId) {
   pane?.classList.remove("metrics-split-vertical");
   if (s) {
     s._metricsPanelOpen = false;
+    // La pausa es para mirar un pico con el panel delante: al cerrarlo se
+    // reanuda. El filtro y el orden se quedan en la sesión.
+    if (s._procView) {
+      s._procView.paused = false;
+      s._procView.frozen = null;
+    }
     refitMetricsPane(s);
     updateMetricsExpandBtn(s);
   }
+}
+
+/**
+ * Estado de la tabla de procesos de una sesión (filtro, orden y pausa). Vive en
+ * la sesión, no en el DOM: el panel se repinta con cada muestra y se puede
+ * cerrar y volver a abrir.
+ * @param {any} s
+ */
+function metricsProcView(s) {
+  if (!s._procView) s._procView = { ...defaultProcView(), paused: false, frozen: null };
+  return s._procView;
+}
+
+/**
+ * Lo que enseña el panel: la última muestra y su historia o, en pausa, la
+ * copia congelada al pausar (el muestreo, la barra y las alertas siguen).
+ * @param {any} s
+ */
+function metricsPanelData(s) {
+  const view = s?._procView;
+  return view?.paused && view.frozen ? view.frozen : s?._metrics;
+}
+
+/** Pausa o reanuda el refresco del panel de la sesión. */
+function toggleMetricsPause(sessionId) {
+  const s = sessions.get(sessionId);
+  if (!s) return;
+  const view = metricsProcView(s);
+  if (view.paused) {
+    view.paused = false;
+    view.frozen = null;
+  } else {
+    const st = s._metrics;
+    view.paused = true;
+    view.frozen = st
+      ? { latest: st.latest, cpuHist: st.cpuHist.slice(), rxHist: st.rxHist.slice(), txHist: st.txHist.slice() }
+      : null;
+  }
+  updateMetricsPauseUi(s);
+  renderMetricsPanel(s);
+}
+
+/** Botón «Pausar/Reanudar refresco» y aviso «En pausa» según el estado. */
+function updateMetricsPauseUi(s) {
+  const panel = metricsPanelEl(s);
+  if (!panel) return;
+  const paused = !!s._procView?.paused;
+  const btn = panel.querySelector('[data-metrics-act="pause"]');
+  if (btn) {
+    const label = t(paused ? "metrics.resume" : "metrics.pause");
+    btn.setAttribute("aria-pressed", paused ? "true" : "false");
+    btn.setAttribute("aria-label", label);
+    btn.title = label;
+    btn.classList.toggle("active", paused);
+    btn.querySelector("use")?.setAttribute("href", paused ? "#ci-play" : "#ci-pause");
+  }
+  panel.querySelector(".metrics-paused-badge")?.classList.toggle("hidden", !paused);
+}
+
+function metricsPanelEl(s) {
+  return s?.pane?.querySelector(".metrics-panel")
+    || document.querySelector(`.terminal-pane[data-session="${CSS.escape(s?.id || "")}"] .metrics-panel`);
 }
 
 /** Un sparkline SVG a partir de una serie y un color de token. */
@@ -14557,8 +16663,54 @@ function metricsBar(pct, label, sub) {
   const p = Math.max(0, Math.min(100, pct));
   return `<div class="metrics-bar-row">
     <div class="metrics-bar-label"><span>${escHtml(label)}</span><span class="metrics-bar-sub">${escHtml(sub)}</span></div>
-    <div class="metrics-bar"><div class="metrics-bar-fill" style="width:${p}%"></div></div>
+    <div class="metrics-bar"><div class="metrics-bar-fill" data-level="${usageLevel(p)}" style="width:${p}%"></div></div>
   </div>`;
+}
+
+/** Columnas de la tabla de procesos: clave de orden y rótulo. */
+function metricsProcColumns() {
+  return [
+    { key: "pid", label: "PID", cls: "metrics-proc-pid" }, // i18n-exempt: nombre canónico de columna de ps
+    { key: "user", label: t("metrics.col_user"), cls: "metrics-proc-user" },
+    { key: "command", label: t("metrics.col_command"), cls: "metrics-proc-cmd" },
+    { key: "cpu", label: "%CPU", cls: "metrics-proc-num" }, // i18n-exempt: nombre canónico de columna de ps
+    { key: "mem", label: "%MEM", cls: "metrics-proc-num" }, // i18n-exempt: nombre canónico de columna de ps
+  ];
+}
+
+/**
+ * Esqueleto del cuerpo: el resumen (se repinta entero) y la sección de
+ * procesos, cuyo buscador y cabeceras se crean UNA vez para que el foco, el
+ * texto y el cursor del filtro sobrevivan a los refrescos.
+ */
+function ensureMetricsBodySkeleton(body, s) {
+  let summary = body.querySelector(":scope > .metrics-summary");
+  let procs = body.querySelector(":scope > .metrics-section-procs");
+  if (summary && procs) return { summary, procs };
+  const view = metricsProcView(s);
+  const heads = metricsProcColumns().map((c) => `
+    <th scope="col" class="${c.cls}" data-proc-col="${c.key}" aria-sort="none">
+      <button type="button" class="metrics-proc-sort" data-proc-sort="${c.key}"
+              title="${escHtml(t("metrics.sort_by", { col: c.label }))}">
+        <span>${escHtml(c.label)}</span><svg class="icon-x-svg metrics-sort-icon" aria-hidden="true"><use href="#ci-arrow-down"/></svg>
+      </button>
+    </th>`).join("");
+  body.innerHTML = `
+    <div class="metrics-summary"></div>
+    <section class="metrics-section metrics-section-procs">
+      <header class="metrics-section-head"><span>${escHtml(t("metrics.processes"))}</span><strong class="metrics-procs-count"></strong></header>
+      <input type="search" class="metrics-proc-filter" spellcheck="false" autocomplete="off"
+             placeholder="${escHtml(t("metrics.filter_placeholder"))}" aria-label="${escHtml(t("metrics.filter_label"))}" />
+      <table class="metrics-proc-table">
+        <thead><tr>${heads}<th class="metrics-proc-act"><span class="sr-only">${escHtml(t("metrics.kill"))}</span></th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>`;
+  const input = body.querySelector(".metrics-proc-filter");
+  if (input) input.value = view.filter || "";
+  summary = body.querySelector(".metrics-summary");
+  procs = body.querySelector(".metrics-section-procs");
+  return { summary, procs };
 }
 
 /** Repinta el cuerpo del panel de una sesión con su última muestra. */
@@ -14566,12 +16718,15 @@ function renderMetricsPanel(s) {
   const body = s?.pane?.querySelector(".metrics-body")
     || document.querySelector(`.terminal-pane[data-session="${CSS.escape(s?.id || "")}"] .metrics-body`);
   if (!body) return;
-  const st = s._metrics;
+  const { summary, procs } = ensureMetricsBodySkeleton(body, s);
+  const st = metricsPanelData(s);
   const m = st?.latest;
   if (!m) {
-    body.innerHTML = `<div class="metrics-empty">${escHtml(t("metrics.waiting"))}</div>`;
+    summary.innerHTML = `<div class="metrics-empty">${escHtml(t("metrics.waiting"))}</div>`;
+    procs.classList.add("hidden");
     return;
   }
+  procs.classList.remove("hidden");
 
   try {
   const cpu = m.cpuPct == null ? "—" : `${Math.round(m.cpuPct)}%`;
@@ -14582,29 +16737,15 @@ function renderMetricsPanel(s) {
     ? `<div class="metrics-cores">` + m.cpuCoresPct.map((c, i) => {
         const p = Math.max(0, Math.min(100, Number(c) || 0));
         return `<div class="metrics-core" title="${escHtml(`${t("metrics.core")} ${i}: ${Math.round(p)}%`)}">
-          <div class="metrics-core-track"><div class="metrics-core-fill" style="height:${p}%"></div></div>
+          <div class="metrics-core-track"><div class="metrics-core-fill" data-level="${usageLevel(p)}" style="height:${p}%"></div></div>
         </div>`;
       }).join("") + `</div>`
     : "";
   const disks = (m.disks || []).map((d) =>
     metricsBar(usagePct(d.usedKb, d.sizeKb), d.mount, `${formatKib(d.usedKb)} / ${formatKib(d.sizeKb)}`)
   ).join("");
-  const procs = (m.procs || []).map((p) => `
-    <tr>
-      <td class="metrics-proc-pid mono">${Number(p.pid) || 0}</td>
-      <td class="metrics-proc-cmd" title="${escHtml(p.command)}">${escHtml(p.command)}</td>
-      <td class="metrics-proc-num mono">${(Number(p.cpuPct) || 0).toFixed(1)}</td>
-      <td class="metrics-proc-num mono">${(Number(p.memPct) || 0).toFixed(1)}</td>
-      <td class="metrics-proc-act">
-        <button type="button" class="metrics-proc-kill" data-kill-pid="${Number(p.pid) || 0}"
-                data-kill-cmd="${escHtml(p.command)}"
-                title="${escHtml(t("metrics.kill"))}" aria-label="${escHtml(t("metrics.kill"))}">
-          <svg class="icon-x-svg" aria-hidden="true"><use href="#ci-x"/></svg>
-        </button>
-      </td>
-    </tr>`).join("");
 
-  body.innerHTML = `
+  summary.innerHTML = `
     <section class="metrics-section">
       <header class="metrics-section-head"><span>${escHtml(t("status.cpu"))}</span><strong>${cpu}</strong></header>
       ${metricsSparkline(st.cpuHist, "var(--blue)")}
@@ -14622,33 +16763,84 @@ function renderMetricsPanel(s) {
     <section class="metrics-section">
       <header class="metrics-section-head"><span>${escHtml(t("status.disk"))}</span><strong>${escHtml(t("metrics.uptime"))}: ${escHtml(formatDuration(m.uptimeSecs))}</strong></header>
       ${disks || `<div class="metrics-empty">—</div>`}
-    </section>
-    <section class="metrics-section metrics-section-procs">
-      <header class="metrics-section-head"><span>${escHtml(t("metrics.processes"))}</span><strong>%CPU · %MEM</strong></header>
-      <table class="metrics-proc-table"><tbody>${procs}</tbody></table>
     </section>`;
+  renderMetricsProcTable(s);
   } catch (err) {
     // Nunca dejar el panel en blanco en silencio: si algo del payload no encaja,
     // se muestra el error aquí (y en consola) para poder diagnosticarlo.
     console.error("[metrics] error al pintar el panel", err);
-    body.innerHTML = `<div class="metrics-empty">${escHtml(t("metrics.render_error", { err: String(err) }))}</div>`;
+    summary.innerHTML = `<div class="metrics-empty">${escHtml(t("metrics.render_error", { err: String(err) }))}</div>`;
   }
 }
 
 /**
+ * Filas de la tabla de procesos (filtradas y ordenadas según la vista de la
+ * sesión) y estado de las cabeceras. No toca el buscador: se puede llamar en
+ * cada pulsación sin perder el foco ni el cursor.
+ */
+function renderMetricsProcTable(s) {
+  const panel = metricsPanelEl(s);
+  const section = panel?.querySelector(".metrics-section-procs");
+  const tbody = section?.querySelector("tbody");
+  if (!section || !tbody) return;
+  const view = metricsProcView(s);
+  const all = metricsPanelData(s)?.latest?.procs || [];
+  const rows = procTableRows(all, view);
+
+  section.querySelectorAll("th[data-proc-col]").forEach((th) => {
+    const key = th.dataset.procCol;
+    const aria = procSortAria(view, key);
+    th.setAttribute("aria-sort", aria);
+    th.classList.toggle("is-sorted", aria !== "none");
+    th.querySelector(".metrics-sort-icon use")?.setAttribute("href", aria === "ascending" ? "#ci-arrow-up" : "#ci-arrow-down");
+  });
+  const count = section.querySelector(".metrics-procs-count");
+  if (count) {
+    count.textContent = view.filter.trim()
+      ? t("metrics.procs_count", { shown: rows.length, total: all.length })
+      : String(all.length);
+  }
+
+  // Terminar procesos solo en el servidor remoto: en la consola local sería
+  // una orden nueva del IPC para señalar cualquier proceso del usuario
+  // (modules/status-bar.js).
+  const canKill = !!statusBarModelFor(s)?.killProcess;
+  const colspan = metricsProcColumns().length + 1;
+  tbody.innerHTML = rows.length
+    ? rows.map((p) => `
+    <tr>
+      <td class="metrics-proc-pid mono">${Number(p.pid) || 0}</td>
+      <td class="metrics-proc-user" title="${escHtml(p.user || "")}">${escHtml(p.user || "")}</td>
+      <td class="metrics-proc-cmd" title="${escHtml(p.command)}">${escHtml(p.command)}</td>
+      <td class="metrics-proc-num mono">${(Number(p.cpuPct) || 0).toFixed(1)}</td>
+      <td class="metrics-proc-num mono">${(Number(p.memPct) || 0).toFixed(1)}</td>
+      <td class="metrics-proc-act">${canKill ? `
+        <button type="button" class="metrics-proc-kill" data-kill-pid="${Number(p.pid) || 0}"
+                data-kill-cmd="${escHtml(p.command)}"
+                title="${escHtml(t("metrics.kill"))}" aria-label="${escHtml(t("metrics.kill"))}">
+          <svg class="icon-x-svg" aria-hidden="true"><use href="#ci-x"/></svg>
+        </button>` : ""}
+      </td>
+    </tr>`).join("")
+    : `<tr><td class="metrics-empty" colspan="${colspan}">${escHtml(all.length ? t("metrics.procs_no_match") : "—")}</td></tr>`;
+}
+
+/**
  * Exporta a un JSON local la última muestra del monitor y la historia de los
- * sparklines de la sesión. Solo datos ya presentes en el panel: nada de
- * credenciales ni de estado de la app.
+ * sparklines de la sesión (en pausa, la que está a la vista). Solo datos ya
+ * presentes en el panel: nada de credenciales ni de estado de la app.
  */
 async function exportMetricsSnapshot(sessionId) {
   const s = sessions.get(sessionId);
-  const st = s?._metrics;
+  const st = metricsPanelData(s);
   if (!st?.latest) {
     toast(t("metrics.waiting"), "warning");
     return;
   }
   const profile = profiles.find((p) => p.id === s.profileId);
-  const host = profile?.host || sessionId;
+  const host = isLocalShellSession(s)
+    ? localUserHost(null, localMachine.host)
+    : profile?.host || sessionId;
   const doc = {
     kind: "rustty-metrics-snapshot",
     version: 1,
@@ -14677,22 +16869,47 @@ async function exportMetricsSnapshot(sessionId) {
 }
 
 /**
- * Confirmación y envío de SIGTERM a un proceso del servidor remoto (acción de
- * la tabla de procesos del monitor). Destructivo → siempre pregunta; el
- * veredicto (permiso, proceso inexistente) es el del `kill` remoto.
+ * Confirmación y envío de una señal a un proceso del servidor remoto (acción
+ * de la tabla de procesos del monitor). Destructivo → siempre pregunta, y en
+ * la misma confirmación se elige la señal: SIGTERM (por defecto, le pide que
+ * termine y puede limpiar) o SIGKILL (lo mata sin más). El veredicto
+ * (permiso, proceso inexistente) es el del `kill` remoto.
  */
 async function confirmKillRemoteProcess(sessionId, pid, command) {
   if (!Number.isInteger(pid) || pid < 2) return;
-  const ok = await confirmThemed({
+  if (!statusBarModelFor(sessions.get(sessionId))?.killProcess) return;
+  // La elección se anota al cambiar: la limpieza del diálogo (que quita el
+  // selector) corre antes de que la promesa se resuelva.
+  let force = false;
+  const onShow = () => {
+    const messageEl = document.getElementById("credential-modal-message");
+    if (!messageEl) return undefined;
+    const box = document.createElement("fieldset");
+    box.className = "metrics-kill-signal";
+    box.innerHTML = `
+      <legend>${escHtml(t("metrics.kill_signal"))}</legend>
+      <label class="checkbox-label"><input type="radio" name="metrics-kill-signal" value="term" checked />
+        <span>${escHtml(t("metrics.kill_sigterm"))}</span></label>
+      <label class="checkbox-label"><input type="radio" name="metrics-kill-signal" value="kill" />
+        <span>${escHtml(t("metrics.kill_sigkill"))}</span></label>`;
+    box.addEventListener("change", (e) => {
+      if (e.target?.name === "metrics-kill-signal") force = e.target.value === "kill";
+    });
+    messageEl.after(box);
+    return () => box.remove();
+  };
+  const result = await promptCredential({
     title: t("metrics.kill_title"),
-    message: t("metrics.kill_message").replace("{cmd}", command).replace("{pid}", String(pid)),
+    message: t("metrics.kill_message", { cmd: command, pid: String(pid) }),
     submitLabel: t("metrics.kill_confirm"),
+    hideInput: true,
     danger: true,
+    onShow,
   });
-  if (!ok) return;
+  if (!result) return;
   try {
-    await invoke("ssh_kill_process", { sessionId, pid, force: false });
-    toast(t("metrics.killed").replace("{pid}", String(pid)), "success");
+    await invoke("ssh_kill_process", { sessionId, pid, force });
+    toast(t("metrics.killed", { pid: String(pid), signal: force ? "SIGKILL" : "SIGTERM" }), "success");
   } catch (err) {
     toast(`${err}`, "error");
   }
@@ -14797,7 +17014,9 @@ function fillStatusOverflowPopover() {
   const hasCwd = Boolean(cwdWrap) && !cwdWrap.classList.contains("hidden");
   setRow("status-pop-cwd-row", "status-pop-cwd", hasCwd, cwdSrc?.title || cwdSrc?.textContent || "—");
   setRow("status-pop-dims-row", "status-pop-dims", true, document.getElementById("status-dims")?.textContent || "—");
-  setRow("status-pop-latency-row", "status-pop-latency", true, document.getElementById("status-latency")?.textContent || "—");
+  const latWrap = document.getElementById("status-latency-wrap");
+  const hasLatency = !latWrap || !latWrap.classList.contains("hidden");
+  setRow("status-pop-latency-row", "status-pop-latency", hasLatency, document.getElementById("status-latency")?.textContent || "—");
   const recWrap = document.getElementById("status-rec-wrap");
   const recActive = Boolean(recWrap) && !recWrap.classList.contains("hidden");
   setRow("status-pop-rec-row", "status-pop-rec", recActive, null);
@@ -14819,7 +17038,8 @@ function renderStatusConnectionLog() {
 
 function toggleActiveConnectionLogPanel() {
   const s = activeSessionId ? sessions.get(activeSessionId) : null;
-  if (!s || isExternalLauncherType(s.type)) return;
+  // La consola local no tiene conexión que diagnosticar (su punto es estático).
+  if (!s || isExternalLauncherType(s.type) || isLocalShellSession(s)) return;
   toggleConnectionLogPanel(activeSessionId);
 }
 
@@ -14843,9 +17063,10 @@ function collapseHomePath(path) {
  *     se muestra `~` como primer segmento, pero su `data-path` (y el de los
  *     segmentos siguientes) usa la base REAL del home, no `~`.
  * Cada segmento navega el panel SFTP a su ruta acumulada real al pulsar; con
- * Ctrl+clic copia esa ruta. El icono 📂 copia la ruta completa.
+ * Ctrl/Cmd+clic copia esa ruta. El icono 📂 copia la ruta completa. Con
+ * `navigable: false` (la consola local, sin panel SFTP) el clic siempre copia.
  */
-function renderCwdBreadcrumb(sessionId, rawPath) {
+function renderCwdBreadcrumb(sessionId, rawPath, { navigable = true } = {}) {
   const cwdEl = document.getElementById("status-cwd");
   if (!cwdEl) return;
   cwdEl.innerHTML = "";
@@ -14920,13 +17141,19 @@ function renderCwdBreadcrumb(sessionId, rawPath) {
     btn.className = "cwd-seg";
     btn.dataset.path = seg.path;
     btn.textContent = seg.label;
-    btn.title = `${t("status.cwd_seg_nav", { path: seg.path })} · ${t("status.cwd_copy_seg")}`;
-    btn.setAttribute("aria-label", t("status.cwd_seg_nav", { path: seg.path }));
+    if (navigable) {
+      btn.title = `${t("status.cwd_seg_nav", { path: seg.path })} · ${t("status.cwd_copy_seg")}`;
+      btn.setAttribute("aria-label", t("status.cwd_seg_nav", { path: seg.path }));
+    } else {
+      btn.title = t("status.cwd_seg_copy", { path: seg.path });
+      btn.setAttribute("aria-label", t("status.cwd_seg_copy", { path: seg.path }));
+    }
     btn.addEventListener("click", async (ev) => {
       ev.preventDefault();
       ev.stopPropagation();
-      // Ctrl+clic copia la ruta acumulada del segmento en vez de navegar.
-      if (ev.ctrlKey) {
+      // Ctrl/Cmd+clic copia la ruta acumulada del segmento en vez de navegar
+      // (y sin panel SFTP al que ir, el clic solo copia).
+      if (!navigable || ev.ctrlKey || ev.metaKey) {
         await writeSystemClipboardText(seg.path);
         toast(t("status.cwd_copied"), "success");
         return;
@@ -14962,14 +17189,21 @@ function updateStatusBar() {
   const bar = document.getElementById("status-bar");
   if (!bar) return;
   const s = activeSessionId ? sessions.get(activeSessionId) : null;
-  const profile = s?.profileId ? profiles.find((p) => p.id === s.profileId) : null;
-  // Solo mostramos status bar para sesiones SSH (RDP no es interactivo;
-  // shell local no tiene host remoto).
-  if (!profile || (profile.connection_type || "ssh") !== "ssh") {
+  // Barra para las sesiones SSH y la consola local (RDP no es interactivo);
+  // qué lleva cada una lo decide modules/status-bar.js.
+  const model = statusBarModelFor(s);
+  if (!s || !model) {
     clearStatusBar();
     return;
   }
   setStatusBarVisible(true);
+  if (model.kind === "local") {
+    renderLocalStatusBar(s, model);
+    return;
+  }
+  const profile = profiles.find((p) => p.id === s.profileId);
+  setStatusDotInteractive(true);
+  setStatusLatencyVisible(true);
 
   const userHost = `${profile.username}@${profile.host}:${profile.port}`;
   const userHostEl = document.getElementById("status-user-host");
@@ -14983,64 +17217,11 @@ function updateStatusBar() {
   }
 
   renderStatusRoute(s);
-
-  const dot = document.getElementById("status-dot");
-  if (dot) {
-    dot.classList.remove("connected", "error", "reconnecting");
-    if (s.status === "connected") dot.classList.add("connected");
-    else if (s.status === "reconnecting") dot.classList.add("reconnecting");
-    else if (s.status === "error" || s.status === "closed") dot.classList.add("error");
-  }
-
+  renderStatusTunnels(profile);
+  renderStatusDot(s);
   // CWD remoto detectado vía OSC 7 (solo si el shell lo emite).
-  const cwdWrap = document.getElementById("status-cwd-wrap");
-  const cwdSep  = document.querySelector(".status-cwd-sep");
-  const cwdEl   = document.getElementById("status-cwd");
-  if (cwdWrap && cwdEl && cwdSep) {
-    if (s.remoteCwd) {
-      // Breadcrumb de segmentos clicables (navegan el panel SFTP).
-      renderCwdBreadcrumb(activeSessionId, s.remoteCwd);
-      cwdEl.title = s.remoteCwd; // tooltip con la ruta completa real
-      cwdWrap.classList.remove("hidden");
-      cwdSep.classList.remove("hidden");
-
-      // El icono 📂 copia la ruta completa real al portapapeles.
-      const cwdIcon = cwdWrap.querySelector(".status-cwd-icon");
-      if (cwdIcon && !cwdIcon.dataset.copyBound) {
-        cwdIcon.dataset.copyBound = "1";
-        cwdIcon.setAttribute("role", "button");
-        cwdIcon.setAttribute("tabindex", "0");
-        cwdIcon.title = t("status.cwd_copy");
-        cwdIcon.setAttribute("aria-label", t("status.cwd_copy"));
-        cwdIcon.addEventListener("click", async () => {
-          const cur = activeSessionId ? sessions.get(activeSessionId) : null;
-          if (!cur?.remoteCwd) return;
-          await writeSystemClipboardText(cur.remoteCwd);
-          toast(t("status.cwd_copied"), "success");
-        });
-      }
-    } else {
-      cwdEl.innerHTML = "";
-      cwdWrap.classList.add("hidden");
-      cwdSep.classList.add("hidden");
-    }
-  }
-
-  // Tamaño del terminal en píxeles (área real dibujada), más intuitivo que
-  // cols×rows para el usuario medio; el cols×rows —lo que ve el shell y a lo que
-  // se ajustan vim/htop/tmux— se conserva en el tooltip. Cae a cols×rows si el
-  // xterm aún no ha pintado su `.xterm-screen`.
-  const dimsEl = document.getElementById("status-dims");
-  if (dimsEl && s.terminal) {
-    const screen = s.terminal.element?.querySelector(".xterm-screen");
-    dimsEl.textContent = screen
-      ? `${Math.round(screen.clientWidth)}×${Math.round(screen.clientHeight)} px`
-      : `${s.terminal.cols}×${s.terminal.rows}`;
-    const dimsWrap = document.getElementById("status-dims-wrap");
-    if (dimsWrap) dimsWrap.title = `${s.terminal.cols}×${s.terminal.rows} ${t("status.cells")}`;
-  } else if (dimsEl) {
-    dimsEl.textContent = "—";
-  }
+  renderStatusCwd(s, model);
+  renderStatusDims(s);
 
   // Monitor de recursos: botón toggle (siempre visible en sesión SSH) e
   // indicadores compactos (solo con el monitor activo y una muestra recibida).
@@ -15055,9 +17236,8 @@ function updateStatusBar() {
   renderStatusConnectionLog();
 
   // Reanudar el probe de latencia cada vez que cambiamos de sesión activa
-  if (_statusLatencyTimer) { clearInterval(_statusLatencyTimer); _statusLatencyTimer = null; }
+  stopStatusLatency();
   const latEl = document.getElementById("status-latency");
-  if (latEl) latEl.textContent = "—";
   const probe = async () => {
     if (activeSessionId !== s.sessionId) return; // cambió la sesión activa
     // No sondear una sesión que ya no está viva: al caer (closed/error/canceled)
@@ -15084,6 +17264,119 @@ function updateStatusBar() {
 
   // El user-host, cwd o REC pueden haber cambiado el ancho necesario.
   updateStatusBarOverflow();
+}
+
+/**
+ * Barra de la consola local: usuario@equipo, carpeta (OSC 7), tamaño, estado
+ * y el monitor de recursos de este equipo donde lo hay. Cada segmento de la
+ * sesión SSH que se viera antes (latencia y su sondeo, túneles, ruta, entorno,
+ * REC, log de conexión) se oculta aquí: nada de restos de la otra pestaña.
+ * @param {any} s
+ * @param {import("./modules/status-bar.js").StatusBarModel} model
+ */
+function renderLocalStatusBar(s, model) {
+  stopStatusLatency();
+  setStatusLatencyVisible(false);
+  // Usuario y equipo llegan una vez del backend; mientras, `localhost`.
+  ensureLocalMachineInfo();
+  const userHostEl = document.getElementById("status-user-host");
+  if (userHostEl) userHostEl.textContent = localUserHost(localMachine.user, localMachine.host);
+  const envEl = document.getElementById("status-env");
+  if (envEl) { envEl.className = "env-badge hidden"; envEl.textContent = ""; }
+  const routeEl = document.getElementById("status-route");
+  if (routeEl) { routeEl.classList.add("hidden"); routeEl.title = ""; }
+  const routeText = document.getElementById("status-route-text");
+  if (routeText) routeText.textContent = "";
+  renderStatusTunnels(null);
+
+  renderStatusDot(s);
+  setStatusDotInteractive(false, s);
+  renderStatusCwd(s, model);
+  renderStatusDims(s);
+
+  updateMetricsToggle(s);
+  renderStatusMetrics(s);
+
+  document.getElementById("status-rec-wrap")?.classList.add("hidden");
+  renderStatusReadOnly(s);
+  const logTrigger = document.getElementById("status-log-trigger");
+  if (logTrigger) logTrigger.classList.add("hidden");
+  const logText = document.getElementById("status-log-text");
+  if (logText) logText.textContent = "—";
+
+  updateStatusBarOverflow();
+}
+
+/** Color del punto de estado según la sesión. */
+function renderStatusDot(s) {
+  const dot = document.getElementById("status-dot");
+  if (!dot) return;
+  dot.classList.remove("connected", "error", "reconnecting");
+  if (s.status === "connected") dot.classList.add("connected");
+  else if (s.status === "reconnecting") dot.classList.add("reconnecting");
+  else if (s.status === "error" || s.status === "closed") dot.classList.add("error");
+}
+
+/**
+ * Carpeta actual que anuncia el shell por OSC 7 (solo si lo emite). En SSH los
+ * segmentos navegan el panel SFTP; en la consola local, que no lo tiene,
+ * copian su ruta.
+ * @param {any} s
+ * @param {import("./modules/status-bar.js").StatusBarModel} model
+ */
+function renderStatusCwd(s, model) {
+  const cwdWrap = document.getElementById("status-cwd-wrap");
+  const cwdSep  = document.querySelector(".status-cwd-sep");
+  const cwdEl   = document.getElementById("status-cwd");
+  if (!cwdWrap || !cwdEl || !cwdSep) return;
+  cwdWrap.title = t(model.cwdNavigates ? "status.cwd_title" : "status.cwd_title_local");
+  if (!s.remoteCwd) {
+    cwdEl.innerHTML = "";
+    cwdWrap.classList.add("hidden");
+    cwdSep.classList.add("hidden");
+    return;
+  }
+  // Breadcrumb de segmentos clicables.
+  renderCwdBreadcrumb(activeSessionId, s.remoteCwd, { navigable: model.cwdNavigates });
+  cwdEl.title = s.remoteCwd; // tooltip con la ruta completa real
+  cwdWrap.classList.remove("hidden");
+  cwdSep.classList.remove("hidden");
+
+  // El icono de carpeta copia la ruta completa real al portapapeles.
+  const cwdIcon = cwdWrap.querySelector(".status-cwd-icon");
+  if (cwdIcon && !cwdIcon.dataset.copyBound) {
+    cwdIcon.dataset.copyBound = "1";
+    cwdIcon.setAttribute("role", "button");
+    cwdIcon.setAttribute("tabindex", "0");
+    cwdIcon.title = t("status.cwd_copy");
+    cwdIcon.setAttribute("aria-label", t("status.cwd_copy"));
+    cwdIcon.addEventListener("click", async () => {
+      const cur = activeSessionId ? sessions.get(activeSessionId) : null;
+      if (!cur?.remoteCwd) return;
+      await writeSystemClipboardText(cur.remoteCwd);
+      toast(t("status.cwd_copied"), "success");
+    });
+  }
+}
+
+/**
+ * Tamaño del terminal en píxeles (área real dibujada), más intuitivo que
+ * cols×rows para el usuario medio; el cols×rows —lo que ve el shell y a lo que
+ * se ajustan vim/htop/tmux— se conserva en el tooltip. Cae a cols×rows si el
+ * xterm aún no ha pintado su `.xterm-screen`.
+ */
+function renderStatusDims(s) {
+  const dimsEl = document.getElementById("status-dims");
+  if (dimsEl && s.terminal) {
+    const screen = s.terminal.element?.querySelector(".xterm-screen");
+    dimsEl.textContent = screen
+      ? `${Math.round(screen.clientWidth)}×${Math.round(screen.clientHeight)} px`
+      : `${s.terminal.cols}×${s.terminal.rows}`;
+    const dimsWrap = document.getElementById("status-dims-wrap");
+    if (dimsWrap) dimsWrap.title = `${s.terminal.cols}×${s.terminal.rows} ${t("status.cells")}`;
+  } else if (dimsEl) {
+    dimsEl.textContent = "—";
+  }
 }
 
 // Última vista pintada (true = dashboard). Permite disparar el fundido solo al
@@ -15213,12 +17506,22 @@ function updateLayoutBarActive() {
 function updateTabSelectionClasses() {
   const hasSessionTabs = document.querySelector("#tabs-container .tab") !== null;
   document.body.classList.toggle("has-session-tabs", hasSessionTabs);
+  // Tabindex itinerante: la pestaña activa (o la que tiene el foco, si el
+  // usuario está recorriendo la barra con las flechas) es la única que entra
+  // con Tab. Sin sesión activa, la primera.
+  const sessionTabs = [...document.querySelectorAll("#tabs-container .tab")];
+  const focusedTab = sessionTabs.find((t) => t === document.activeElement) ?? null;
+  const rovingTab = focusedTab
+    ?? sessionTabs.find((t) => t.dataset.session === activeSessionId)
+    ?? sessionTabs[0]
+    ?? null;
   document.querySelectorAll(".tab").forEach((t) => {
     const sid = t.dataset.session;
     t.classList.toggle("in-view",  viewSelection.includes(sid));
     const active = sid === activeSessionId;
     t.classList.toggle("active",   active);
     t.setAttribute("aria-selected", active ? "true" : "false");
+    if (t.dataset.session) t.setAttribute("tabindex", t === rovingTab ? "0" : "-1");
   });
   document.getElementById("home-tab")
     ?.classList.toggle("active", viewSelection.length === 0);
@@ -15258,6 +17561,20 @@ function updateTabOverflowButton() {
   if (!overflowing && !document.getElementById("tab-overflow-popover")?.classList.contains("hidden")) {
     toggleTabOverflow(false);
   }
+  updateTabScrollEdges();
+}
+
+/**
+ * Funde el borde de la tira de pestañas por el que quedan pestañas fuera de la
+ * vista (`.fade-start` / `.fade-end`), para que se note que hay más sin tener
+ * que buscar el botón ⋯. Se repasa al desplazar la tira y al cambiar su ancho.
+ */
+function updateTabScrollEdges() {
+  const bar = document.getElementById("tab-scroll");
+  if (!bar) return;
+  const { start, end } = tabScrollEdges(bar);
+  bar.classList.toggle("fade-start", start);
+  bar.classList.toggle("fade-end", end);
 }
 
 /** Etiqueta de estado (dot) para una sesión, reutilizando las clases de .tab-dot. */
@@ -15376,8 +17693,9 @@ function positionTabOverflowPopover() {
   if (top + popRect.height > window.innerHeight - margin) {
     top = Math.max(margin, triggerRect.top - popRect.height - margin);
   }
-  popover.style.top = `${top}px`;
-  popover.style.left = `${left}px`;
+  const z = uiZoomFactor();
+  popover.style.top = `${top / z}px`;
+  popover.style.left = `${left / z}px`;
 }
 
 /**
@@ -15733,6 +18051,10 @@ function createTerminalTab(sessionId, profile, initialStatus, opts = {}) {
     if (sessionObj._inCommandOutput) return true;
     let cwd = m[1];
     try { cwd = decodeURIComponent(cwd); } catch { /* ruta no válida como URI: se usa tal cual */ }
+    // Barras repetidas fuera (`cd //srv`): el panel guarda la ruta sin ellas,
+    // y si aquí se quedaran, la comparación de abajo nunca coincidiría y cada
+    // prompt volvería a cargar la carpeta (y a subir el listado arriba).
+    cwd = collapseSlashes(cwd);
     // Windows: `file://host/C:/Users/ana` — la barra inicial es de la URL, no
     // de la ruta. Sin quitarla, la barra de estado enseña `/C:/Users/ana`.
     sessionObj.remoteCwd = /^\/[A-Za-z]:[\\/]/.test(cwd) ? cwd.slice(1) : cwd;
@@ -16240,7 +18562,8 @@ async function registerSshListeners(sessionId, terminal, dataChannel) {
     const s = sessions.get(sessionId);
     if (s) s.status = "closed";
     if (s._tmuxControl) teardownTmuxControl(sessionId);
-    // Con la conexión mueren sus túneles (los de una hija siguen en su raíz).
+    // Con la sesión mueren sus túneles: los de la conexión entera si es una
+    // raíz; solo los abiertos desde ella si es una hija.
     forgetConnectionTunnels(sessionId);
     persistScreenSnapshot(s);
     appendConnectionLog(sessionId, {
@@ -16267,30 +18590,118 @@ async function registerSshListeners(sessionId, terminal, dataChannel) {
     if (!tunnel) return;
     tunnel.bytesUp = payload.bytesUp || 0;
     tunnel.bytesDown = payload.bytesDown || 0;
-    renderTunnelList(sessionId);
-    if (isGlobalTunnelsModalOpen()) renderGlobalTunnelLists();
+    tunnel.activeConnections = payload.activeConnections || 0;
+    scheduleTunnelTrafficRender(sessionId);
   }));
 
-  // Monitor de recursos: cada muestra guarda la última instantánea y empuja la
-  // historia (para futuros sparklines); si la sesión está activa, refresca la
-  // barra inferior. La primera muestra llega sin %CPU/tasas (aún no hay delta).
+  // Monitor de recursos: cada muestra la digiere `ingestMetricsSample`.
   ul.push(await listen(eventName("sshMetrics", sessionId), (/** @type {{ payload: SshMetricsEvent }} */ e) => {
     const s = sessions.get(sessionId);
-    if (!s) return;
-    const m = e.payload;
-    const st = s._metrics || (s._metrics = { latest: null, cpuHist: [], rxHist: [], txHist: [] });
-    st.latest = m;
-    if (m.cpuPct != null) st.cpuHist = pushHistory(st.cpuHist, m.cpuPct, METRICS_HISTORY_CAP);
-    if (m.netRxBps != null) st.rxHist = pushHistory(st.rxHist, m.netRxBps, METRICS_HISTORY_CAP);
-    if (m.netTxBps != null) st.txHist = pushHistory(st.txHist, m.netTxBps, METRICS_HISTORY_CAP);
-    checkMetricsAlerts(s, st, m);
-    if (sessionId === activeSessionId) {
-      renderStatusMetrics(s);
-      if (s._metricsPanelOpen) renderMetricsPanel(s);
-    }
+    if (s) ingestMetricsSample(s, e.payload);
   }));
 
   return ul;
+}
+
+/**
+ * Una muestra del monitor de recursos (del evento SSH o del sondeo de la
+ * consola local, con la misma forma): guarda la última instantánea, empuja la
+ * historia de los sparklines, evalúa las alertas y, si la sesión está activa,
+ * refresca la barra y el panel. La primera muestra llega sin %CPU/tasas (aún
+ * no hay delta).
+ * @param {any} s
+ * @param {SshMetricsEvent} m
+ */
+function ingestMetricsSample(s, m) {
+  if (!m) return;
+  const st = s._metrics || (s._metrics = { latest: null, cpuHist: [], rxHist: [], txHist: [] });
+  st.latest = m;
+  if (m.cpuPct != null) st.cpuHist = pushHistory(st.cpuHist, m.cpuPct, METRICS_HISTORY_CAP);
+  if (m.netRxBps != null) st.rxHist = pushHistory(st.rxHist, m.netRxBps, METRICS_HISTORY_CAP);
+  if (m.netTxBps != null) st.txHist = pushHistory(st.txHist, m.netTxBps, METRICS_HISTORY_CAP);
+  checkMetricsAlerts(s, st, m);
+  if (s.id === activeSessionId) {
+    renderStatusMetrics(s);
+    // En pausa, el panel enseña la copia congelada: nada que repintar.
+    if (s._metricsPanelOpen && !s._procView?.paused) renderMetricsPanel(s);
+  }
+}
+
+/**
+ * Sondeo del monitor de la consola local: en local no hay evento del backend,
+ * el frontend pide cada muestra (`local_metrics_sample`) y al dejar de pedirla
+ * se deja de muestrear (modules/metrics-poller.js). Uno por consola.
+ * @param {any} s
+ */
+function localMetricsPoller(s) {
+  if (!s._localMetricsPoller) {
+    const sessionId = s.id;
+    // La pestaña ya no existe (cerrada por un camino que no pasó por su
+    // cierre): el sondeo se apaga solo en vez de seguir preguntando.
+    const gone = () => {
+      if (sessions.get(sessionId) === s) return false;
+      s._localMetricsPoller?.stop();
+      return true;
+    };
+    s._localMetricsPoller = createMetricsPoller({
+      sample: (fresh) => invoke("local_metrics_sample", { sessionId, fresh }),
+      onSample: (/** @type {any} */ m) => {
+        if (!gone()) ingestMetricsSample(s, m);
+      },
+      // Una muestra perdida (plazo agotado, consola recién cerrada) se salta;
+      // el cierre de la consola ya apaga el sondeo.
+      onError: (err) => {
+        if (!gone()) console.debug("[metrics] muestra local fallida", err);
+      },
+      intervalMs: () => Math.max(1, Number(prefs.metricsSecs) || 3) * 1000,
+    });
+  }
+  return s._localMetricsPoller;
+}
+
+/**
+ * Tras cambiar la preferencia de la barra inferior en la consola local: sin
+ * barra no hay dónde ver ni apagar su monitor, así que se apaga (y su panel se
+ * cierra); con ella, la barra vuelve a la pestaña activa.
+ */
+function applyLocalStatusBarPref() {
+  if (prefs.localShellStatusBar === false) {
+    for (const s of sessions.values()) {
+      if (!isLocalShellSession(s)) continue;
+      if (s._metricsPanelOpen) closeMetricsPanel(s.id);
+      if (s._metricsOn) setSessionMetrics(s.id, false);
+    }
+  }
+  updateStatusBar();
+}
+
+/**
+ * Arranca o para el sondeo local según lo que pide la consola: el monitor
+ * encendido, la consola abierta, la barra visible y un equipo que se pueda
+ * muestrear. Encendido sobrevive al cierre y la reapertura de la consola, como
+ * en SSH a la reconexión.
+ * @param {any} s
+ */
+function syncLocalMetricsPoller(s) {
+  if (!s) return;
+  const wanted = !!s._metricsOn
+    && s.status === "connected"
+    && localMachine.metrics
+    && prefs.localShellStatusBar !== false
+    && sessions.get(s.id) === s;
+  if (wanted) localMetricsPoller(s).start();
+  else s._localMetricsPoller?.stop();
+}
+
+/**
+ * Al abrir o reabrir una consola local: enciende su monitor si estaba
+ * encendido o si el usuario lo quiere siempre al conectar (como en SSH).
+ * @param {any} s
+ */
+async function resumeLocalMetrics(s) {
+  await ensureLocalMachineInfo();
+  if (!s || sessions.get(s.id) !== s || !statusBarModelFor(s)?.metrics) return;
+  if (prefs.metricsEnabled || s._metricsOn) setSessionMetrics(s.id, true);
 }
 
 /** Puntos de historia que se conservan por métrica (para los sparklines). */
@@ -16333,7 +18744,9 @@ function checkMetricsAlerts(s, st, m) {
   const res = computeMetricAlerts(st.alerts || {}, values, thresholds);
   st.alerts = res.active;
   if (!res.fired.length) return;
-  const name = profiles.find((p) => p.id === s.profileId)?.name || s.id;
+  const name = isLocalShellSession(s)
+    ? localUserHost(null, localMachine.host)
+    : profiles.find((p) => p.id === s.profileId)?.name || s.id;
   for (const key of res.fired) {
     toast(
       t(`metrics.alert_${key}`)
@@ -16355,9 +18768,14 @@ async function setSessionMetrics(sessionId, on) {
   if (!s) return;
   s._metricsOn = on;
   const secs = Math.max(1, Number(prefs.metricsSecs) || 3);
-  try {
-    await invoke("ssh_set_metrics", { sessionId, secs: on ? secs : null });
-  } catch { /* sesión ya cerrada */ }
+  if (isLocalShellSession(s)) {
+    // Consola local: muestrea este equipo con el sondeo del frontend.
+    syncLocalMetricsPoller(s);
+  } else {
+    try {
+      await invoke("ssh_set_metrics", { sessionId, secs: on ? secs : null });
+    } catch { /* sesión ya cerrada */ }
+  }
   if (!on && s._metrics) s._metrics.latest = null;
   if (sessionId === activeSessionId) {
     renderStatusMetrics(s);
@@ -16372,6 +18790,7 @@ function setActiveTab(sessionId) {
 function updateTabStatus(sessionId, status) {
   document.querySelector(`.tab[data-session="${sessionId}"] .tab-dot`)
     ?.setAttribute("class", `tab-dot ${status}`);
+  updateTabStateText(document.querySelector(`.tab[data-session="${CSS.escape(sessionId)}"]`));
   // Una sesión caída no sigue enseñando el progreso que dejó a medias.
   if (status === "closed" || status === "error") clearTabProgress(sessionId);
   if (sessionId === activeSessionId) updateStatusBar();
@@ -16406,6 +18825,30 @@ async function confirmCloseSftpPanel(sessionId) {
   });
 }
 
+/** Cuántos túneles se detallan en un aviso de cierre antes de resumir el resto. */
+const CLOSING_TUNNELS_LISTED = 5;
+
+/**
+ * Aviso de los túneles que se cierran con una pestaña: uno, en la misma frase;
+ * varios, en lista (acotada), para que se vea exactamente qué deja de escuchar.
+ * @param {object[]} tunnels
+ */
+function closingTunnelsWarning(tunnels) {
+  if (!tunnels.length) return "";
+  if (tunnels.length === 1) return t("tabctx.close_tunnels_one", { desc: describeTunnel(tunnels[0]) });
+  const lines = tunnels.slice(0, CLOSING_TUNNELS_LISTED).map((tunnel) => `• ${describeTunnel(tunnel)}`);
+  if (tunnels.length > CLOSING_TUNNELS_LISTED) {
+    lines.push(t("tabctx.close_tunnels_more", { n: tunnels.length - CLOSING_TUNNELS_LISTED }));
+  }
+  return `${t("tabctx.close_tunnels_many", { n: tunnels.length })}\n${lines.join("\n")}`;
+}
+
+/** Frase de túneles para los cierres en lote, que no detallan cada pestaña. */
+function closingTunnelsCountWarning(count) {
+  if (count <= 0) return "";
+  return count === 1 ? t("tabctx.close_many_tunnels_one") : t("tabctx.close_many_tunnels", { n: count });
+}
+
 async function confirmCloseSession(sessionId) {
   const s = sessions.get(sessionId);
   if (!s) return true;
@@ -16413,9 +18856,13 @@ async function confirmCloseSession(sessionId) {
   // pero no son conexiones remotas: su confirmación propia (aviso de proceso
   // activo) se gestiona en closeSession justo antes de ejecutar _closeOverride.
   if (s._closeOverride) return true;
-  if (!isSessionLive(s) && !sessionHasActiveTransfers(s)) return true;
+  // Túneles que dejan de escuchar al cerrar esta pestaña (los suyos y, si es
+  // la raíz de la conexión, los de sus hijas): se avisa de cuáles son.
+  const closingTunnels = tunnelsClosedWith(sessions, [sessionId]);
+  if (!isSessionLive(s) && !sessionHasActiveTransfers(s) && !closingTunnels.length) return true;
   const profile = profiles.find((p) => p.id === s.profileId);
   const name = profile?.name || (s.type ? s.type.toUpperCase() : t("tabctx.session_fallback"));
+  const tunnelsWarning = closingTunnels.length ? `\n\n${closingTunnelsWarning(closingTunnels)}` : "";
   const transfers = sessionHasActiveTransfers(s)
     ? `\n\n${t("tabctx.close_tab_transfers")}`
     : "";
@@ -16426,7 +18873,7 @@ async function confirmCloseSession(sessionId) {
   const children = liveChildren > 0 ? `\n\n${t("shell_child.close_children_warning")}` : "";
   return confirmThemed({
     title: t("tabctx.close_tab_title"),
-    message: `${t("tabctx.close_tab_msg", { name })}${transfers}${children}`,
+    message: `${t("tabctx.close_tab_msg", { name })}${tunnelsWarning}${transfers}${children}`,
     submitLabel: t("tabctx.close_tab_submit"),
     danger: true,
   });
@@ -16524,9 +18971,9 @@ async function closeSession(sessionId, opts = {}) {
   // zombi.
   for (const windowId of [...(s._tmuxWindows?.keys() || [])]) removeTmuxWindow(s, windowId);
   await invoke("ssh_disconnect", { sessionId }).catch(() => {});
-  // Cerrar una raíz cierra su conexión y sus túneles: fuera también de las
-  // listas (contador del rail incluido), los suyos y los de sus hijas.
-  if (!s._parentSessionId) forgetConnectionTunnels(sessionId);
+  // Cerrar una pestaña para sus túneles en el backend (una raíz, también los
+  // de sus hijas): fuera de las listas, contador del rail incluido.
+  forgetConnectionTunnels(sessionId);
   clearTerminalOutputQueue(s);
   s.terminal.dispose();
   sessions.delete(sessionId);
@@ -16565,7 +19012,10 @@ async function disconnectAll() {
 
   const ok = await confirmThemed({
     title: t("disconnect_all.title"),
-    message: t("disconnect_all.confirm", { n: liveIds.length, m: activeTransfers }),
+    message: t("disconnect_all.confirm", { n: liveIds.length, m: activeTransfers })
+      + (activeTunnelEntries().length
+        ? `\n\n${closingTunnelsCountWarning(activeTunnelEntries().length)}`
+        : ""),
     submitLabel: t("disconnect_all.submit"),
     danger: true,
   });
@@ -16922,6 +19372,357 @@ function openTrashModal() {
   overlay.classList.remove("hidden");
 }
 
+// ─── Edición en lote de conexiones ───────────────────────────────────────────
+// Varias conexiones (selección múltiple, una carpeta o un workspace) cambian a
+// la vez los campos que el usuario marca como «Cambiar»; lo demás no se toca.
+// La lógica vive en `modules/profiles/bulk-edit.js`; aquí solo el modal, la
+// persistencia (UN `save_profiles`: una transacción, una escritura, como pide
+// el invariante de lote) y el «Deshacer» del aviso. Nunca se escriben secretos:
+// las contraseñas se cambian asignando una credencial maestra del keyring.
+
+/** Ids de los perfiles que edita el modal abierto. */
+let bulkEditTargetIds = [];
+/** Último resumen calculado (para saber si «Aplicar» tiene algo que hacer). */
+let bulkEditLastSummary = null;
+
+function bulkEditTargets() {
+  const wanted = new Set(bulkEditTargetIds);
+  return profiles.filter((p) => wanted.has(p.id));
+}
+
+/** Perfiles de una carpeta (con sus subcarpetas) de un workspace. */
+function profilesInFolder(folderPath, workspaceId) {
+  return profiles.filter((p) => profileWorkspaceId(p) === workspaceId && folderContainsPath(p.group, folderPath));
+}
+
+function profilesInWorkspace(workspaceId) {
+  return profiles.filter((p) => profileWorkspaceId(p) === workspaceId);
+}
+
+/** Ids seleccionados en la barra lateral que siguen existiendo. */
+function selectedExistingProfileIds() {
+  return [...sidebarSelectedConnectionIds].filter((id) => profiles.some((p) => p.id === id));
+}
+
+function openBulkEditForSelection(targetId = null) {
+  const ids = selectedExistingProfileIds();
+  if (targetId && !ids.includes(targetId) && profiles.some((p) => p.id === targetId)) ids.push(targetId);
+  openBulkEditModal(ids, t("bulk_edit.scope_selection", { n: ids.length }));
+}
+
+function openBulkEditForFolder(folderPath, workspaceId) {
+  const ids = profilesInFolder(folderPath, workspaceId).map((p) => p.id);
+  openBulkEditModal(ids, t("bulk_edit.scope_folder", { name: folderPath, n: ids.length }));
+}
+
+function openBulkEditForWorkspace(workspaceId) {
+  const ids = profilesInWorkspace(workspaceId).map((p) => p.id);
+  const name = prefs.workspaces.find((w) => w.id === workspaceId)?.name || workspaceId;
+  openBulkEditModal(ids, t("bulk_edit.scope_workspace", { name, n: ids.length }));
+}
+
+/**
+ * Etiquetas y visibilidad de las tres entradas «Editar N conexiones…» del menú
+ * contextual: selección múltiple (sobre una conexión seleccionada), carpeta y
+ * workspace. Una carpeta o workspace sin conexiones no la ofrece.
+ */
+function updateBulkEditMenuEntries(type, id, folderPath, workspaceId, isRealFolder) {
+  const setEntry = (elId, labelId, visible, labelKey, n) => {
+    document.getElementById(elId)?.classList.toggle("hidden", !visible);
+    const label = document.getElementById(labelId);
+    if (label && visible) label.textContent = t(labelKey, { n });
+  };
+  const selected = selectedExistingProfileIds();
+  const multi = type === "connection" && !!id && selected.includes(id) && selected.length > 1;
+  setEntry("ctx-bulk-edit-selection", "ctx-bulk-edit-selection-label", multi, "bulk_edit.ctx_selection", selected.length);
+  const nFolder = isRealFolder ? profilesInFolder(folderPath, workspaceId || getActiveWorkspaceId()).length : 0;
+  setEntry("ctx-bulk-edit-folder", "ctx-bulk-edit-folder-label", isRealFolder && nFolder > 0, "bulk_edit.ctx_folder", nFolder);
+  const nWs = type === "workspace" && workspaceId ? profilesInWorkspace(workspaceId).length : 0;
+  setEntry("ctx-bulk-edit-ws", "ctx-bulk-edit-ws-label", type === "workspace" && nWs > 0, "bulk_edit.ctx_workspace", nWs);
+}
+
+function openBulkEditModal(ids, scopeText) {
+  const overlay = document.getElementById("bulk-edit-overlay");
+  if (!overlay) return;
+  bulkEditTargetIds = [...new Set(ids)].filter((id) => profiles.some((p) => p.id === id));
+  if (!bulkEditTargetIds.length) {
+    toast(t("bulk_edit.none_selected"), "warning");
+    return;
+  }
+  const scope = document.getElementById("bulk-edit-scope");
+  if (scope) scope.textContent = scopeText;
+  resetBulkEditForm();
+  populateBulkEditOptions();
+  updateBulkEditSummary();
+  overlay.classList.remove("hidden");
+}
+
+function closeBulkEditModal() {
+  document.getElementById("bulk-edit-overlay")?.classList.add("hidden");
+  bulkEditTargetIds = [];
+  bulkEditLastSummary = null;
+}
+
+/** Activa o desactiva los controles de un campo (también el desplegable propio). */
+function setBulkFieldEnabled(key, on) {
+  const row = document.querySelector(`.bulk-field[data-bulk-field="${key}"]`);
+  if (!row) return;
+  row.classList.toggle("is-on", on);
+  row.querySelectorAll(".bulk-control input, .bulk-control select, .bulk-control .custom-select-display")
+    .forEach((el) => { el.disabled = !on; });
+}
+
+function resetBulkEditForm() {
+  const form = document.getElementById("bulk-edit-form");
+  form?.reset();
+  for (const key of BULK_FIELD_KEYS) {
+    const cb = document.getElementById(`bulk-on-${key}`);
+    if (cb) cb.checked = false;
+    setBulkFieldEnabled(key, false);
+  }
+  updateBulkEditSubRows();
+  const preview = document.getElementById("bulk-host-preview");
+  if (preview) { preview.textContent = ""; preview.classList.add("hidden"); }
+  document.getElementById("bulk-edit-error")?.classList.add("hidden");
+}
+
+/** Filas dependientes: ruta de clave, dirección manual del bastión y carpeta nueva. */
+function updateBulkEditSubRows() {
+  document.getElementById("bulk-key-path-row")?.classList.toggle("hidden", document.getElementById("bulk-auth")?.value !== "public_key");
+  document.getElementById("bulk-proxy-jump-row")?.classList.toggle("hidden", document.getElementById("bulk-bastion")?.value !== "manual");
+  document.getElementById("bulk-folder-new-row")?.classList.toggle("hidden", document.getElementById("bulk-folder")?.value !== "__new__");
+}
+
+/** Opciones que dependen del catálogo: credenciales maestras, bastiones y carpetas. */
+function populateBulkEditOptions() {
+  const targets = bulkEditTargets();
+  const targetIds = new Set(bulkEditTargetIds);
+
+  const bastion = document.getElementById("bulk-bastion");
+  if (bastion) {
+    for (const opt of [...bastion.options]) if (opt.value.startsWith("profile:")) opt.remove();
+    for (const p of bastionChoices(profiles, null)) {
+      if (targetIds.has(p.id)) continue; // a sí misma, nunca
+      const opt = document.createElement("option");
+      opt.value = `profile:${p.id}`;
+      opt.textContent = t("jump.choice_label", { name: jumpProfileName(p), target: jumpProfileTarget(p) });
+      bastion.appendChild(opt);
+    }
+    bastion.value = "";
+  }
+
+  const folder = document.getElementById("bulk-folder");
+  if (folder) {
+    for (const opt of [...folder.options]) if (opt.value && opt.value !== "__new__") opt.remove();
+    const folders = new Set();
+    for (const ws of new Set(targets.map(profileWorkspaceId))) for (const f of getWorkspaceFolders(ws)) folders.add(f);
+    for (const p of targets) if (p.group) folders.add(p.group);
+    const newOpt = folder.querySelector('option[value="__new__"]');
+    for (const f of [...folders].sort((a, b) => a.localeCompare(b))) {
+      const opt = document.createElement("option");
+      opt.value = f;
+      opt.textContent = f;
+      folder.insertBefore(opt, newOpt);
+    }
+    folder.value = "";
+  }
+
+  const master = document.getElementById("bulk-master-cred");
+  if (master) {
+    for (const opt of [...master.options]) if (opt.value) opt.remove();
+    invoke("master_cred_list").then((all) => {
+      if (!document.getElementById("bulk-edit-overlay") || bulkEditTargetIds.length === 0) return;
+      for (const cred of (all || []).filter((c) => c.kind === "master")) {
+        const opt = document.createElement("option");
+        opt.value = cred.id;
+        opt.textContent = cred.name;
+        master.appendChild(opt);
+      }
+    }).catch(() => {});
+  }
+
+  // Cuántas de las seleccionadas no admiten cada campo, antes de elegir valor.
+  for (const key of BULK_FIELD_KEYS) {
+    const n = targets.filter((p) => !bulkFieldAdmits(key, p)).length;
+    const el = document.querySelector(`[data-bulk-skip="${key}"]`);
+    if (!el) continue;
+    el.textContent = n ? t("bulk_edit.skip_count", { n }) : "";
+    el.classList.toggle("hidden", n === 0);
+  }
+}
+
+/** El parche con solo los campos marcados, leído de los controles. */
+function readBulkPatch() {
+  const on = (key) => !!document.getElementById(`bulk-on-${key}`)?.checked;
+  const val = (id) => document.getElementById(id)?.value ?? "";
+  const patch = {};
+  if (on("username")) patch.username = val("bulk-username").trim();
+  if (on("port")) patch.port = parseInt(val("bulk-port"), 10);
+  if (on("auth")) patch.auth = { auth_type: val("bulk-auth"), key_path: val("bulk-key-path").trim() || null };
+  if (on("master_credential")) patch.master_credential = val("bulk-master-cred") || null;
+  if (on("bastion")) {
+    const mode = val("bulk-bastion");
+    patch.bastion = mode === "" ? null : mode === "manual" ? { text: val("bulk-proxy-jump").trim() } : { profile_id: mode.slice(8) };
+  }
+  if (on("keep_alive_secs")) patch.keep_alive_secs = keepAliveFromInput(val("bulk-keep-alive"));
+  if (on("auto_reconnect")) patch.auto_reconnect = autoReconnectFromInput(val("bulk-auto-reconnect"));
+  if (on("environment")) patch.environment = val("bulk-environment") || null;
+  if (on("legacy")) patch.legacy = val("bulk-legacy") === "on";
+  if (on("session_log")) patch.session_log = val("bulk-session-log") === "on";
+  if (on("open_read_only")) patch.open_read_only = val("bulk-open-read-only") === "on";
+  if (on("group")) {
+    const f = val("bulk-folder");
+    patch.group = f === "__new__" ? (val("bulk-folder-new").trim() || null) : (f || null);
+  }
+  if (on("host_replace")) patch.host_replace = { from: val("bulk-host-from"), to: val("bulk-host-to") };
+  return patch;
+}
+
+/** Resumen en vivo («Se cambiarán N campos en M conexiones»), saltos por campo y vista previa del host. */
+function updateBulkEditSummary() {
+  const targets = bulkEditTargets();
+  const patch = readBulkPatch();
+  const invalid = validateBulkPatch(patch);
+  const summary = summarizeBulkEdit(targets, patch, { catalog: profiles });
+  bulkEditLastSummary = summary;
+
+  const text = document.getElementById("bulk-edit-summary");
+  if (text) {
+    if (summary.fields === 0) text.textContent = t("bulk_edit.summary_none", { n: targets.length });
+    else if (summary.changed === 0 && !invalid.length) text.textContent = t("bulk_edit.summary_nochange");
+    else {
+      const parts = [t("bulk_edit.summary", { fields: summary.fields, n: summary.changed, total: targets.length })];
+      if (summary.skippedProfiles) parts.push(t("bulk_edit.summary_skipped", { n: summary.skippedProfiles }));
+      text.textContent = parts.join(" ");
+    }
+  }
+  // En los campos marcados, el salto real (incluye bucles de bastión).
+  for (const key of Object.keys(summary.skipped)) {
+    const el = document.querySelector(`[data-bulk-skip="${key}"]`);
+    if (!el) continue;
+    const n = summary.skipped[key];
+    el.textContent = n ? t("bulk_edit.skip_count", { n }) : "";
+    el.classList.toggle("hidden", n === 0);
+  }
+  const preview = document.getElementById("bulk-host-preview");
+  if (preview) {
+    preview.textContent = "";
+    const rows = summary.hostPreview;
+    preview.classList.toggle("hidden", rows.length === 0);
+    for (const row of rows.slice(0, 8)) {
+      const li = document.createElement("li");
+      li.textContent = `${row.before} → ${row.after}`;
+      preview.appendChild(li);
+    }
+    if (rows.length > 8) {
+      const li = document.createElement("li");
+      li.textContent = t("bulk_edit.host_preview_more", { n: rows.length - 8 });
+      preview.appendChild(li);
+    }
+  }
+  const error = document.getElementById("bulk-edit-error");
+  if (error) {
+    if (invalid.length) {
+      const field = document.getElementById(`bulk-lbl-${invalid[0]}`)?.textContent || invalid[0];
+      error.textContent = t("bulk_edit.invalid_field", { field });
+    }
+    error.classList.toggle("hidden", invalid.length === 0);
+  }
+  const apply = document.getElementById("bulk-edit-apply");
+  if (apply) apply.disabled = summary.fields === 0 || invalid.length > 0 || summary.changed === 0;
+}
+
+/** Aplica el lote: un solo `save_profiles`, carpetas nuevas registradas y aviso con «Deshacer». */
+async function applyBulkEditFromModal() {
+  const targets = bulkEditTargets();
+  const patch = readBulkPatch();
+  if (validateBulkPatch(patch).length) { updateBulkEditSummary(); return; }
+  const now = new Date().toISOString();
+  const result = applyBulkEdit(targets, patch, { now, catalog: profiles });
+  if (!result.changed) { updateBulkEditSummary(); return; }
+  const undo = buildBulkUndo(targets, result);
+  try {
+    await invoke("save_profiles", { profiles: result.profiles });
+  } catch (err) {
+    toast(t("bulk_edit.save_error", { err }), "error");
+    return;
+  }
+  for (const p of result.profiles) {
+    const idx = profiles.findIndex((x) => x.id === p.id);
+    if (idx >= 0) profiles[idx] = p;
+  }
+  // Una carpeta nueva se da de alta en cada workspace afectado (como el formulario).
+  if (Object.prototype.hasOwnProperty.call(patch, "group")) {
+    for (const p of result.profiles) {
+      if (!p.group) continue;
+      const ws = profileWorkspaceId(p);
+      const current = getWorkspaceFolders(ws);
+      if (!current.includes(p.group)) saveWorkspaceFolders(ws, [...current, p.group]);
+    }
+  }
+  renderConnectionList();
+  renderDashboard();
+  scheduleProfileAutoSync();
+  closeBulkEditModal();
+  toast(t("bulk_edit.applied", { fields: result.summary.fields, n: result.changed }), "success", 8000, {
+    actionLabel: t("trash.undo"),
+    onAction: () => undoBulkEdit(undo),
+  });
+}
+
+/** Devuelve la foto anterior (con fecha nueva, para que la sync la tome por la última edición). */
+async function undoBulkEdit(undo) {
+  const restore = applyBulkUndo(undo, { now: new Date().toISOString(), existingIds: profiles.map((p) => p.id) });
+  if (!restore.length) { toast(t("bulk_edit.undo_nothing"), "info"); return; }
+  try {
+    await invoke("save_profiles", { profiles: restore });
+  } catch (err) {
+    toast(t("bulk_edit.save_error", { err }), "error");
+    return;
+  }
+  for (const p of restore) {
+    const idx = profiles.findIndex((x) => x.id === p.id);
+    if (idx >= 0) profiles[idx] = p;
+  }
+  renderConnectionList();
+  renderDashboard();
+  scheduleProfileAutoSync();
+  toast(t("bulk_edit.undone", { n: restore.length }), "success");
+}
+
+function bindBulkEditModal() {
+  const form = document.getElementById("bulk-edit-form");
+  if (!form) return;
+  form.addEventListener("change", (e) => {
+    const target = e.target;
+    if (target instanceof HTMLInputElement && target.classList.contains("bulk-on")) {
+      const key = target.dataset.bulkField;
+      setBulkFieldEnabled(key, target.checked);
+      if (target.checked) {
+        const first = document.querySelector(`.bulk-field[data-bulk-field="${key}"] .bulk-control input:not([disabled]), .bulk-field[data-bulk-field="${key}"] .bulk-control select:not([disabled])`);
+        first?.focus();
+      }
+    }
+    updateBulkEditSubRows();
+    updateBulkEditSummary();
+  });
+  form.addEventListener("input", () => updateBulkEditSummary());
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    applyBulkEditFromModal();
+  });
+  document.getElementById("bulk-edit-close")?.addEventListener("click", closeBulkEditModal);
+  document.getElementById("bulk-edit-cancel")?.addEventListener("click", closeBulkEditModal);
+}
+
+/** Usuario local del sistema (`local_username`), o `null` si no se obtuvo. */
+let localUsername = /** @type {string|null} */ (null);
+
+/** Usuario de la conexión rápida cuando el destino no lo lleva: el local, o `root` de reserva. */
+function quickDefaultUser() {
+  return localUsername || QUICK_DEFAULT_USER;
+}
+
 /**
  * Conexión rápida a `[usuario@]host[:puerto]`, común al primer inicio y a la
  * paleta: si ya hay un perfil SSH con ese mismo destino conecta a él (repetir
@@ -16956,7 +19757,7 @@ async function quickConnectToTarget(target) {
 /** Conexión rápida del primer inicio: guarda un perfil mínimo y conecta. */
 async function quickConnectFromFirstRun() {
   const input = document.getElementById("firstrun-quick-input");
-  const target = parseQuickTarget(input?.value);
+  const target = parseQuickTarget(input?.value, { defaultUser: quickDefaultUser() });
   if (!target) {
     toast(t("firstrun.quick_invalid"), "warning");
     input?.focus();
@@ -17199,36 +20000,63 @@ async function deleteSelectedProfiles(targetId) {
  * cual y, si el original tiene contraseña/passphrase en el keyring, también
  * se replican bajo la nueva clave `password:<id>` / `passphrase:<id>`.
  */
+/**
+ * «Duplicar»: abre el formulario relleno con los datos del original, en modo
+ * «nueva conexión». Nada se crea hasta pulsar Guardar; cancelar o cerrar el
+ * formulario no deja ninguna copia. Los secretos del original se precargan en
+ * los campos (y los de las identidades adicionales se copian al guardar).
+ */
 async function duplicateProfile(profileId) {
   const original = profiles.find((p) => p.id === profileId);
   if (!original) return;
-  const copy = {
-    ...original,
-    id: crypto.randomUUID(),
-    name: t("ctx.duplicate_name", { name: original.name }),
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  };
-  try {
-    await invoke("save_profile", { profile: copy });
-    const [pw, pp] = await Promise.all([
-      getStoredSecret(passwordKey(original.id)),
-      getStoredSecret(passphraseKey(original.id)),
-    ]);
-    if (pw) await saveStoredSecret(passwordKey(copy.id), pw, t("toast.secret_password"));
-    if (pp) await saveStoredSecret(passphraseKey(copy.id), pp, t("toast.secret_passphrase"));
-    // Replicar las contraseñas de las identidades adicionales bajo el id nuevo.
-    for (const c of original.extra_credentials || []) {
-      const ePw = await getStoredSecret(credPasswordKey(original.id, c.id));
-      if (ePw) await saveStoredSecret(credPasswordKey(copy.id, c.id), ePw, t("toast.secret_password"));
+  // Mismo relleno que «Editar» y, encima, el modo borrador.
+  openEditConnectionModal(profileId);
+  editingProfileId = null;
+  duplicatingFromId = profileId;
+  // Las identidades adicionales no «existían» en la copia: nada que borrar.
+  originalExtraCredIds = [];
+  document.getElementById("modal-title").textContent = t("modal_conn.title_duplicate");
+  document.getElementById("f-name").value = t("ctx.duplicate_name", { name: original.name });
+  // La pestaña Notas vuelve al estado de una conexión sin guardar.
+  setupModalNotePane();
+  renderConnectionSummary();
+
+  // Secretos del original en el formulario: así Guardar los escribe bajo el id
+  // nuevo por el camino normal (y se pueden cambiar antes de guardar).
+  if (!original.keepass_entry_uuid) {
+    const pw = await getStoredSecret(passwordKey(original.id));
+    if (pw && duplicatingFromId === profileId) document.getElementById("f-password").value = pw;
+  }
+  if (original.auth_type === "public_key") {
+    const pp = await getStoredSecret(passphraseKey(original.id));
+    if (pp && duplicatingFromId === profileId) document.getElementById("f-passphrase").value = pp;
+  }
+  if (duplicatingFromId === profileId) {
+    document.getElementById("f-name")?.select();
+  }
+}
+
+/**
+ * Copia bajo el perfil nuevo los secretos de las identidades adicionales del
+ * original que el usuario no ha reescrito en el formulario de «Duplicar».
+ * @param {any} original
+ * @param {any} copy
+ * @param {Set<string>} written claves de keyring ya escritas al guardar.
+ */
+async function copyDuplicatedExtraSecrets(original, copy, written) {
+  const originalIds = new Set((original.extra_credentials || []).map((c) => c.id));
+  for (const c of copy.extra_credentials || []) {
+    if (!originalIds.has(c.id)) continue;
+    const pairs = c.auth_type === "public_key"
+      ? [[credPassphraseKey(original.id, c.id), credPassphraseKey(copy.id, c.id), "toast.secret_passphrase"]]
+      : (c.password_source || "own") === "own"
+        ? [[credPasswordKey(original.id, c.id), credPasswordKey(copy.id, c.id), "toast.secret_password"]]
+        : [];
+    for (const [from, to, label] of pairs) {
+      if (written.has(to)) continue;
+      const secret = await getStoredSecret(from);
+      if (secret) await saveStoredSecret(to, secret, t(label));
     }
-    profiles = await invoke("get_profiles");
-    renderConnectionList();
-    scheduleProfileAutoSync();
-    openEditConnectionModal(copy.id);
-    toast(t("toast.conn_duplicated", { name: copy.name }), "success");
-  } catch (err) {
-    toast(t("toast.conn_duplicate_error", { err }), "error");
   }
 }
 
@@ -17848,7 +20676,7 @@ function openScriptEditor(script = null, presetTarget = null) {
 function scriptProfileOptionLabel(p) {
   const wsId = p.workspace_id || "default";
   const ws = (prefs.workspaces || []).find((w) => w.id === wsId);
-  return `${p.name || p.host || p.id} — ${ws ? ws.name || ws.id : wsId}`;
+  return `${p.name || p.host || p.id} — ${ws ? workspaceLabel(ws) : wsId}`;
 }
 
 /** Rutas de carpeta disponibles en un workspace (de perfiles + manuales). */
@@ -17899,7 +20727,7 @@ function renderScriptTargetEditor() {
   // Carpeta: workspace + ruta + recursivo
   const wsSel = document.getElementById("script-ed-target-ws");
   wsSel.innerHTML = (prefs.workspaces || [])
-    .map((w) => `<option value="${escHtml(w.id)}">${escHtml(w.name || w.id)}</option>`)
+    .map((w) => `<option value="${escHtml(w.id)}">${escHtml(workspaceLabel(w))}</option>`)
     .join("");
   const wsId = (kind === "folder" && target.workspaceId) || getActiveWorkspaceId();
   if ([...wsSel.options].some((o) => o.value === wsId)) wsSel.value = wsId;
@@ -19693,6 +22521,7 @@ function tunnelBadgeHtml(profileId) {
  */
 function refreshTunnelIndicators() {
   updateTunnelsRailIndicator();
+  refreshStatusTunnels();
   const container = document.getElementById("connection-list");
   if (!container) return;
   for (const el of container.querySelectorAll(".conn-item[data-id]")) {
@@ -19730,8 +22559,9 @@ function renderGlobalTunnelLists() {
           <span class="tunnel-kind">${tunnel.tunnelType === "dynamic" ? "SOCKS" : tunnel.tunnelType.toUpperCase()}</span>
           <span class="global-tunnel-profile">${escHtml(profile?.name || "SSH")}</span>
           <span class="global-tunnel-desc">${escHtml(describeTunnel(tunnel))}</span>
-          <span class="global-tunnel-meta">↑ ${formatSize(tunnel.bytesUp || 0)} · ↓ ${formatSize(tunnel.bytesDown || 0)}</span>
+          <span class="global-tunnel-meta">↑ ${formatSize(tunnel.bytesUp || 0)} · ↓ ${formatSize(tunnel.bytesDown || 0)} · ${tunnelConnectionsHtml(tunnel)}</span>
           <span class="global-tunnel-row-actions">
+            ${localTunnelActionsHtml(tunnel, "data-global-tunnel-action")}
             <button type="button" class="btn-secondary btn-compact danger" data-global-tunnel-action="stop-active">${escHtml(t("tunnels.stop_short"))}</button>
           </span>
         </div>`)
@@ -19962,7 +22792,7 @@ async function startSshTunnel(sessionId, cfg, opts = {}) {
  */
 function forgetConnectionTunnels(closedId) {
   let changed = false;
-  for (const sid of connectionTunnelOwners(sessions, closedId, isSessionLive)) {
+  for (const sid of connectionTunnelOwners(sessions, closedId)) {
     const owner = sessions.get(sid);
     if (!owner?.tunnels?.size) continue;
     for (const tunnel of owner.tunnels.values()) tunnel.status = "closed";
@@ -20038,8 +22868,11 @@ function renderTunnelList(sessionId) {
         <strong>${escHtml(tun.name || describeTunnel(tun))}</strong>
         <small>${escHtml(describeTunnel(tun))}</small>
       </span>
-      <span class="tunnel-traffic">↑ ${formatSize(tun.bytesUp || 0)} · ↓ ${formatSize(tun.bytesDown || 0)}</span>
-      <button type="button" class="tunnel-stop" title="${escHtml(t("tunnels.stop"))}"><svg class="icon-x-svg" aria-hidden="true"><use href="#ci-x"/></svg></button>
+      <span class="tunnel-traffic">↑ ${formatSize(tun.bytesUp || 0)} · ↓ ${formatSize(tun.bytesDown || 0)} · ${tunnelConnectionsHtml(tun)}</span>
+      <span class="tunnel-row-actions">
+        ${localTunnelActionsHtml(tun, "data-tunnel-action")}
+        <button type="button" class="tunnel-stop" title="${escHtml(t("tunnels.stop"))}" aria-label="${escHtml(t("tunnels.stop"))}"><svg class="icon-x-svg" aria-hidden="true"><use href="#ci-x"/></svg></button>
+      </span>
     </div>`).join("");
   list.querySelectorAll(".tunnel-stop").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -20047,6 +22880,78 @@ function renderTunnelList(sessionId) {
       if (id) stopSshTunnel(sessionId, id);
     });
   });
+  list.querySelectorAll("[data-tunnel-action]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.closest(".tunnel-row")?.dataset.tunnelId;
+      const tun = id ? s.tunnels?.get(id) : null;
+      if (tun) runLocalTunnelAction(btn.getAttribute("data-tunnel-action"), tun);
+    });
+  });
+}
+
+/** Sesiones con datos de túnel nuevos por pintar en el próximo frame. */
+const _tunnelTrafficDirty = new Set();
+let _tunnelTrafficFrame = 0;
+
+/**
+ * Repinta las listas de túneles con los datos de tráfico recibidos, como mucho
+ * una vez por frame: además del tráfico (ya coalescido en el backend), cada
+ * conexión que se abre o se cierra manda su evento, y un navegador por un
+ * SOCKS abre decenas por segundo.
+ * @param {string} sessionId
+ */
+function scheduleTunnelTrafficRender(sessionId) {
+  _tunnelTrafficDirty.add(sessionId);
+  if (_tunnelTrafficFrame) return;
+  _tunnelTrafficFrame = requestAnimationFrame(() => {
+    _tunnelTrafficFrame = 0;
+    const dirty = [..._tunnelTrafficDirty];
+    _tunnelTrafficDirty.clear();
+    for (const sid of dirty) renderTunnelList(sid);
+    if (isGlobalTunnelsModalOpen()) renderGlobalTunnelLists();
+  });
+}
+
+/**
+ * Cuántas conexiones tiene abiertas ahora un túnel (lo cuenta el backend en
+ * cada evento de tráfico: sube al abrir un canal y baja al cerrarlo).
+ * @param {{ activeConnections?: number }} tun
+ */
+function tunnelConnectionsHtml(tun) {
+  const n = Number(tun.activeConnections) || 0;
+  return `<span class="tunnel-conns${n ? " is-active" : ""}" title="${escHtml(t("tunnels.connections_title"))}">${escHtml(t("tunnels.connections", { n }))}</span>`;
+}
+
+/**
+ * «Copiar dirección» y «Abrir en el navegador» de un túnel local (`-L`). Los
+ * SOCKS y los remotos no tienen un servicio local al que apuntar: nada.
+ * @param {object} tun
+ * @param {string} attr  Atributo con el que el llamador reconoce la acción.
+ */
+function localTunnelActionsHtml(tun, attr) {
+  if (!localTunnelAddress(tun)) return "";
+  const copy = escHtml(t("tunnels.copy_address"));
+  const open = escHtml(t("tunnels.open_browser"));
+  return `<button type="button" class="tunnel-action" ${attr}="copy-address" title="${copy}" aria-label="${copy}"><svg class="icon-x-svg" aria-hidden="true"><use href="#ci-copy"/></svg></button>
+        <button type="button" class="tunnel-action" ${attr}="open-browser" title="${open}" aria-label="${open}"><svg class="icon-x-svg" aria-hidden="true"><use href="#ci-external"/></svg></button>`;
+}
+
+/**
+ * Ejecuta una acción de túnel local: copiar `host:puerto` o abrir
+ * `http://host:puerto/` con el opener del sistema (el mismo de los enlaces).
+ * @param {string | null} action
+ * @param {object} tun
+ */
+async function runLocalTunnelAction(action, tun) {
+  if (action === "copy-address") {
+    const address = localTunnelAddress(tun);
+    if (!address) return;
+    await writeSystemClipboardText(address);
+    toast(t("toast.host_copied", { host: address }), "success");
+  } else if (action === "open-browser") {
+    const url = localTunnelUrl(tun);
+    if (url) openExternalUrl(url);
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -20062,6 +22967,8 @@ async function openLocalShell() {
   const fakeProfile = { id: sessionId, name: `${shellName} #${localShellCounter}`, host: "local", port: 0, username: "" };
 
   createTerminalTab(sessionId, fakeProfile, "connecting", { sftp: false });
+  // Usuario y equipo para la barra inferior (una vez por arranque).
+  ensureLocalMachineInfo();
 
   const s = sessions.get(sessionId);
   // El resize de la consola local viaja por su propio comando IPC.
@@ -20078,11 +22985,6 @@ async function openLocalShell() {
         shellIntegration: prefs.localShellIntegration === true,
       },
     });
-    // Si el cierre no se adelantó al connect, marcamos la sesión como conectada.
-    if (s.status !== "closed") {
-      s.status = "connected";
-      updateTabStatus(sessionId, "connected");
-    }
 
     // Nota: el input ya lo enruta `handleTerminalInput` (registrado en createTerminalTab)
     // detectando el tipo de sesión por `_closeOverride`. El resize también lo
@@ -20090,14 +22992,25 @@ async function openLocalShell() {
     // enruta al comando correcto gracias a `_resizeCmd` (fijado arriba).
 
     // Sobreescribir el cierre de sesión para usar el comando de shell.
-    // closeSession llama a removeTab() tras ejecutar este override.
+    // closeSession llama a removeTab() tras ejecutar este override. Va antes
+    // de marcarla conectada: es lo que la reconoce como consola local, y el
+    // repintado de la barra inferior de ese momento tiene que verla así.
     s._closeOverride = async () => {
+      s._localMetricsPoller?.stop();
       for (const ul of s.unlisteners) { try { ul(); } catch {} }
       await invoke("local_shell_close", { sessionId }).catch(() => {});
       clearTerminalOutputQueue(s);
       s.terminal.dispose();
       sessions.delete(sessionId);
     };
+    // Si el cierre no se adelantó al connect, marcamos la sesión como conectada.
+    if (s.status !== "closed") {
+      s.status = "connected";
+      updateTabStatus(sessionId, "connected");
+      resumeLocalMetrics(s);
+    } else if (sessionId === activeSessionId) {
+      updateStatusBar();
+    }
   } catch (err) {
     for (const ul of s.unlisteners) { try { ul(); } catch {} }
     sessions.delete(sessionId);
@@ -20917,7 +23830,7 @@ function buildSftpPanel(sessionId) {
         <button class="sftp-nav-btn" data-sftp-nav="forward" data-side="local" title="${escHtml(t("sftp_nav.forward"))}" aria-label="${escHtml(t("sftp_nav.forward"))}" disabled><svg class="icon-x-svg" aria-hidden="true"><use href="#ci-arrow-right"/></svg></button>
         <button class="sftp-nav-btn" data-sftp-nav="up" data-side="local" title="${escHtml(t("sftp_nav.up"))}"><svg class="icon-x-svg" aria-hidden="true"><use href="#ci-arrow-up"/></svg></button>
         <button class="sftp-nav-btn" data-sftp-nav="home" data-side="local" title="${escHtml(t("sftp_nav.home"))}"><svg class="icon-x-svg" aria-hidden="true"><use href="#ci-home"/></svg></button>
-        <button class="sftp-nav-btn" data-sftp-nav="refresh" data-side="local" title="${escHtml(t("sftp_nav.refresh"))}">⟳</button>
+        <button class="sftp-nav-btn" data-sftp-nav="refresh" data-side="local" title="${escHtml(t("sftp_nav.refresh"))}"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-refresh"/></svg></button>
         <div class="sftp-path-wrap" data-side="local">
           <nav class="sftp-breadcrumb" data-side="local" aria-label="${escHtml(t("sftp_nav.breadcrumb_label"))}"></nav>
           <input class="sftp-path hidden" data-side="local" type="text" spellcheck="false" />
@@ -20937,6 +23850,7 @@ function buildSftpPanel(sessionId) {
       <div class="sftp-columns" data-side="local">
         <button type="button" class="sftp-sort-btn sftp-sort-type" data-side="local" data-sftp-sort="type">${escHtml(t("sftp.col_type"))}</button>
         <button type="button" class="sftp-sort-btn sftp-sort-name" data-side="local" data-sftp-sort="name">${escHtml(t("sftp.col_name"))}</button>
+        <span class="sftp-col-title sftp-col-perms">${escHtml(t("sftp.col_perms"))}</span>
         <button type="button" class="sftp-sort-btn sftp-sort-size" data-side="local" data-sftp-sort="size">${escHtml(t("sftp.col_size"))}</button>
         <button type="button" class="sftp-sort-btn sftp-sort-modified" data-side="local" data-sftp-sort="modified">${escHtml(t("sftp.col_modified"))}</button>
         <span></span>
@@ -20955,13 +23869,17 @@ function buildSftpPanel(sessionId) {
       <div class="sftp-side-title">
         <span>${escHtml(t("toast.side_remote"))}</span>
         <span class="sftp-sudo-badge hidden" data-sftp-sudo-badge title="${escHtml(t("sftp.sudo_badge"))}">sudo</span>
+        <span class="sftp-space hidden" data-sftp-space>
+          <span class="sftp-space-text"></span>
+          <span class="sftp-space-bar" aria-hidden="true"><span class="sftp-space-fill"></span></span>
+        </span>
       </div>
       <div class="sftp-toolbar">
         <button class="sftp-nav-btn" data-sftp-nav="back" data-side="remote" title="${escHtml(t("sftp_nav.back"))}" aria-label="${escHtml(t("sftp_nav.back"))}" disabled><svg class="icon-x-svg" aria-hidden="true"><use href="#ci-arrow-left"/></svg></button>
         <button class="sftp-nav-btn" data-sftp-nav="forward" data-side="remote" title="${escHtml(t("sftp_nav.forward"))}" aria-label="${escHtml(t("sftp_nav.forward"))}" disabled><svg class="icon-x-svg" aria-hidden="true"><use href="#ci-arrow-right"/></svg></button>
         <button class="sftp-nav-btn" data-sftp-nav="up" data-side="remote" title="${escHtml(t("sftp_nav.up"))}"><svg class="icon-x-svg" aria-hidden="true"><use href="#ci-arrow-up"/></svg></button>
         <button class="sftp-nav-btn" data-sftp-nav="home" data-side="remote" title="${escHtml(t("sftp_nav.home"))}"><svg class="icon-x-svg" aria-hidden="true"><use href="#ci-home"/></svg></button>
-        <button class="sftp-nav-btn" data-sftp-nav="refresh" data-side="remote" title="${escHtml(t("sftp_nav.refresh"))}">⟳</button>
+        <button class="sftp-nav-btn" data-sftp-nav="refresh" data-side="remote" title="${escHtml(t("sftp_nav.refresh"))}"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-refresh"/></svg></button>
         <button class="sftp-nav-btn sftp-follow-btn" data-sftp-nav="follow"
                 title="${escHtml(t("sftp.follow_cwd"))}">CWD</button>
         <button class="sftp-nav-btn sftp-sudo-btn" data-sftp-nav="sudo"
@@ -20985,6 +23903,7 @@ function buildSftpPanel(sessionId) {
       <div class="sftp-columns" data-side="remote">
         <button type="button" class="sftp-sort-btn sftp-sort-type" data-side="remote" data-sftp-sort="type">${escHtml(t("sftp.col_type"))}</button>
         <button type="button" class="sftp-sort-btn sftp-sort-name" data-side="remote" data-sftp-sort="name">${escHtml(t("sftp.col_name"))}</button>
+        <span class="sftp-col-title sftp-col-perms">${escHtml(t("sftp.col_perms"))}</span>
         <button type="button" class="sftp-sort-btn sftp-sort-size" data-side="remote" data-sftp-sort="size">${escHtml(t("sftp.col_size"))}</button>
         <button type="button" class="sftp-sort-btn sftp-sort-modified" data-side="remote" data-sftp-sort="modified">${escHtml(t("sftp.col_modified"))}</button>
         <span></span>
@@ -21069,12 +23988,14 @@ function buildSftpPanel(sessionId) {
   updatePauseAllButtons();
 
   panel.querySelector(".sftp-transfers-clear").addEventListener("click", () => {
-    panel.querySelectorAll(".sftp-transfer.done, .sftp-transfer.canceled").forEach((el) => {
-      const transferId = el.dataset.transfer;
-      sessions.get(sessionId)?.sftp?.transfers?.delete(transferId);
-      el.remove();
-    });
-    updateTransfersVisibility(panel);
+    clearFinishedSftpTransfers(panel, sessionId);
+  });
+  // Clic derecho sobre una transferencia: sus acciones, más ir a lo transferido.
+  panel.querySelector(".sftp-transfers")?.addEventListener("contextmenu", (e) => {
+    const el = e.target.closest?.(".sftp-transfer");
+    if (!el) return;
+    e.preventDefault();
+    showSftpTransferMenu(e.clientX, e.clientY, sessionId, el);
   });
   panel.querySelector(".sftp-activity-clear").addEventListener("click", () => {
     panel.querySelector(".sftp-activity-log").innerHTML = "";
@@ -21181,9 +24102,12 @@ function isCurrentSftpNavigation(s, side, token) {
  * historial: volver Atrás no debe apilar una entrada nueva, o el botón Adelante
  * nunca llegaría a activarse.
  */
-async function navigateSftpRemote(sessionId, path, { record = true } = {}) {
+async function navigateSftpRemote(sessionId, rawPath, { record = true } = {}) {
   const s = sessions.get(sessionId);
   if (!s?.sftp?.sftpSessionId) return;
+  // `//home/ada` (un `cd //` en el shell, una ruta tecleada) es la misma
+  // carpeta que `/home/ada`: se guarda y se enseña de una sola forma.
+  const path = collapseSlashes(rawPath) || "/";
   const panel = s.sftp.panel;
   const filesDiv = panel.querySelector('.sftp-files[data-side="remote"]');
   const nav = beginSftpNavigation(s, "remote");
@@ -21203,16 +24127,21 @@ async function navigateSftpRemote(sessionId, path, { record = true } = {}) {
     recordSftpPath(s, "remote", path, record);
     setSftpPathDisplay(sessionId, "remote", path);
     resetSftpSearch(sessionId, "remote");
+    // Un listado nuevo puede traer los mismos enlaces apuntando a otro sitio.
+    sftpLinkCache(s).known.clear();
     renderSftpFiles(sessionId, "remote", entries);
     clearSftpStatus(panel);
+    // Con el listado ya pintado: el espacio en disco es un dato aparte que no
+    // lo retrasa ni puede hacerlo fallar.
+    refreshSftpDiskSpace(sessionId, path, nav);
   } catch (err) {
     if (!isCurrentSftpNavigation(s, "remote", nav)) return;
-    const msg = String(err);
+    const msg = sftpErrorText(err);
     const isPerm = /permission|denied|13/i.test(msg);
     if (isPerm) {
       toast(t("sftp.perm_denied", { path }), "warning", 8000);
     } else {
-      toast(t("sftp.list_error", { err }), "error");
+      toast(t("sftp.list_error", { err: msg }), "error");
     }
     appendSftpActivity(panel, {
       status: "error",
@@ -21228,6 +24157,244 @@ async function navigateSftpRemote(sessionId, path, { record = true } = {}) {
 
 // Alias para preservar llamadas antiguas.
 const navigateSftp = navigateSftpRemote;
+
+// ─── Espacio en disco del servidor ──────────────────────────────────────────
+
+/**
+ * Si el panel de archivos de la sesión va por FTP o FTPS. Esos protocolos no
+ * tienen con qué preguntar el espacio en disco ni el destino de un enlace: ni
+ * se les pregunta. (El backend contesta «sin dato» de todos modos.)
+ */
+function sftpPanelIsFtp(s) {
+  const profile = profiles.find((p) => p.id === s.profileId);
+  return isFileTransferConnectionType(profile?.connection_type);
+}
+
+/**
+ * Pinta (u oculta, con `usage` nulo) el indicador de espacio del lado remoto.
+ * @param {HTMLElement} panel
+ * @param {import("./modules/sftp/disk-space.js").DiskUsage|null} usage
+ */
+function renderSftpDiskSpace(panel, usage) {
+  const box = /** @type {HTMLElement|null} */ (panel?.querySelector("[data-sftp-space]"));
+  if (!box) return;
+  if (!usage) {
+    box.classList.add("hidden");
+    box.title = "";
+    return;
+  }
+  const labels = diskUsageLabels(usage);
+  const text = box.querySelector(".sftp-space-text");
+  const fill = /** @type {HTMLElement|null} */ (box.querySelector(".sftp-space-fill"));
+  if (text) text.textContent = t("sftp.space_free_of", labels);
+  if (fill) fill.style.width = `${usage.usedPercent}%`;
+  box.dataset.level = usage.level;
+  box.title = t("sftp.space_tip", labels);
+  box.classList.remove("hidden");
+}
+
+/**
+ * Pregunta al servidor el espacio del sistema de ficheros de `path` y lo pinta
+ * en la cabecera del lado remoto. Se llama con el listado ya en pantalla y no
+ * se espera: es un dato de cortesía. Si el servidor no lo da (FTP, o SFTP sin
+ * `statvfs@openssh.com`) o la consulta falla, el indicador no sale y no se
+ * avisa de nada; a un servidor que ya dijo que no lo sabe no se le vuelve a
+ * preguntar. `nav` es la marca de la navegación que lo pide: una respuesta que
+ * llega cuando el usuario ya está en otra carpeta se descarta.
+ */
+function refreshSftpDiskSpace(sessionId, path, nav) {
+  const s = sessions.get(sessionId);
+  const sftpSessionId = s?.sftp?.sftpSessionId;
+  if (!sftpSessionId) return;
+  if (prefs.sftpDiskSpace === false || sftpPanelIsFtp(s) || s.sftp.spaceUnsupported === sftpSessionId) {
+    renderSftpDiskSpace(s.sftp.panel, null);
+    return;
+  }
+  const current = () => {
+    const cur = sessions.get(sessionId);
+    return cur?.sftp?.sftpSessionId === sftpSessionId ? cur : null;
+  };
+  invoke("sftp_disk_space", { sessionId: sftpSessionId, path })
+    .then((raw) => {
+      const cur = current();
+      if (!cur) return;
+      if (raw === null) cur.sftp.spaceUnsupported = sftpSessionId;
+      if (!isCurrentSftpNavigation(cur, "remote", nav)) return;
+      renderSftpDiskSpace(cur.sftp.panel, prefs.sftpDiskSpace === false ? null : diskUsage(raw));
+    })
+    .catch(() => {
+      // Sin permiso sobre la ruta, plazo agotado…: no hay dato, y ya está.
+      const cur = current();
+      if (cur && isCurrentSftpNavigation(cur, "remote", nav)) renderSftpDiskSpace(cur.sftp.panel, null);
+    });
+}
+
+/** Aplica la preferencia del indicador de espacio a los paneles ya abiertos. */
+function applySftpDiskSpacePrefToAll() {
+  const wanted = prefs.sftpDiskSpace !== false;
+  for (const [sid, s] of sessions) {
+    if (!s.sftp?.sftpSessionId) continue;
+    // Guardar las preferencias sin tocar esta no vuelve a preguntar al servidor.
+    const box = s.sftp.panel?.querySelector("[data-sftp-space]");
+    const shown = !!box && !box.classList.contains("hidden");
+    if (shown === wanted) continue;
+    refreshSftpDiskSpace(sid, s.sftp.cwd, s.sftp.nav?.remote || 0);
+  }
+}
+
+// ─── Destino de los enlaces simbólicos ──────────────────────────────────────
+
+/**
+ * Destinos de enlace ya leídos del lado remoto, por ruta del enlace. Vive en
+ * el estado y no en las filas: con el listado virtualizado una fila se despinta
+ * al salir del viewport, y al volver tiene que recuperar su tooltip sin
+ * preguntar otra vez. Es de una sesión de archivos concreta: al reconectar
+ * (sudo) se empieza de cero.
+ */
+function sftpLinkCache(s) {
+  const owner = s.sftp.sftpSessionId;
+  if (!s.sftp.links || s.sftp.links.owner !== owner) {
+    s.sftp.links = { owner, known: new Map(), pending: new Map(), unsupported: sftpPanelIsFtp(s) };
+  }
+  return s.sftp.links;
+}
+
+/**
+ * Texto del tooltip de un enlace simbólico. El destino viene del servidor: se
+ * entrega ya saneado (`linkInfo`) y quien lo pinte lo escapa.
+ * @param {import("./modules/sftp/link-target.js").LinkInfo|null|undefined} info
+ */
+function sftpLinkTipText(info) {
+  if (!info) return t("sftp.link_tip");
+  if (info.kind === "dir") return t("sftp.link_tip_dir", { target: info.target });
+  if (info.kind === "file") return t("sftp.link_tip_file", { target: info.target });
+  return t("sftp.link_tip_broken", { target: info.target });
+}
+
+/** Tooltip de la fila de un enlace: con su destino si ya se conoce. */
+function sftpLinkRowTip(s, side, path) {
+  return sftpLinkTipText(side === "remote" ? sftpLinkCache(s).known.get(path) : null);
+}
+
+/**
+ * Lee (una vez) el destino de un enlace remoto. Resuelve `null` si el servidor
+ * no sabe decirlo (FTP) y rechaza si la lectura falla.
+ * @returns {Promise<import("./modules/sftp/link-target.js").LinkInfo|null>}
+ */
+function resolveSftpLink(sessionId, path) {
+  const s = sessions.get(sessionId);
+  const sftpSessionId = s?.sftp?.sftpSessionId;
+  if (!sftpSessionId) return Promise.resolve(null);
+  const cache = sftpLinkCache(s);
+  if (cache.known.has(path)) return Promise.resolve(cache.known.get(path));
+  if (cache.unsupported) return Promise.resolve(null);
+  let pending = cache.pending.get(path);
+  if (!pending) {
+    pending = invoke("sftp_read_link", { sessionId: sftpSessionId, path })
+      .then((raw) => {
+        if (raw === null) cache.unsupported = true;
+        const info = linkInfo(path, raw);
+        cache.known.set(path, info);
+        return info;
+      })
+      .finally(() => cache.pending.delete(path));
+    cache.pending.set(path, pending);
+  }
+  return pending;
+}
+
+/** Cuánto tiene que pararse el puntero sobre un enlace antes de leer su destino. */
+const SFTP_LINK_HOVER_MS = 200;
+
+/**
+ * Al pararse el puntero sobre un enlace del lado remoto se lee su destino y se
+ * pone en el tooltip de la fila. Pasar de largo por una carpeta llena de
+ * enlaces no lanza una petición por cada uno: hay que detenerse.
+ */
+function setupSftpLinkHover(filesDiv, sessionId) {
+  let timer = 0;
+  /** @type {Element|null} */
+  let hovered = null;
+  const cancel = () => {
+    clearTimeout(timer);
+    timer = 0;
+    hovered = null;
+  };
+  filesDiv.addEventListener("pointerover", (ev) => {
+    const row = ev.target.closest?.('.sftp-row[data-is-symlink="true"]');
+    if (!row || row.classList.contains("sftp-search-result")) { cancel(); return; }
+    if (row === hovered) return;
+    cancel();
+    if (prefs.sftpLinkTargets === false) return;
+    hovered = row;
+    const path = row.dataset.path;
+    timer = window.setTimeout(() => {
+      timer = 0;
+      // Si entretanto el listado se repintó (se navegó a otra carpeta), la
+      // fila ya no está y no hay tooltip que rellenar.
+      if (row.isConnected) showSftpLinkTarget(sessionId, path);
+    }, SFTP_LINK_HOVER_MS);
+  });
+  filesDiv.addEventListener("pointerleave", cancel);
+}
+
+/** Lee el destino de un enlace y lo lleva al tooltip de su fila, si sigue pintada. */
+async function showSftpLinkTarget(sessionId, path) {
+  let info;
+  try {
+    info = await resolveSftpLink(sessionId, path);
+  } catch {
+    // Sin permiso para leerlo, o ya no existe: el tooltip se queda como estaba.
+    return;
+  }
+  if (!info) return;
+  const s = sessions.get(sessionId);
+  const filesDiv = s?.sftp?.panel?.querySelector('.sftp-files[data-side="remote"]');
+  if (!filesDiv) return;
+  // Se buscan las filas pintadas y se compara la ruta en JS: la ruta es del
+  // servidor y no se mete en un selector.
+  for (const row of filesDiv.querySelectorAll('.sftp-row[data-is-symlink="true"]')) {
+    if (/** @type {HTMLElement} */ (row).dataset.path === path) {
+      /** @type {HTMLElement} */ (row).title = sftpLinkTipText(info);
+    }
+  }
+}
+
+/**
+ * «Ir al destino del enlace»: si apunta a una carpeta, el panel entra en ella;
+ * si apunta a un fichero, lo dice y ofrece abrir la carpeta que lo contiene.
+ */
+async function goToSftpLinkTarget(sessionId, row) {
+  const s = sessions.get(sessionId);
+  if (!s?.sftp) return;
+  const navBefore = s.sftp.nav?.remote || 0;
+  let info;
+  try {
+    info = await resolveSftpLink(sessionId, row.path);
+  } catch (err) {
+    toast(t("sftp.link_read_failed", { name: row.name, err: sftpErrorText(err) }), "error");
+    return;
+  }
+  if (!info) {
+    toast(t("sftp.link_unsupported"), "info", 6000);
+    return;
+  }
+  // Si mientras se leía el usuario ya se fue a otra carpeta, no se le lleva de vuelta.
+  if (!isCurrentSftpNavigation(s, "remote", navBefore)) return;
+  if (info.kind === "dir" && info.path) {
+    navigateSftpRemote(sessionId, info.path);
+    return;
+  }
+  if (info.kind === "file" && info.path) {
+    const folder = remoteDirname(info.path);
+    toast(t("sftp.link_to_file", { target: info.target }), "info", 8000, {
+      actionLabel: t("sftp.link_open_folder"),
+      onAction: () => navigateSftpRemote(sessionId, folder),
+    });
+    return;
+  }
+  toast(t("sftp.link_broken", { target: info.target }), "warning", 6000);
+}
 
 async function navigateSftpLocal(sessionId, path, { record = true } = {}) {
   const s = sessions.get(sessionId);
@@ -21329,12 +24496,14 @@ function setSftpPathDisplay(sessionId, side, path) {
   if (input) input.value = path;
   const nav = panel.querySelector(`.sftp-breadcrumb[data-side="${side}"]`);
   if (!nav) return;
-  nav.innerHTML = pathSegments(path)
+  const segs = pathSegments(path);
+  nav.innerHTML = segs
     .map(
-      (seg) =>
-        `<button type="button" class="sftp-crumb" data-side="${side}" data-path="${escHtml(seg.path)}">${escHtml(seg.label)}</button>`
+      (seg, i) =>
+        (crumbSeparatorAfter(segs[i - 1]) ? '<span class="sftp-crumb-sep" aria-hidden="true">/</span>' : "")
+        + `<button type="button" class="sftp-crumb" data-side="${side}" data-path="${escHtml(seg.path)}">${escHtml(seg.label)}</button>`
     )
-    .join('<span class="sftp-crumb-sep" aria-hidden="true">/</span>');
+    .join("");
 }
 
 /**
@@ -21375,6 +24544,7 @@ function sftpView(s, side) {
       rowHeight: 0,   // altura real de fila, medida al primer pintado
       virtual: false, // si el listado se pinta por tramos
       range: null,    // último tramo pintado
+      anchor: null,   // última fila pulsada sin Mayús: inicio del tramo de Mayús+clic
       rafId: 0,
     };
   }
@@ -21399,7 +24569,7 @@ function setSftpSelection(sessionId, side, next) {
 }
 
 /** HTML de una fila del listado del directorio actual. */
-function sftpRowHtml(e, selected, pos, total) {
+function sftpRowHtml(e, selected, pos, total, linkTip = "") {
   const permsText = formatSftpPermissions(e.permissions);
   const permsOctal = formatSftpPermissionsOctal(e.permissions);
   const permsTip = permsOctal ? `${permsText} · ${permsOctal}` : permsText;
@@ -21414,7 +24584,7 @@ function sftpRowHtml(e, selected, pos, total) {
          data-name="${escHtml(e.name)}"
          data-is-dir="${e.is_dir}"
          data-is-symlink="${e.is_symlink}"
-         data-permissions="${e.permissions ?? ""}">
+         data-permissions="${e.permissions ?? ""}"${linkTip ? ` title="${escHtml(linkTip)}"` : ""}>
       <span class="sftp-icon">${sftpFileIconSvg(e)}</span>
       <span class="sftp-name">${escHtml(e.name)}</span>
       <span class="sftp-perms" title="${escHtml(permsTip)}">${escHtml(permsText)}</span>
@@ -21491,13 +24661,34 @@ function paintSftpRows(sessionId, side, remeasured = false) {
 
   const html = [];
   for (let i = range.start; i < range.end; i++) {
-    html.push(sftpRowHtml(rows[i], view.selected.has(rows[i].path), i + 1, rows.length));
+    const linkTip = rows[i].is_symlink ? sftpLinkRowTip(s, side, rows[i].path) : "";
+    html.push(sftpRowHtml(rows[i], view.selected.has(rows[i].path), i + 1, rows.length, linkTip));
   }
-  filesDiv.innerHTML =
+  // El contenedor de las filas se conserva entre pintados y solo se cambia lo
+  // de dentro. Sustituir el contenido del propio div con scroll hacía que
+  // WebKitGTK devolviera su `scrollTop` a 0 en cada cambio de tramo: al bajar
+  // por un listado largo, el panel saltaba arriba en cuanto se pasaba de la
+  // fila 12 y no había forma de llegar a un fichero de más abajo.
+  const top = filesDiv.scrollTop;
+  let rowsEl = filesDiv.firstElementChild;
+  if (!rowsEl || !rowsEl.classList.contains("sftp-rows") || filesDiv.childElementCount !== 1) {
     // `role="presentation"`: el contenedor solo existe para sostener los
     // rellenos del scroll; sin él, este div se colaría entre el `listbox` y sus
     // `option` y rompería la relación para el lector de pantalla.
-    `<div class="sftp-rows" role="presentation" style="padding-top:${range.padTop}px;padding-bottom:${range.padBottom}px">${html.join("")}</div>`;
+    filesDiv.innerHTML = `<div class="sftp-rows" role="presentation"></div>`;
+    rowsEl = /** @type {HTMLElement} */ (filesDiv.firstElementChild);
+  }
+  const rowsBox = /** @type {HTMLElement} */ (rowsEl);
+  rowsBox.style.paddingTop = `${range.padTop}px`;
+  rowsBox.style.paddingBottom = `${range.padBottom}px`;
+  // WebKitGTK recorta el scroll en el mismo instante en que se quitan las filas
+  // viejas, antes de que entren las nuevas: con el contenedor a la altura del
+  // listado entero como mínimo, ese hueco no lo encoge y no hay nada que recortar.
+  rowsBox.style.minHeight = virtual ? `${rows.length * rowHeight}px` : "";
+  rowsEl.innerHTML = html.join("");
+  // Red de seguridad: si aun así el motor ha movido el scroll al cambiar las
+  // filas, vuelve a donde lo dejó el usuario.
+  if (filesDiv.scrollTop !== top) filesDiv.scrollTop = top;
 
   // La altura de fila no está fijada en CSS —depende del tema, de la tipografía
   // y del zoom de la interfaz—, así que se mide sobre una fila de verdad en cada
@@ -21554,6 +24745,7 @@ function ensureSftpRowDelegation(filesDiv, sessionId, side) {
   filesDiv.dataset.sftpDelegated = "1";
 
   filesDiv.addEventListener("scroll", () => onSftpScroll(sessionId, side), { passive: true });
+  if (side === "remote") setupSftpLinkHover(filesDiv, sessionId);
 
   // Redimensionar el panel (el divisor, la ventana) cambia cuántas filas caben.
   if (typeof ResizeObserver === "function") {
@@ -21587,10 +24779,19 @@ function ensureSftpRowDelegation(filesDiv, sessionId, side) {
     const s = sessions.get(sessionId);
     if (!s?.sftp) return;
     const view = sftpView(s, side);
-    // Alt cuenta como modificador de multi-selección: en entornos como GNOME el
-    // gestor de ventanas se queda con Ctrl+clic sobre algunas zonas.
-    const toggle = ev.ctrlKey || ev.altKey;
-    setSftpSelection(sessionId, side, sftpSelectionAfterClick(view.selected, row.dataset.path, toggle));
+    // Ctrl (Cmd) suma o resta la fila y Mayús selecciona el tramo desde la
+    // última fila pulsada sin ella. Alt no es modificador de selección.
+    const { toggle, range, ignore } = sftpSelectionModifiers(ev);
+    if (ignore) return;
+    const key = row.dataset.path;
+    if (range) {
+      setSftpSelection(sessionId, side, sftpSelectionAfterRangeClick(
+        view.selected, view.rows.map((e) => e.path), view.anchor, key, toggle,
+      ));
+      return;
+    }
+    view.anchor = key;
+    setSftpSelection(sessionId, side, sftpSelectionAfterClick(view.selected, key, toggle));
   });
 
   filesDiv.addEventListener("dblclick", async (ev) => {
@@ -22271,8 +25472,111 @@ function setSftpRowSelected(row, on) {
   row.setAttribute("aria-selected", on ? "true" : "false");
 }
 
+/**
+ * Coloca el submenú de `item` cuando su menú tiene scroll interno
+ * (`.menu-overflow`): ese `overflow` recorta todo lo que sale de la caja, así
+ * que el submenú absoluto se desplegaba pero no se veía. Ni siquiera `fixed`
+ * basta: WebKitGTK lo sigue recortando al pintarlo (aunque `elementFromPoint`
+ * lo dé por visible). Por eso ahí sube a la capa superior (`popover`), que se
+ * pinta por encima de todo sin sacarlo del DOM: el hover del padre, los clics
+ * delegados en el menú y el teclado siguen igual. La visibilidad la sigue
+ * decidiendo el CSS (`display`); el popover solo lo saca de la caja.
+ * Sin scroll se queda como estaba.
+ * @param {Element} item `.ctx-has-submenu`
+ */
+function placeOverflowSubmenu(item) {
+  const sub = /** @type {HTMLElement | null} */ (item.querySelector(":scope > .ctx-submenu"));
+  if (!sub) return;
+  if (!item.closest(".menu-overflow")) {
+    if (sub.classList.contains("submenu-fixed")) {
+      releaseSubmenuLayer(sub);
+      sub.classList.remove("submenu-fixed");
+      sub.style.left = "";
+      sub.style.top = "";
+    }
+    return;
+  }
+  sub.classList.add("submenu-fixed", "submenu-measuring");
+  raiseSubmenuLayer(sub);
+  const { width, height } = sub.getBoundingClientRect();
+  sub.classList.remove("submenu-measuring");
+  const r = item.getBoundingClientRect();
+  // En horizontal, pegado a la caja del menú y no al ítem: así no tapa su
+  // barra de desplazamiento.
+  const box = item.closest(".menu-overflow")?.getBoundingClientRect() ?? r;
+  const gap = 2;
+  const margin = 6;
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  let left = sub.classList.contains("open-left") ? box.left - width - gap : box.right + gap;
+  if (left + width > vw - margin) left = box.left - width - gap;
+  if (left < margin) left = Math.min(box.right + gap, vw - margin - width);
+  let top = sub.classList.contains("open-up") ? r.bottom + 5 - height : r.top - 5;
+  top = Math.min(top, vh - margin - height);
+  top = Math.max(top, margin);
+  // El menú va escalado por el zoom de la interfaz: coordenadas en sus unidades.
+  const z = uiZoomFactor();
+  sub.style.left = `${Math.max(left, margin) / z}px`;
+  sub.style.top = `${top / z}px`;
+}
+
+const supportsPopover = typeof HTMLElement !== "undefined"
+  && typeof HTMLElement.prototype.showPopover === "function";
+
+/** Sube el submenú a la capa superior (si el motor la tiene). */
+function raiseSubmenuLayer(sub) {
+  if (!supportsPopover) return;
+  if (!sub.hasAttribute("popover")) sub.setAttribute("popover", "manual");
+  try {
+    if (!sub.matches(":popover-open")) sub.showPopover();
+  } catch {
+    // Desconectado o ya abierto: se queda como `fixed` dentro del menú.
+  }
+}
+
+/** Devuelve el submenú a su caja (al cerrar el menú o si deja de tener scroll). */
+function releaseSubmenuLayer(sub) {
+  if (!sub.hasAttribute("popover")) return;
+  try {
+    if (sub.matches(":popover-open")) sub.hidePopover();
+  } catch {
+    // Ya cerrado.
+  }
+  sub.removeAttribute("popover");
+}
+
+/** Al cerrar un menú flotante, ningún submenú suyo puede quedarse en la capa superior. */
+function releaseMenuSubmenuLayers(menu) {
+  menu?.querySelectorAll(".ctx-submenu[popover]").forEach(releaseSubmenuLayer);
+}
+
+/** Recoloca los submenús abiertos de un menú con scroll (al desplazarlo). */
+function placeOpenOverflowSubmenus(menu) {
+  menu.querySelectorAll(".ctx-has-submenu").forEach((item) => {
+    if (item.matches(':hover, [aria-expanded="true"], :focus-within')) placeOverflowSubmenu(item);
+  });
+}
+
+function initOverflowSubmenus() {
+  const onEnter = (e) => {
+    const target = e.target instanceof Element ? e.target : null;
+    const item = target?.closest(".ctx-has-submenu");
+    // Solo al entrar en el ítem, no al moverse por dentro de su submenú.
+    if (item && !(e.relatedTarget instanceof Node && item.contains(e.relatedTarget))) {
+      placeOverflowSubmenu(item);
+    }
+  };
+  document.addEventListener("mouseover", onEnter);
+  document.addEventListener("focusin", onEnter);
+  document.addEventListener("scroll", (e) => {
+    const menu = e.target instanceof Element ? e.target : null;
+    if (menu?.classList.contains("menu-overflow")) placeOpenOverflowSubmenus(menu);
+  }, true);
+}
+
 function positionFloatingMenu(menu, x, y) {
   // Medir con la altura natural (sin el acotado de una apertura anterior).
+  releaseMenuSubmenuLayers(menu);
   menu.classList.remove("menu-overflow");
   menu.style.left = "0px";
   menu.style.top = "0px";
@@ -22284,8 +25588,11 @@ function positionFloatingMenu(menu, x, y) {
     ({ width, height } = menu.getBoundingClientRect());
   }
   const pos = clampMenuPosition(x, y, width, height, window.innerWidth, window.innerHeight);
-  menu.style.left = `${pos.left}px`;
-  menu.style.top = `${pos.top}px`;
+  // El menú va escalado por el zoom de la interfaz: sus `left`/`top` cuentan
+  // en sus unidades, no en píxeles de la ventana.
+  const z = uiZoomFactor();
+  menu.style.left = `${pos.left / z}px`;
+  menu.style.top = `${pos.top / z}px`;
   return { ...pos, width, height };
 }
 
@@ -22300,6 +25607,17 @@ function showSftpContextMenu(x, y, sessionId, side) {
   });
   menu.querySelectorAll(".sftpctx-remote-only").forEach((el) => {
     el.classList.toggle("hidden", side !== "remote");
+  });
+
+  // «Ir al destino del enlace»: solo con un enlace remoto seleccionado, y
+  // solo si el servidor sabe leerlo (FTP no). Los enlaces quedan fuera de
+  // `rows` —no se renombran ni se borran desde aquí—, así que se miran aparte.
+  const picked = selectedRows(sessionId, side);
+  const s = sessions.get(sessionId);
+  const linkRow = side === "remote" && picked.length === 1 && picked[0].isSymlink
+    && s?.sftp?.sftpSessionId && !sftpLinkCache(s).unsupported;
+  menu.querySelectorAll(".sftpctx-link-only").forEach((el) => {
+    el.classList.toggle("hidden", !linkRow);
   });
 
   const hasSelection = rows.length > 0;
@@ -22352,6 +25670,13 @@ async function handleSftpContextMenuAction(action) {
     case "upload-files":
       await uploadLocalFilesFromDialog(sessionId);
       break;
+    case "link-target": {
+      const picked = selectedRows(sessionId, side);
+      if (side === "remote" && picked.length === 1 && picked[0].isSymlink) {
+        await goToSftpLinkTarget(sessionId, picked[0]);
+      }
+      break;
+    }
     case "rename":
       if (rows.length === 1) await promptRename(sessionId, side, rows[0].path, rows[0].name);
       else toast(t("toast.select_one_rename"), "warning");
@@ -22435,7 +25760,7 @@ function revealSftpActivity(panel) {
   wrap.classList.remove("hidden");
   setSftpLogTab(panel, "activity");
   log.scrollTop = 0;
-  wrap.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  wrap.scrollIntoView({ block: "nearest", behavior: scrollBehavior() });
 }
 
 function waitForPaint() {
@@ -22496,6 +25821,8 @@ function enqueueSftpTransfers(sessionId, direction, rows) {
     // El sentido lo pinta el icono de `data-direction` (sprite), no un emoji.
     const transferEl = addTransfer(s.sftp.panel, row.name, transferId);
     transferEl.dataset.direction = direction;
+    transferEl.dataset.targetDir = targetDir || "";
+    transferEl.dataset.targetName = row.name;
     setTransferPhase(transferEl, "queued", "queued");
     const job = {
       id: transferId,
@@ -22705,6 +26032,30 @@ async function resolveTransferConflict(target, names, name, isDir, conflictState
   return { action: "transfer", name, overwrite: true };
 }
 
+/** Etiqueta de la fila de una transferencia: el nombre y, si cambió, el destino. */
+function transferLabel(name, targetName) {
+  return targetName === name ? name : `${name} → ${targetName}`;
+}
+
+/**
+ * El backend dice que el destino ya existe aunque el listado con el que se
+ * decidió no lo tenía. Se vuelve a listar la carpeta de destino —para que
+ * «renombrar» elija un nombre libre de verdad— y se resuelve con el mismo
+ * diálogo y la misma política (recordada o de preferencias) de siempre. Sin
+ * listado, basta con saber que ese nombre está ocupado.
+ */
+async function resolveExistingTransferTarget(sessionId, target, name, isDir, conflictState) {
+  let names = new Set();
+  try {
+    conflictState.listedNames?.delete(`${target.side}:${target.dir}`);
+    names = await transferTargetNames(sessionId, { ...target, visible: false }, conflictState);
+  } catch {
+    // Sin listado también se puede preguntar.
+  }
+  const known = namesWithExisting(names, name, sftpNameKeyOptions(target.side));
+  return resolveTransferConflict(target, known, name, isDir, conflictState);
+}
+
 async function transferOne(sessionId, direction, srcPath, name, isDir, conflictState = null, job = null) {
   const s = sessions.get(sessionId);
   if (!s?.sftp?.sftpSessionId) {
@@ -22743,13 +26094,8 @@ async function transferOne(sessionId, direction, srcPath, name, isDir, conflictS
     });
     return "error";
   }
-  const resolved = await resolveTransferConflict(
-    target,
-    names,
-    name,
-    isDir,
-    conflictState || createTransferConflictState(),
-  );
+  const conflicts = conflictState || createTransferConflictState();
+  const resolved = await resolveTransferConflict(target, names, name, isDir, conflicts);
   if (resolved.action === "cancel") return "cancel";
   if (resolved.action === "skip") {
     if (job?.transferEl) {
@@ -22767,8 +26113,7 @@ async function transferOne(sessionId, direction, srcPath, name, isDir, conflictS
 
   const panel = s.sftp.panel;
   const transferId = job?.id || crypto.randomUUID();
-  const targetName = resolved.name;
-  const label = targetName === name ? name : `${name} → ${targetName}`;
+  let label = transferLabel(name, resolved.name);
   const transferEl = job?.transferEl || addTransfer(panel, label, transferId);
   transferEl.dataset.direction = direction;
   setTransferPhase(transferEl, "running", "preparing");
@@ -22776,7 +26121,7 @@ async function transferOne(sessionId, direction, srcPath, name, isDir, conflictS
   transferEl.querySelector(".sftp-transfer-label").textContent = label;
   if (job) job.status = "running";
   const startedAt = Date.now();
-  const resultStatus = resolved.renamed ? "renamed" : (resolved.overwrite ? "overwritten" : "ok");
+  let resultStatus = "ok";
   let finalTargetPath = "";
   // Lado de la fila a marcar con la mini barra: para upload, la fila
   // origen vive en local (el panel local muestra el fichero que se sube);
@@ -22806,76 +26151,94 @@ async function transferOne(sessionId, direction, srcPath, name, isDir, conflictS
     }
   });
 
+  // Lo que se manda en cada intento. Si el backend contesta que el destino ya
+  // existe —el listado con el que se decidió estaba desfasado: otro cliente,
+  // otra pestaña—, se vuelve a preguntar con el diálogo de conflictos de
+  // siempre y se repite con la respuesta: sobrescribir con permiso explícito,
+  // otro nombre, omitir o cancelar. Solo en ficheros sueltos: una carpeta ya
+  // lleva su política y el backend la aplica hijo a hijo.
+  let attempt = resolved;
   try {
+    for (let tries = 0; ; tries += 1) {
+      const targetName = attempt.name;
+      label = transferLabel(name, targetName);
+      transferEl.dataset.label = label;
+      transferEl.dataset.targetDir = target.dir;
+      transferEl.dataset.targetName = targetName;
+      transferEl.querySelector(".sftp-transfer-label").textContent = label;
+      resultStatus = attempt.renamed ? "renamed" : (attempt.overwrite ? "overwritten" : "ok");
+      const invokeArgs = {
+        sessionId: s.sftp.sftpSessionId,
+        transferId,
+        verifySize: !!prefs.sftpVerifySize,
+      };
+      let cmd;
+      if (direction === "upload") {
+        finalTargetPath = joinRemote(target.dir, targetName);
+        invokeArgs.localPath = srcPath;
+        invokeArgs.remotePath = finalTargetPath;
+        // El idioma viaja para el diálogo nativo que pide confirmar una subida
+        // sensible (una clave privada, ~/.ssh…).
+        invokeArgs.lang = getLanguage();
+        cmd = isDir ? "sftp_upload_dir" : "sftp_upload";
+      } else {
+        finalTargetPath = await invoke("local_path_join", { base: target.dir, name: targetName });
+        invokeArgs.remotePath = srcPath;
+        invokeArgs.localPath = finalTargetPath;
+        cmd = isDir ? "sftp_download_dir" : "sftp_download";
+      }
+      if (isDir) invokeArgs.conflictPolicy = recursiveConflictPolicyForTransfer(attempt);
+      else invokeArgs.overwrite = transferOverwriteFlag(attempt);
+      if (tries === 0) {
+        appendSftpActivity(panel, {
+          status: "running",
+          label: `${transferDirectionLabel(direction)} ${label}`,
+          detail: `${srcPath} → ${finalTargetPath}`,
+          startedAt,
+        });
+        await revealTransferBeforeInvoke(panel, transferEl);
+      }
+      try {
+        await invoke(cmd, { request: invokeArgs });
+        break;
+      } catch (err) {
+        if (isDir || !isTransferExistsError(err) || tries >= TRANSFER_EXISTS_RETRIES) throw err;
+        attempt = await resolveExistingTransferTarget(sessionId, target, name, isDir, conflicts);
+        if (attempt.action === "cancel") {
+          markTransferCanceled(transferEl);
+          if (job) job.status = "canceled";
+          return "cancel";
+        }
+        if (attempt.action === "skip") {
+          markTransferSkipped(transferEl, t("sftp.state_skipped_policy"));
+          if (job) job.status = "skipped";
+          appendSftpActivity(panel, {
+            status: "skipped",
+            label: `${transferDirectionLabel(direction)} ${name}`,
+            detail: t("sftp.state_skipped_policy"),
+          });
+          toast(t("toast.transfer_skipped", { name }), "info");
+          return "skip";
+        }
+      }
+    }
+    const doneKey = direction === "upload" ? "sftp.uploaded_to" : "sftp.saved_to";
+    markTransferSuccess(transferEl, t(doneKey, { path: finalTargetPath }));
+    if (job) job.status = "done";
+    appendSftpActivity(panel, {
+      status: resultStatus,
+      label: `${transferDirectionLabel(direction)} ${label}`,
+      detail: `${srcPath} → ${finalTargetPath}${symlinkSuffix(skippedSymlinks)}`,
+      bytes: parseInt(transferEl.dataset.lastTotal || "0", 10),
+      startedAt,
+    });
+    notifySkippedSymlinks(panel, skippedSymlinks);
+    // Solo se refresca si el panel sigue en esa carpeta: si el usuario navegó,
+    // recargar le devolvería a la de antes.
     if (direction === "upload") {
-      const remotePath = joinRemote(target.dir, targetName);
-      finalTargetPath = remotePath;
-      const invokeArgs = {
-        sessionId: s.sftp.sftpSessionId,
-        localPath: srcPath,
-        remotePath,
-        transferId,
-        verifySize: !!prefs.sftpVerifySize,
-      };
-      if (isDir) invokeArgs.conflictPolicy = recursiveConflictPolicyForTransfer(resolved);
-      appendSftpActivity(panel, {
-        status: "running",
-        label: `${transferDirectionLabel(direction)} ${label}`,
-        detail: `${srcPath} → ${remotePath}`,
-        startedAt,
-      });
-      await revealTransferBeforeInvoke(panel, transferEl);
-      const cmd = isDir ? "sftp_upload_dir" : "sftp_upload";
-      // El idioma viaja para el diálogo nativo que pide confirmar una subida
-      // sensible (una clave privada, ~/.ssh…).
-      await invoke(cmd, { request: { ...invokeArgs, lang: getLanguage() } });
-      markTransferSuccess(transferEl, t("sftp.uploaded_to", { path: remotePath }));
-      if (job) job.status = "done";
-      appendSftpActivity(panel, {
-        status: resultStatus,
-        label: `${transferDirectionLabel(direction)} ${label}`,
-        detail: `${srcPath} → ${remotePath}${symlinkSuffix(skippedSymlinks)}`,
-        bytes: parseInt(transferEl.dataset.lastTotal || "0", 10),
-        startedAt,
-      });
-      notifySkippedSymlinks(panel, skippedSymlinks);
-      // Solo se refresca si el panel sigue en esa carpeta: si el usuario navegó,
-      // recargar le devolvería a la de antes.
       if (s.sftp.cwd === target.dir) await navigateSftpRemote(sessionId, target.dir);
-    } else {
-      const localPath = await invoke("local_path_join", {
-        base: target.dir,
-        name: targetName,
-      });
-      finalTargetPath = localPath;
-      const invokeArgs = {
-        sessionId: s.sftp.sftpSessionId,
-        remotePath: srcPath,
-        localPath,
-        transferId,
-        verifySize: !!prefs.sftpVerifySize,
-      };
-      if (isDir) invokeArgs.conflictPolicy = recursiveConflictPolicyForTransfer(resolved);
-      appendSftpActivity(panel, {
-        status: "running",
-        label: `${transferDirectionLabel(direction)} ${label}`,
-        detail: `${srcPath} → ${localPath}`,
-        startedAt,
-      });
-      await revealTransferBeforeInvoke(panel, transferEl);
-      const cmd = isDir ? "sftp_download_dir" : "sftp_download";
-      await invoke(cmd, { request: invokeArgs });
-      markTransferSuccess(transferEl, t("sftp.saved_to", { path: localPath }));
-      if (job) job.status = "done";
-      appendSftpActivity(panel, {
-        status: resultStatus,
-        label: `${transferDirectionLabel(direction)} ${label}`,
-        detail: `${srcPath} → ${localPath}${symlinkSuffix(skippedSymlinks)}`,
-        bytes: parseInt(transferEl.dataset.lastTotal || "0", 10),
-        startedAt,
-      });
-      notifySkippedSymlinks(panel, skippedSymlinks);
-      if (s.sftp.localCwd === target.dir) await navigateSftpLocal(sessionId, target.dir);
+    } else if (s.sftp.localCwd === target.dir) {
+      await navigateSftpLocal(sessionId, target.dir);
     }
   } catch (err) {
     // Una subida sensible que el usuario no confirmó en el diálogo nativo es una
@@ -23366,6 +26729,126 @@ function addTransfer(panel, label, transferId, detail = "") {
   });
   panel.querySelector(".sftp-transfers").appendChild(el);
   return el;
+}
+
+/** Quita del listado las transferencias ya terminadas (bien, mal o canceladas). */
+function clearFinishedSftpTransfers(panel, sessionId) {
+  panel.querySelectorAll(".sftp-transfer.done, .sftp-transfer.canceled").forEach((el) => {
+    const transferId = el.dataset.transfer;
+    sessions.get(sessionId)?.sftp?.transfers?.delete(transferId);
+    el.remove();
+  });
+  updateTransfersVisibility(panel);
+}
+
+/** Transferencia sobre la que se abrió el menú contextual. */
+let sftpTransferCtxTarget = null;
+
+/**
+ * Menú contextual de una transferencia. Las acciones de estado (pausar,
+ * reanudar, reintentar, cancelar o quitar) son las de los botones de la fila y
+ * salen solo cuando la fila enseña ese botón: el menú no decide nada que la
+ * fila no decida ya.
+ */
+function showSftpTransferMenu(x, y, sessionId, el) {
+  const menu = document.getElementById("sftp-transfer-menu");
+  if (!menu) return;
+  closeFloatingMenus();
+  sftpTransferCtxTarget = { sessionId, transferId: el.dataset.transfer };
+  const s = sessions.get(sessionId);
+  const job = s?.sftp?.transfers?.get(el.dataset.transfer);
+  const shown = (cls) => {
+    const btn = el.querySelector(cls);
+    return !!btn && !btn.classList.contains("hidden");
+  };
+  const live = job?.status === "queued" || job?.status === "running" || job?.status === "paused";
+  const hasTarget = !!el.dataset.targetDir;
+  const toggle = (action, visible) => {
+    menu.querySelector(`[data-xferctx="${action}"]`)?.classList.toggle("hidden", !visible);
+  };
+  toggle("pause", shown(".sftp-transfer-pause"));
+  toggle("resume", shown(".sftp-transfer-resume"));
+  toggle("retry", shown(".sftp-transfer-retry"));
+  toggle("reveal", hasTarget);
+  toggle("copy-path", hasTarget);
+  toggle("cancel", live);
+  toggle("remove", !live);
+  const anyFinished = !!s?.sftp?.panel?.querySelector(".sftp-transfer.done, .sftp-transfer.canceled");
+  toggle("clear-done", anyFinished);
+  positionFloatingMenu(menu, x, y);
+  onFloatingMenuOpened(menu);
+}
+
+function hideSftpTransferMenu() {
+  noteFloatingMenuHidden("sftp-transfer-menu");
+  document.getElementById("sftp-transfer-menu")?.classList.add("hidden");
+  sftpTransferCtxTarget = null;
+}
+
+async function handleSftpTransferMenuAction(action) {
+  const target = sftpTransferCtxTarget;
+  hideSftpTransferMenu();
+  if (!target) return;
+  const { sessionId, transferId } = target;
+  const s = sessions.get(sessionId);
+  const panel = s?.sftp?.panel;
+  if (!panel) return;
+  const el = [...panel.querySelectorAll(".sftp-transfer")].find((r) => r.dataset.transfer === transferId);
+  if (action === "clear-done") {
+    clearFinishedSftpTransfers(panel, sessionId);
+    return;
+  }
+  if (!el) return;
+  const press = (cls) => /** @type {HTMLElement|null} */ (el.querySelector(cls))?.click();
+  switch (action) {
+    case "pause": press(".sftp-transfer-pause"); break;
+    case "resume": press(".sftp-transfer-resume"); break;
+    case "retry": press(".sftp-transfer-retry"); break;
+    // El botón ✕ de la fila cancela lo que está en marcha o en cola y quita lo
+    // terminado: las dos opciones del menú son ese mismo botón.
+    case "cancel":
+    case "remove": press(".sftp-transfer-close"); break;
+    case "reveal": await revealSftpTransferTarget(sessionId, el); break;
+    case "copy-path": {
+      const path = sftpTransferTargetPath(el);
+      if (!path) return;
+      try {
+        await writeClipboardText(path);
+        toast(t("sftp.transfer_path_copied"), "success", 2500);
+      } catch (err) {
+        toast(t("sftp.op_failed", { err }), "error");
+      }
+      break;
+    }
+  }
+}
+
+/**
+ * Ruta del destino de una transferencia, tal como se enseña. En local se une
+ * con el separador de la carpeta (Windows usa `\`).
+ */
+function sftpTransferTargetPath(el) {
+  const dir = el.dataset.targetDir || "";
+  const name = el.dataset.targetName || "";
+  if (!dir || !name) return dir;
+  if (el.dataset.direction === "upload") return joinRemote(dir, name);
+  const sep = dir.includes("\\") ? "\\" : "/";
+  return dir.endsWith(sep) ? `${dir}${name}` : `${dir}${sep}${name}`;
+}
+
+/** Lleva el lado de destino del panel a la carpeta de la transferencia y marca lo transferido. */
+async function revealSftpTransferTarget(sessionId, el) {
+  const dir = el.dataset.targetDir;
+  if (!dir) return;
+  const side = el.dataset.direction === "upload" ? "remote" : "local";
+  const s = sessions.get(sessionId);
+  if (!s?.sftp) return;
+  const current = side === "remote" ? s.sftp.cwd : s.sftp.localCwd;
+  if (current !== dir) {
+    if (side === "remote") await navigateSftpRemote(sessionId, dir);
+    else await navigateSftpLocal(sessionId, dir);
+  }
+  if (el.dataset.targetName) revealSftpEntry(sessionId, side, el.dataset.targetName);
 }
 
 /**
@@ -23918,7 +27401,7 @@ async function exportConnections(folderFilter, workspaceId = getActiveWorkspaceI
  */
 async function exportConnectionsByWorkspace(workspaceId) {
   const ws = prefs.workspaces.find((w) => w.id === workspaceId);
-  const wsName = ws ? ws.name : workspaceId;
+  const wsName = ws ? workspaceLabel(ws) : workspaceId;
   const profilesToExport = profiles.filter(
     (p) => (p.workspace_id || "default") === workspaceId
   );
@@ -25117,6 +28600,16 @@ function bindUIEvents() {
   // Bloquear el menú contextual nativo del WebView (Atrás, Recargar, Inspeccionar…).
   // Los menús de la app llaman a showContextMenu() y no dependen del default.
   window.addEventListener("contextmenu", (e) => e.preventDefault());
+  // Campos de texto y texto seleccionado: su propio menú (Copiar, Pegar…).
+  document.addEventListener("contextmenu", handleTextContextMenu);
+  initOverflowSubmenus();
+  document.getElementById("text-context-menu")?.addEventListener("click", (e) => {
+    const btn = e.target instanceof Element ? e.target.closest("[data-text-menu]") : null;
+    if (!(btn instanceof HTMLButtonElement) || btn.disabled) return;
+    runTextMenuAction(btn.dataset.textMenu, btn.dataset.format);
+  });
+  // Pulsar en el menú no debe quitar el foco (ni la selección) del campo.
+  document.getElementById("text-context-menu")?.addEventListener("mousedown", (e) => e.preventDefault());
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden && activeSessionId) clearTabActivity(activeSessionId);
   });
@@ -25138,13 +28631,24 @@ function bindUIEvents() {
           validateConnectionField(e.target.id);
         }
         if (e.target.id === "f-env-vars") validateRemoteLaunchFields();
+        if (e.target.id === "f-totp-keepass-regex") void checkTotpKeepassRegex();
       }
       renderConnectionSummary();
     });
     _connForm.addEventListener("change", (e) => {
       // Las variables solo se validan en perfiles SSH: cambiar el tipo
       // retira (o vuelve a poner) el aviso.
-      if (e.target?.id === "f-conn-type") validateRemoteLaunchFields();
+      if (e.target?.id === "f-conn-type") {
+        validateRemoteLaunchFields();
+        refreshTotpKeepassFields();
+      }
+      if (e.target?.id === "f-totp-keepass") refreshTotpKeepassFields();
+      if (e.target?.id === "f-totp-keepass-entry") {
+        totpKeepassEntrySelected = /** @type {HTMLSelectElement} */ (e.target).value;
+        // Elegir una entrada es usar la base: reinicia su autobloqueo.
+        touchKeepass();
+        refreshTotpKeepassFields();
+      }
       if (e.target?.id === "f-proxy-jump-mode") {
         document.getElementById("f-proxy-jump-missing")?.classList.add("hidden");
         updateBastionFields();
@@ -25207,6 +28711,8 @@ function bindUIEvents() {
     });
   }
 
+  bindBulkEditModal();
+
   // Reemplazar todos los <select> nativos por el dropdown personalizado
   document.querySelectorAll("select").forEach(enhanceSelect);
   enhanceNumberSteppers();
@@ -25228,7 +28734,32 @@ function bindUIEvents() {
       e.stopPropagation();
       toggleSidebarTools();
     });
+    const wsMenu = document.getElementById("workspace-menu");
+    if (wsMenu) bindWorkspaceMenuReorder(wsMenu);
+    // Clic derecho (o tecla de menú) sobre un perfil: su menú de opciones.
+    wsMenu?.addEventListener("contextmenu", (e) => {
+      const row = e.target.closest?.(".ws-row");
+      if (!row) return;
+      e.preventDefault();
+      e.stopPropagation();
+      // Desde el teclado el evento no trae posición: bajo la fila.
+      const r = row.getBoundingClientRect();
+      const fromKeyboard = e.clientX === 0 && e.clientY === 0;
+      showWorkspaceOptionsMenu(
+        fromKeyboard ? r.left + 16 : e.clientX,
+        fromKeyboard ? r.bottom : e.clientY,
+        row.dataset.wsId,
+      );
+    });
     popover.addEventListener("click", (e) => {
+      const moreBtn = e.target.closest(".ws-more");
+      if (moreBtn) {
+        // Sin propagar: el clic en el documento cerraría el menú recién abierto.
+        e.stopPropagation();
+        const r = moreBtn.getBoundingClientRect();
+        showWorkspaceOptionsMenu(r.left, r.bottom + 2, moreBtn.dataset.wsId);
+        return;
+      }
       const wsBtn = e.target.closest(".ws-item");
       if (wsBtn && !wsBtn.disabled) {
         handleWorkspaceMenuClick(wsBtn.dataset.wsAction, wsBtn.dataset.wsId);
@@ -25259,9 +28790,21 @@ function bindUIEvents() {
         return;
       }
     });
+    // Elegir en el desplegable de alcance (su lista vive en <body>) no es un
+    // clic fuera: el `click` que sigue al `mousedown` sobre la lista cae en
+    // lo que hubiera debajo y cerraba el popover, borrando la búsqueda.
+    let downInDropdown = false;
+    document.addEventListener("mousedown", (e) => {
+      downInDropdown = !!(e.target instanceof Element && e.target.closest(".custom-select-list"));
+    }, true);
     document.addEventListener("click", (e) => {
       if (popover.classList.contains("hidden")) return;
+      if (downInDropdown) return;
       if (popover.contains(e.target) || toolsBtn.contains(e.target)) return;
+      // El menú de opciones de un perfil se abre desde aquí: elegir en él no
+      // cierra el popover (mover o cambiar el color se ven al momento); las
+      // acciones que abren un diálogo lo cierran ellas.
+      if (e.target.closest?.("#context-menu")) return;
       // Si el clic recae sobre una conexión de los resultados, no cierres el
       // popover de búsqueda: así la lista no se re-renderiza en el primer clic
       // y el doble clic para conectar puede completarse. El popover y el filtro
@@ -25271,6 +28814,11 @@ function bindUIEvents() {
       if (e.target.closest(".conn-item, .search-folder-row, .sidebar-search-section-title")) return;
       toggleSidebarTools(false);
     });
+  }
+
+  // Alcance de los buscadores (barra lateral e inicio).
+  for (const id of ["sidebar-search-scope", "dashboard-search-scope"]) {
+    document.getElementById(id)?.addEventListener("change", (e) => setSearchScope(e.target.value));
   }
 
   // Búsqueda en la sidebar
@@ -25427,11 +28975,14 @@ function bindUIEvents() {
     ?.addEventListener("click", (e) => {
       if (e.target.id === "activity-center-overlay") closeActivityCenter();
     });
+  document.getElementById("btn-activity-export")
+    ?.addEventListener("click", exportActivityHistory);
   document.getElementById("btn-activity-clear")
     ?.addEventListener("click", () => {
       activityItems.length = 0;
       persistActivityHistory();
       renderActivityCenter();
+      updateActivityRailBadge();
     });
   document.querySelectorAll(".activity-filter").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -25488,6 +29039,8 @@ function bindUIEvents() {
     });
   });
   updateRailActiveState();
+  updateActivityRailBadge();
+  updateShortcutHints();
 
   // Toggle de la barra lateral (persistido en localStorage)
   initSidebarToggle();
@@ -25871,6 +29424,9 @@ function bindUIEvents() {
       const action = btn.dataset.globalTunnelAction;
       if (action === "stop-active") {
         stopSshTunnel(row.dataset.sessionId, row.dataset.tunnelId);
+      } else if (action === "copy-address" || action === "open-browser") {
+        const tun = sessions.get(row.dataset.sessionId)?.tunnels?.get(row.dataset.tunnelId);
+        if (tun) runLocalTunnelAction(action, tun);
       } else if (action === "start-saved") {
         startSavedGlobalTunnel(row.dataset.profileId, row.dataset.tunnelId);
       } else if (action === "delete-saved") {
@@ -26012,6 +29568,7 @@ function bindUIEvents() {
   });
   document.getElementById("btn-add-extra-cred")?.addEventListener("click", () => addExtraCredRow());
   initConnectionModalResizePersistence();
+  initDialogFrames();
 
   // Selector de carpeta: árbol navegable en un popover.
   setupFolderTreePicker();
@@ -26151,6 +29708,32 @@ function bindUIEvents() {
     handleContextMenuAction(btn.dataset.ctx);
   });
 
+  // Rueda del ratón sobre la tira de pestañas: desplazarla (o cambiar de
+  // pestaña, según la preferencia). Ctrl+rueda sigue siendo el zoom.
+  const tabScroll = document.getElementById("tab-scroll");
+  tabScroll?.addEventListener("scroll", updateTabScrollEdges, { passive: true });
+  if (tabScroll && typeof ResizeObserver === "function") {
+    new ResizeObserver(() => updateTabOverflowButton()).observe(tabScroll);
+  }
+  tabScroll?.addEventListener("wheel", (e) => {
+    const action = tabWheelAction(e, {
+      mode: prefs.tabWheel,
+      overflowing: tabScroll.scrollWidth > tabScroll.clientWidth + 1,
+    });
+    if (!action) return;
+    e.preventDefault();
+    if (action.type === "scroll") tabScroll.scrollLeft += action.px;
+    else switchTab(action.delta);
+  }, { passive: false });
+
+  // Túneles abiertos en el pie de la sesión: pulsar abre su panel de túneles.
+  document.getElementById("status-tunnels")?.addEventListener("click", () => {
+    if (activeSessionId) toggleTunnelPanel(activeSessionId);
+  });
+
+  // Flechas / Inicio / Fin entre pestañas
+  document.getElementById("tabs-container").addEventListener("keydown", handleTabListKeydown);
+
   // Clic derecho en una pestaña
   document.getElementById("tabs-container").addEventListener("contextmenu", (e) => {
     const tab = e.target.closest(".tab");
@@ -26162,7 +29745,7 @@ function bindUIEvents() {
 
   document.getElementById("tab-context-menu").addEventListener("click", (e) => {
     const btn = e.target.closest("[data-tabctx]");
-    if (btn) handleTabContextAction(btn.dataset.tabctx);
+    if (btn) handleTabContextAction(btn.dataset.tabctx, btn.dataset);
   });
 
   document.getElementById("terminal-context-menu").addEventListener("click", (e) => {
@@ -26175,6 +29758,12 @@ function bindUIEvents() {
     const btn = e.target.closest("[data-sftpctx]");
     if (!btn || btn.disabled) return;
     handleSftpContextMenuAction(btn.dataset.sftpctx);
+  });
+
+  document.getElementById("sftp-transfer-menu")?.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-xferctx]");
+    if (!btn || btn.disabled) return;
+    handleSftpTransferMenuAction(btn.dataset.xferctx);
   });
 
   // Cerrar los menús contextuales al hacer clic fuera de ellos
@@ -26195,10 +29784,18 @@ function bindUIEvents() {
     if (sftpMenu && !sftpMenu.classList.contains("hidden") && !sftpMenu.contains(e.target)) {
       hideSftpContextMenu();
     }
+    const xferMenu = document.getElementById("sftp-transfer-menu");
+    if (xferMenu && !xferMenu.classList.contains("hidden") && !xferMenu.contains(e.target)) {
+      hideSftpTransferMenu();
+    }
     const routeMenu = document.getElementById("route-menu");
     if (routeMenu && !routeMenu.classList.contains("hidden") && !routeMenu.contains(e.target)
         && !e.target.closest?.("#sidebar-route-pill")) {
       hideRouteMenu();
+    }
+    const textMenu = document.getElementById("text-context-menu");
+    if (textMenu && !textMenu.classList.contains("hidden") && !textMenu.contains(e.target)) {
+      hideTextContextMenu();
     }
   });
 
@@ -26214,14 +29811,31 @@ function bindUIEvents() {
   // closeSettingsModal(): un Escape en un desplegable cerraba también Nueva
   // conexión (perdiendo lo escrito) o Preferencias por debajo de un hijo.
   registerDialogs();
-  document.addEventListener("keydown", (e) => {
-    if (e.key !== "Escape" || e.defaultPrevented || !openFloatingMenuEl()) return;
-    closeFloatingMenus({ restoreFocus: true });
-    e.preventDefault();
-  });
-
-  // Navegación por teclado de los menús flotantes (flechas / Inicio / Fin / Tab).
+  // Navegación por teclado de los menús flotantes (flechas / Inicio / Fin / → y
+  // ← en los submenús / Escape / Tab). Escape lo consume el propio menú.
   document.addEventListener("keydown", handleFloatingMenuKeydown);
+  for (const menuId of FLOATING_MENU_IDS) {
+    const menu = document.getElementById(menuId);
+    if (!menu) continue;
+    menu.addEventListener("focusin", () => syncSubmenuExpansion(menu));
+    // El puntero manda: en cuanto se mueve por el menú se quita el resaltado
+    // que dejó el teclado.
+    menu.addEventListener("mouseover", (e) => {
+      menu.querySelectorAll(".ctx-item.is-active").forEach((it) => it.classList.remove("is-active"));
+      // Al entrar en otra opción, los submenús que el puntero dejó abiertos
+      // se pliegan ya, sin esperar al margen de cruce.
+      const item = e.target instanceof Element ? e.target.closest(".ctx-item") : null;
+      if (!item) return;
+      menu.querySelectorAll('.ctx-has-submenu[aria-expanded="true"]').forEach((parent) => {
+        if (!parent.contains(item)) collapseHoverSubmenu(parent);
+      });
+    });
+    // El puntero sale del menú (también al hueco que lo separa del submenú).
+    menu.addEventListener("mouseleave", () => {
+      menu.querySelectorAll('.ctx-has-submenu[aria-expanded="true"]').forEach(scheduleSubmenuClose);
+    });
+    menu.querySelectorAll(".ctx-has-submenu").forEach(bindSubmenuHover);
+  }
 
   // Atajos de teclado globales (capture phase para preempt a xterm)
   document.addEventListener("keydown", handleGlobalShortcut, { capture: true });
@@ -26971,6 +30585,11 @@ function buildPaletteSources() {
     add("action:jump-probe", { kind: "action", title: t("jump.palette_probe"), icon: PALETTE_ICONS.route, run: () => probeActiveJump() });
   }
   add("action:scripts", { kind: "action", title: t("palette.action_scripts"), icon: PALETTE_ICONS.script, run: () => openScriptsModal() });
+  // Edición en lote: solo con varias conexiones seleccionadas en la barra lateral.
+  const bulkSelected = selectedExistingProfileIds().length;
+  if (bulkSelected > 1) {
+    add("action:bulk-edit-selection", { kind: "action", title: t("bulk_edit.palette_selection", { n: bulkSelected }), icon: PALETTE_ICONS.action, run: () => openBulkEditForSelection() });
+  }
   const healthFavs = profiles.filter((p) => isFavoriteProfile(p.id) && p.host);
   if (healthFavs.length) {
     add("action:health-favorites", { kind: "action", title: t("palette.action_health_favorites"), icon: PALETTE_ICONS.health, run: () => runHealthCheck(healthFavs, t("health.scope_favorites")) });
@@ -26994,7 +30613,7 @@ function buildPaletteSources() {
   for (const [pid, summary] of notesIndex) {
     const p = profiles.find((x) => x.id === pid);
     if (!p) continue;
-    add(`note:${pid}`, { kind: "note", title: summary.title || p.name || p.host || "", sub: p.name || p.host || "", icon: PALETTE_ICONS.note, run: () => openNoteEditor(pid) });
+    add(`note:${pid}`, { kind: "note", title: summary.title || p.name || p.host || "", sub: p.name || p.host || "", icon: PALETTE_ICONS.note, run: () => openNoteViewer(pid) });
   }
   return items;
 }
@@ -27054,7 +30673,7 @@ function renderPaletteResults(query) {
     // puede ser lo que se buscaba («deploy.sh») y va detrás del primer
     // resultado, para no quitarle el Intro. La fila nombra el destino real: el
     // perfil guardado de ese host si se va a reutilizar.
-    const quick = paletteQuickTarget(q);
+    const quick = paletteQuickTarget(q, { defaultUser: quickDefaultUser() });
     if (quick) {
       const existing = findQuickTargetProfile(profiles, quick.target);
       const shown = existing
@@ -27867,9 +31486,13 @@ function registerDialogs() {
   dialogs.register("cred_edit", { overlay: "cred-edit-overlay", close: closeCredEditModal });
   dialogs.register("import", { overlay: "import-wizard-overlay", close: closeImportWizard });
   dialogs.register("trash", { overlay: "trash-modal-overlay", close: click("trash-close") });
-  const activityPanel = document.getElementById("activity-center-panel");
-  activityPanel?.setAttribute("role", "dialog");
-  activityPanel?.setAttribute("aria-modal", "true");
+  dialogs.register("bulk_edit", {
+    overlay: "bulk-edit-overlay", close: closeBulkEditModal,
+    initialFocus: () => document.querySelector("#bulk-edit-modal .bulk-on"),
+  });
+  // Centro de actividad: `role="dialog"`, `aria-modal` y el título que lo
+  // nombra (`aria-labelledby`) van en el HTML; aquí solo el foco inicial (el
+  // filtro puesto) y el cierre. Escape y la vuelta del foco, los comunes.
   dialogs.register("activity", {
     overlay: "activity-center-overlay", dialog: "activity-center-panel", close: closeActivityCenter,
     initialFocus: () => document.querySelector("#activity-center-panel .activity-filter.active"),
@@ -27928,7 +31551,7 @@ function startQuickSelect() {
 
 const shortcuts = createShortcutController({
   getPrefs: () => prefs,
-  save: () => { savePrefs(); scheduleProfileAutoSync(); },
+  save: () => { savePrefs(); scheduleProfileAutoSync(); updateShortcutHints(); },
   toast, confirm: confirmThemed, files, readLimit: FILE_READ_LIMITS.shortcuts,
   t, applyTranslations, fileErrorText,
   actions: {
@@ -27967,6 +31590,8 @@ const shortcuts = createShortcutController({
     sftp_toggle_panel: () => toggleActiveSftpPanel(),
     sftp_toggle_follow: () => toggleActiveSftpFollow(),
     sftp_toggle_sudo: () => toggleActiveSftpElevated(),
+    tunnels_toggle_panel: () => toggleActiveTabPanel("tunnels"),
+    runbook_toggle_panel: () => toggleActiveTabPanel("runbook"),
     toggle_zen_mode: () => toggleZenMode(),
     disconnect_all: () => disconnectAll(),
     open_command_editor: () => openCommandEditor(),
@@ -27975,6 +31600,7 @@ const shortcuts = createShortcutController({
     show_shortcuts: () => toggleShortcutsHelp(),
     clear_prompt_line: () => clearActivePromptLine(),
     pick_active_jump: () => openJumpPicker({ mode: "active" }),
+    focus_last_toast: () => focusLastToast(),
   },
 });
 
@@ -28030,6 +31656,28 @@ function handleRenameHotkey(e) {
   return false;
 }
 
+// Supr: borra lo seleccionado en el lado del panel de archivos que tiene el
+// foco, con la misma confirmación que «Eliminar» del clic derecho. En un Mac,
+// cuyos portátiles no tienen tecla Supr, también Cmd+Retroceso (como el Finder).
+// Devuelve true si consumió el evento; dentro de un campo de texto no actúa.
+function handleSftpDeleteHotkey(e) {
+  const plainDelete = e.key === "Delete" && !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey;
+  const macDelete = e.key === "Backspace" && e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey;
+  if (!plainDelete && !macDelete) return false;
+  const active = document.activeElement;
+  if (active?.closest?.("input, textarea, [contenteditable=\"true\"]")) return false;
+  const filesDiv = active?.closest?.(".sftp-files");
+  if (!filesDiv) return false;
+  const sessionId = filesDiv.closest("[data-session]")?.dataset?.session;
+  const side = filesDiv.dataset.side;
+  if (!sessionId || !side) return false;
+  e.preventDefault();
+  e.stopPropagation();
+  const rows = selectedSftpContextRows(sessionId, side);
+  if (rows.length) confirmDeleteRows(sessionId, side, rows);
+  return true;
+}
+
 function handleGlobalShortcut(e) {
   if (shortcuts.capture(e)) return;
   // Con un diálogo modal abierto, los atajos no actúan sobre lo que queda
@@ -28037,6 +31685,7 @@ function handleGlobalShortcut(e) {
   // contraseña): solo pasa la lista blanca de `modules/dialogs/stack.js`.
   const modalOpen = dialogs.hasModal();
   if (!modalOpen && handleRenameHotkey(e)) return;
+  if (!modalOpen && handleSftpDeleteHotkey(e)) return;
   // Con un modal abierto solo pasan los atajos seguros; además, el de la
   // chuleta la cierra cuando es ella la que está arriba (sin esto la abría y
   // no la volvía a cerrar).
@@ -28497,9 +32146,100 @@ function renderNotePreviewInto(el, body, profile) {
   if (!el) return;
   const resolved = substitutePreview(String(body || ""), noteSubstContext(profile));
   el.innerHTML = renderMarkdownMinimal(resolved);
+  textRegionSources.set(el, String(body || ""));
 }
 
-async function openNoteEditor(profileId) {
+/** Abre la nota de una conexión en lectura (Markdown pintado, sin editor). */
+function openNoteViewer(profileId) {
+  return openNoteEditor(profileId, { view: true });
+}
+
+/**
+ * Pasa el modal de la nota entre lectura y edición. En lectura solo se ve la
+ * vista previa a todo el ancho, con el título y las etiquetas arriba; las
+ * casillas de tarea se pueden marcar y se guardan en el `.md`.
+ * @param {boolean} view
+ * @param {any} profile
+ * @param {{ title?: string, tags?: string[] } | null} [doc]
+ */
+function setNoteModalMode(view, profile, doc = null) {
+  const modal = document.getElementById("note-editor-modal");
+  if (!modal) return;
+  modal.classList.toggle("is-view", view);
+  document.getElementById("note-editor-title").textContent =
+    `${t(view ? "notes.viewer_title" : "notes.editor_title")} · ${profile?.name || ""}`;
+  const meta = document.getElementById("note-view-meta");
+  if (meta) {
+    const title = view ? (doc?.title || "").trim() : "";
+    const tags = view ? (doc?.tags || []) : [];
+    meta.innerHTML = (title ? `<h3 class="note-view-title">${escHtml(title)}</h3>` : "")
+      + (tags.length
+        ? `<div class="note-view-tags">${tags.map((tag) => `<span class="note-view-tag">${escHtml(tag)}</span>`).join("")}</div>`
+        : "");
+    meta.classList.toggle("hidden", !title && !tags.length);
+  }
+  const preview = document.getElementById("note-editor-preview");
+  if (preview) {
+    // En lectura la vista previa es el contenido: enfocable para desplazarla
+    // con el teclado.
+    if (view) preview.setAttribute("tabindex", "0");
+    else preview.removeAttribute("tabindex");
+  }
+}
+
+/** Pinta la vista previa; en lectura, con las casillas de tarea operativas. */
+function renderNoteModalPreview(body, profile) {
+  const el = document.getElementById("note-editor-preview");
+  if (!el) return;
+  const view = document.getElementById("note-editor-modal")?.classList.contains("is-view");
+  if (!view) {
+    renderNotePreviewInto(el, body, profile);
+    return;
+  }
+  const resolved = substitutePreview(String(body || ""), noteSubstContext(profile));
+  el.innerHTML = renderMarkdownMinimal(resolved, { onToggleTask: () => {} });
+  textRegionSources.set(el, String(body || ""));
+  const profileId = profile?.id;
+  el.querySelectorAll('input[type="checkbox"][data-task-index]').forEach((cb) => {
+    cb.addEventListener("change", async () => {
+      const textarea = document.getElementById("note-editor-textarea");
+      try {
+        const newBody = await persistNoteTaskToggle(profileId, Number(cb.dataset.taskIndex), cb.checked);
+        if (textarea && _noteEditorProfileId === profileId) textarea.value = newBody;
+        updateRunbookForProfile(profileId);
+      } catch (err) {
+        console.error("[notes] toggle task", err);
+        cb.checked = !cb.checked;
+      }
+    });
+  });
+}
+
+/**
+ * Marca o desmarca la casilla `index` de la nota guardada y la persiste.
+ * Devuelve el cuerpo nuevo.
+ */
+async function persistNoteTaskToggle(profileId, index, checked) {
+  const profile = profiles.find((p) => p.id === profileId);
+  const fresh = await invoke("note_get", { profileId });
+  const newBody = toggleTaskInBody(fresh?.body ?? "", index, checked);
+  await invoke("note_set", {
+    profileId,
+    body: newBody,
+    title: fresh?.title || "",
+    connection: profile?.name || "",
+    tags: fresh?.tags || [],
+  });
+  await refreshNotesIndex();
+  scheduleProfileAutoSync();
+  return newBody;
+}
+
+/**
+ * Abre el modal de la nota de una conexión: en edición (por defecto) o en
+ * lectura con `{ view: true }`. Sin nota guardada siempre abre en edición.
+ */
+async function openNoteEditor(profileId, { view = false } = {}) {
   const overlay = document.getElementById("note-editor-overlay");
   if (!overlay || !profileId) return;
   const profile = profiles.find((p) => p.id === profileId);
@@ -28511,9 +32251,6 @@ async function openNoteEditor(profileId) {
   const tagsInput = document.getElementById("note-editor-tags");
   const textarea = document.getElementById("note-editor-textarea");
 
-  document.getElementById("note-editor-title").textContent =
-    `${t("notes.editor_title")} · ${profile.name}`;
-
   let doc = null;
   try {
     doc = await invoke("note_get", { profileId });
@@ -28524,9 +32261,21 @@ async function openNoteEditor(profileId) {
   tagsInput.value = (doc?.tags || []).join(", ");
   textarea.value = doc?.body || "";
 
-  renderNotePreviewInto(document.getElementById("note-editor-preview"), textarea.value, profile);
+  const viewMode = view && !!(doc && (String(doc.body || "").trim() || doc.title));
+  setNoteModalMode(viewMode, profile, doc);
+  renderNoteModalPreview(textarea.value, profile);
   overlay.classList.remove("hidden");
-  textarea.focus();
+  if (viewMode) document.getElementById("note-editor-preview")?.focus();
+  else textarea.focus();
+}
+
+/** De la lectura a la edición, sin volver a leer la nota. */
+function switchNoteToEdit() {
+  const profile = profiles.find((p) => p.id === _noteEditorProfileId);
+  if (!profile) return;
+  setNoteModalMode(false, profile);
+  renderNoteModalPreview(document.getElementById("note-editor-textarea")?.value, profile);
+  document.getElementById("note-editor-textarea")?.focus();
 }
 
 function scheduleNotePreview() {
@@ -28534,7 +32283,7 @@ function scheduleNotePreview() {
   _notePreviewTimer = setTimeout(() => {
     const textarea = document.getElementById("note-editor-textarea");
     const profile = profiles.find((p) => p.id === _noteEditorProfileId);
-    renderNotePreviewInto(document.getElementById("note-editor-preview"), textarea?.value, profile);
+    renderNoteModalPreview(textarea?.value, profile);
   }, 150);
 }
 
@@ -28610,31 +32359,58 @@ async function deleteNote(profileId) {
   }
 }
 
-/** Inserta marcado Markdown alrededor de la selección del textarea. */
-function applyNoteToolbar(action) {
-  const ta = document.getElementById("note-editor-textarea");
-  if (!ta) return;
-  const start = ta.selectionStart;
-  const end = ta.selectionEnd;
-  const sel = ta.value.slice(start, end);
-  let before = "";
-  let after = "";
-  let placeholder = sel;
-  switch (action) {
-    case "bold":   before = "**"; after = "**"; placeholder = sel || t("notes.ph_bold"); break;
-    case "italic": before = "*";  after = "*";  placeholder = sel || t("notes.ph_italic"); break;
-    case "code":   before = "`";  after = "`";  placeholder = sel || t("notes.ph_code"); break;
-    case "link":   before = "[";  after = "](https://)"; placeholder = sel || t("notes.ph_link"); break;
-    case "h":      before = "## "; placeholder = sel || t("notes.ph_heading"); break;
-    case "ul":     before = "- ";  placeholder = sel || t("notes.ph_item"); break;
-    case "task":   before = "- [ ] "; placeholder = sel || t("notes.ph_task"); break;
-    default: return;
+/** Textos de ejemplo del formato Markdown, en el idioma de la interfaz. */
+function noteFormatPlaceholders() {
+  return {
+    bold: t("notes.ph_bold"),
+    italic: t("notes.ph_italic"),
+    code: t("notes.ph_code"),
+    link: t("notes.ph_link"),
+    heading: t("notes.ph_heading"),
+    item: t("notes.ph_item"),
+    task: t("notes.ph_task"),
+    quote: t("notes.ph_quote"),
+  };
+}
+
+/**
+ * Sustituye `[start, end)` de un campo por `text` sin romper su deshacer:
+ * `insertText` entra en el historial del editor (Ctrl+Z lo revierte); si el
+ * WebView no lo admite, `setRangeText` y un `input` a mano.
+ * @param {HTMLInputElement | HTMLTextAreaElement} field
+ */
+function replaceFieldText(field, start, end, text) {
+  field.focus();
+  field.setSelectionRange(start, end);
+  let done = false;
+  try {
+    done = text
+      ? document.execCommand("insertText", false, text)
+      : document.execCommand("delete");
+  } catch {
+    done = false;
   }
-  const insert = before + placeholder + after;
-  ta.value = ta.value.slice(0, start) + insert + ta.value.slice(end);
-  const caret = start + before.length;
-  ta.focus();
-  ta.setSelectionRange(caret, caret + placeholder.length);
+  if (!done) {
+    field.setRangeText(text, start, end, "end");
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+}
+
+/** Aplica un formato Markdown a la selección de un campo (`modules/markdown-format.js`). */
+function applyMarkdownFormatToField(field, action) {
+  if (!field) return;
+  const edit = markdownFormatEdit(field.value, field.selectionStart ?? 0, field.selectionEnd ?? 0,
+    action, noteFormatPlaceholders());
+  if (!edit) return;
+  replaceFieldText(field, edit.start, edit.end, edit.text);
+  field.setSelectionRange(edit.selStart, edit.selEnd);
+}
+
+/** Barra del editor de notas: formato sobre la selección del cuerpo. */
+function applyNoteToolbar(action) {
+  const ta = /** @type {HTMLTextAreaElement | null} */ (document.getElementById("note-editor-textarea"));
+  if (!ta) return;
+  applyMarkdownFormatToField(ta, action);
   _noteEditorDirty = true;
   scheduleNotePreview();
 }
@@ -28664,6 +32440,20 @@ function initNoteEditor() {
   document.getElementById("note-editor-save")?.addEventListener("click", () => saveNoteFromEditor({ close: true }));
   document.getElementById("note-editor-cancel")?.addEventListener("click", () => handleNoteEditorEscape());
   document.getElementById("note-editor-close")?.addEventListener("click", () => handleNoteEditorEscape());
+  document.getElementById("note-view-close")?.addEventListener("click", () => handleNoteEditorEscape());
+  document.getElementById("note-view-edit")?.addEventListener("click", () => switchNoteToEdit());
+  // En lectura, Ctrl+A con la nota enfocada selecciona solo la nota (no toda
+  // la ventana), lista para Ctrl+C.
+  document.getElementById("note-editor-preview")?.addEventListener("keydown", (e) => {
+    if ((e.key === "a" || e.key === "A") && (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
+      e.preventDefault();
+      const range = document.createRange();
+      range.selectNodeContents(/** @type {Node} */ (e.currentTarget));
+      const sel = window.getSelection();
+      sel?.removeAllRanges();
+      sel?.addRange(range);
+    }
+  });
   document.getElementById("note-editor-open-folder")?.addEventListener("click", async () => {
     try {
       const dir = await invoke("notes_dir");
@@ -28716,7 +32506,7 @@ function buildRunbookPanel(sessionId) {
         <button class="btn-icon runbook-close" type="button" title="${escHtml(t("notes.close"))}" aria-label="${escHtml(t("notes.close"))}">${closeSvg}</button>
       </div>
     </div>
-    <div class="runbook-body markdown-body"></div>`;
+    <div class="runbook-body markdown-body" data-text-region></div>`;
   panel.querySelector(".runbook-close").addEventListener("click", () => {
     panel.classList.add("hidden");
     sessions.get(sessionId)?.fitAddon?.fit();
@@ -28751,23 +32541,12 @@ async function renderRunbookPanel(sessionId) {
   }
   const resolved = substitutePreview(doc.body, noteSubstContext(profile));
   bodyEl.innerHTML = renderMarkdownMinimal(resolved, { onToggleTask: () => {} });
+  textRegionSources.set(bodyEl, String(doc.body || ""));
   // Cablea las casillas interactivas para que persistan en el `.md`.
   bodyEl.querySelectorAll('input[type="checkbox"][data-task-index]').forEach((cb) => {
     cb.addEventListener("change", async () => {
-      const idx = Number(cb.dataset.taskIndex);
       try {
-        const fresh = await invoke("note_get", { profileId: s.profileId });
-        const base = fresh?.body ?? doc.body;
-        const newBody = toggleTaskInBody(base, idx, cb.checked);
-        await invoke("note_set", {
-          profileId: s.profileId,
-          body: newBody,
-          title: fresh?.title || doc.title || "",
-          connection: profile.name,
-          tags: fresh?.tags || doc.tags || [],
-        });
-        await refreshNotesIndex();
-        scheduleProfileAutoSync();
+        await persistNoteTaskToggle(s.profileId, Number(cb.dataset.taskIndex), cb.checked);
         renderRunbookPanel(sessionId);
       } catch (err) {
         console.error("[notes] toggle task", err);
@@ -29219,6 +32998,21 @@ function loadZenMode() {
  * fábrica. Va solo en `data-tooltip` (un `title` sacaría además el tooltip
  * nativo) y se repinta tras cada `applyTranslations`, que no la conoce.
  */
+/**
+ * Pistas de teclado que la interfaz enseña fuera de Preferencias: salen del
+ * mapa de atajos vigente, no de un texto fijo, y se esconden si la acción no
+ * tiene combinación.
+ */
+function updateShortcutHints() {
+  updateZenExitTooltip();
+  const hint = document.getElementById("dashboard-search-kbd");
+  if (hint) {
+    const combo = shortcuts.get("search_connections");
+    hint.textContent = combo ? formatAccelerator(combo) : "";
+    hint.classList.toggle("hidden", !combo);
+  }
+}
+
 function updateZenExitTooltip() {
   const exitBtn = document.getElementById("zen-exit-btn");
   if (!exitBtn) return;
@@ -29414,14 +33208,19 @@ function initSidebarResize() {
 
 /**
  * Controles de ventana integrados (CSD: decorations:false).
- * La clase `platform-*` del body permite ajustes por SO. Mostrar la ventana por primera
- * vez NO es cosa de aquí: lo hace revealMainWindow(), al arrancar.
+ * En macOS la ventana sí lleva decoraciones (`tauri.macos.conf.json`, con la
+ * barra de título superpuesta): el semáforo lo pinta el sistema, así que la
+ * clase `platform-macos` esconde nuestros botones y le despeja la esquina
+ * superior izquierda. Sin esas decoraciones macOS no enseña ningún botón.
+ * Mostrar la ventana por primera vez NO es cosa de aquí: lo hace
+ * revealMainWindow(), al arrancar.
  */
 async function initWindowControls() {
   // Detección de plataforma a partir del UA de la webview.
   const ua = navigator.userAgent || "";
   const cls = /Windows/.test(ua) ? "platform-windows" : "platform-linux";
   document.body.classList.add(cls);
+  const isMac = cls === "platform-macos";
 
   const win = await getMainWindow();
   if (!win) return; // fuera de Tauri (p. ej. vite dev puro): no hay ventana
@@ -29463,6 +33262,11 @@ async function initWindowControls() {
     try {
       const isMax = await win.isMaximized();
       document.body.classList.toggle("window-maximized", !!isMax);
+    } catch {}
+    // A pantalla completa macOS retira el semáforo: se devuelve su hueco.
+    if (!isMac) return;
+    try {
+      document.body.classList.toggle("window-fullscreen", !!(await win.isFullscreen()));
     } catch {}
   };
   syncMaximized();
@@ -29785,12 +33589,24 @@ function getStepPrecision(stepValue) {
 // ═══════════════════════════════════════════════════════════════
 // DROPDOWN PERSONALIZADO
 // Sustituye los <select> nativos (que en WebKitGTK ignoran el tema
-// de la app) por un control con los colores del tema Catppuccin.
+// de la app) por un control con los colores del tema. Patrón APG
+// «select-only combobox»: el botón es el combobox y conserva el foco
+// siempre (la lista vive en <body>, fuera del diálogo, y así no choca
+// con la trampa de foco ni con el `inert` del controlador de diálogos);
+// la lista es un listbox cuya opción resaltada se anuncia con
+// aria-activedescendant. Las teclas las resuelve `modules/listbox-nav.js`.
+// Con la preferencia «Usar los desplegables del sistema» no se toca nada
+// y queda el <select> nativo (`applyNativeSelects`).
 // ═══════════════════════════════════════════════════════════════
+
+let _customSelectSeq = 0;
 
 function enhanceSelect(selectEl) {
   if (selectEl.dataset.enhanced === "1") return;
+  if (prefs?.nativeSelects) return;
   selectEl.dataset.enhanced = "1";
+
+  const uid = selectEl.id || `custom-select-${++_customSelectSeq}`;
 
   const wrapper = document.createElement("div");
   wrapper.className = "custom-select";
@@ -29800,67 +33616,169 @@ function enhanceSelect(selectEl) {
   const display = document.createElement("button");
   display.type = "button";
   display.className = "custom-select-display";
+  display.id = `${uid}-combobox`;
+  display.setAttribute("role", "combobox");
+  display.setAttribute("aria-haspopup", "listbox");
+  display.setAttribute("aria-expanded", "false");
   wrapper.appendChild(display);
 
   const list = document.createElement("div");
   list.className = "custom-select-list hidden";
+  list.id = `${uid}-listbox`;
+  list.setAttribute("role", "listbox");
+  list.tabIndex = -1;
+  // Dueño de la lista: si el <select> desaparece del DOM sin pasar por
+  // `_destroyEnhanced` (un formulario repintado con innerHTML), la lista
+  // queda huérfana en <body> y así se puede barrer.
+  list._ownerSelect = selectEl;
   document.body.appendChild(list);
+  display.setAttribute("aria-controls", list.id);
+
+  // Etiqueta accesible: el <label for> del select (o el <label> que lo
+  // envuelve) más el propio botón, cuyo texto es el valor elegido.
+  const label = (selectEl.id && document.querySelector(`label[for="${CSS.escape(selectEl.id)}"]`))
+    || selectEl.closest("label");
+  if (label) {
+    if (!label.id) label.id = `${uid}-label`;
+    display.setAttribute("aria-labelledby", `${label.id} ${display.id}`);
+    list.setAttribute("aria-labelledby", label.id);
+  } else if (selectEl.getAttribute("aria-label")) {
+    display.setAttribute("aria-label", selectEl.getAttribute("aria-label"));
+    list.setAttribute("aria-label", selectEl.getAttribute("aria-label"));
+  }
+  if (selectEl.disabled) display.disabled = true;
+
+  let state = createListboxState(selectEl.selectedIndex);
+  /** Elementos `role=option`, en el orden de `selectEl.options`. */
+  let items = [];
+
+  function isOpen() {
+    return !list.classList.contains("hidden");
+  }
+
+  function highlight(index) {
+    state = { ...state, index };
+    items.forEach((el, i) => el.classList.toggle("is-focused", i === index));
+    const current = items[index];
+    if (current) {
+      display.setAttribute("aria-activedescendant", current.id);
+      current.scrollIntoView({ block: "nearest" });
+    } else {
+      display.removeAttribute("aria-activedescendant");
+    }
+  }
+
+  function commit(index) {
+    const opt = selectEl.options[index];
+    if (!opt || opt.disabled) return;
+    if (selectEl.value !== opt.value) {
+      selectEl.value = opt.value;
+      selectEl.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+  }
+
+  function buildOption(o, index) {
+    const item = document.createElement("div");
+    item.className = "custom-select-item";
+    item.id = `${list.id}-opt-${index}`;
+    item.setAttribute("role", "option");
+    const selected = index === selectEl.selectedIndex;
+    item.setAttribute("aria-selected", selected ? "true" : "false");
+    if (selected) item.classList.add("active");
+    if (o.disabled) item.setAttribute("aria-disabled", "true");
+    item.textContent = o.textContent;
+    // mousedown y no click: con preventDefault el foco no sale del botón.
+    item.addEventListener("mousedown", (ev) => {
+      ev.preventDefault();
+      if (o.disabled) return;
+      commit(index);
+      close();
+    });
+    return item;
+  }
 
   function refresh() {
     const opt = selectEl.options[selectEl.selectedIndex];
     display.textContent = opt ? opt.textContent : "";
+    display.disabled = selectEl.disabled;
     list.innerHTML = "";
-    [...selectEl.options].forEach((o, i) => {
-      const item = document.createElement("div");
-      item.className = "custom-select-item";
-      if (i === selectEl.selectedIndex) item.classList.add("active");
-      item.textContent = o.textContent;
-      item.addEventListener("mousedown", (ev) => {
-        ev.preventDefault();
-        if (selectEl.value !== o.value) {
-          selectEl.value = o.value;
-          selectEl.dispatchEvent(new Event("change", { bubbles: true }));
+    items = [];
+    let index = 0;
+    for (const child of selectEl.children) {
+      if (child instanceof HTMLOptGroupElement) {
+        const group = document.createElement("div");
+        group.setAttribute("role", "group");
+        const heading = document.createElement("div");
+        heading.className = "custom-select-group";
+        heading.id = `${list.id}-group-${index}`;
+        heading.setAttribute("role", "presentation");
+        heading.textContent = child.label;
+        group.setAttribute("aria-labelledby", heading.id);
+        group.appendChild(heading);
+        for (const o of child.children) {
+          if (!(o instanceof HTMLOptionElement)) continue;
+          const item = buildOption(o, index++);
+          items.push(item);
+          group.appendChild(item);
         }
-        close();
-      });
-      list.appendChild(item);
-    });
+        list.appendChild(group);
+      } else if (child instanceof HTMLOptionElement) {
+        const item = buildOption(child, index++);
+        items.push(item);
+        list.appendChild(item);
+      }
+    }
+    if (isOpen()) highlight(Math.min(state.index, items.length - 1));
+    else state = { ...state, index: selectEl.selectedIndex };
   }
 
   function position() {
+    // La lista vive en <body>: copia el zoom del control que la abre (dentro
+    // de un diálogo o de la barra lateral va escalado; en el inicio, no) y
+    // pasa las medidas de la ventana a sus unidades.
+    const z = display.closest(UI_ZOOMED_SELECTOR) ? uiZoomFactor() : 1;
+    list.style.zoom = z === 1 ? "" : String(z);
     const r = display.getBoundingClientRect();
-    list.style.left     = r.left + "px";
-    list.style.minWidth = r.width + "px";
-    list.style.maxWidth = Math.max(r.width, 320) + "px";
+    list.style.left     = r.left / z + "px";
+    list.style.minWidth = r.width / z + "px";
+    list.style.maxWidth = Math.max(r.width / z, 320) + "px";
 
     const spaceBelow = window.innerHeight - r.bottom;
     const spaceAbove = r.top;
     const maxH = 240;
     if (spaceBelow < 140 && spaceAbove > spaceBelow) {
       list.style.top      = "auto";
-      list.style.bottom   = (window.innerHeight - r.top + 4) + "px";
-      list.style.maxHeight = Math.min(maxH, spaceAbove - 12) + "px";
+      list.style.bottom   = (window.innerHeight - r.top + 4) / z + "px";
+      list.style.maxHeight = Math.min(maxH, (spaceAbove - 12) / z) + "px";
     } else {
-      list.style.top      = (r.bottom + 4) + "px";
+      list.style.top      = (r.bottom + 4) / z + "px";
       list.style.bottom   = "auto";
-      list.style.maxHeight = Math.min(maxH, spaceBelow - 12) + "px";
+      list.style.maxHeight = Math.min(maxH, (spaceBelow - 12) / z) + "px";
     }
   }
 
-  function open() {
+  /** Despliega la lista resaltando `index` (la elegida si no se indica). */
+  function open(index = selectEl.selectedIndex) {
     refresh();
+    state = { ...state, open: true, search: "", searchAt: 0 };
     wrapper.classList.add("open");
     list.classList.remove("hidden");
+    display.setAttribute("aria-expanded", "true");
     position();
+    highlight(index);
   }
 
   function close() {
+    state = { ...state, open: false, index: selectEl.selectedIndex, search: "", searchAt: 0 };
     wrapper.classList.remove("open");
     list.classList.add("hidden");
+    display.setAttribute("aria-expanded", "false");
+    display.removeAttribute("aria-activedescendant");
+    items.forEach((el) => el.classList.remove("is-focused"));
   }
 
   function toggle() {
-    list.classList.contains("hidden") ? open() : close();
+    isOpen() ? close() : open();
   }
 
   display.addEventListener("click", (e) => {
@@ -29869,16 +33787,64 @@ function enhanceSelect(selectEl) {
     toggle();
   });
 
+  display.addEventListener("keydown", (e) => {
+    if (e.ctrlKey || e.metaKey || e.isComposing) return;
+    const options = [...selectEl.options];
+    const res = listboxKey(state, e.key, {
+      labels: options.map((o) => o.textContent),
+      disabled: options.map((o) => o.disabled),
+      now: performance.now(),
+      altKey: e.altKey,
+      selected: selectEl.selectedIndex,
+    });
+    state = res.state;
+    if (res.prevent) {
+      // Escape, flechas y letras son del desplegable: ni el diálogo de
+      // debajo ni los atajos globales deben verlos.
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    switch (res.action) {
+      case "open":
+        open(state.index);
+        break;
+      case "move":
+        highlight(state.index);
+        break;
+      case "commit":
+        commit(state.index);
+        close();
+        break;
+      case "close":
+        close();
+        break;
+      default:
+        break;
+    }
+  });
+
+  // El foco se va del botón con la lista abierta (Tab ya eligió, o alguien
+  // enfocó otra cosa por código): la lista no se queda huérfana.
+  display.addEventListener("blur", () => {
+    if (isOpen()) close();
+  });
+
   const onDocMouseDown = (e) => {
-    if (list.classList.contains("hidden")) return;
+    if (!isOpen()) return;
     if (wrapper.contains(e.target) || list.contains(e.target)) return;
     close();
   };
   const onResize = () => {
-    if (!list.classList.contains("hidden")) position();
+    if (isOpen()) position();
   };
+  // Escape con la lista abierta y el foco fuera del botón (no debería pasar;
+  // red de seguridad): cierra la lista, no el diálogo.
   const onKeyDown = (e) => {
-    if (e.key === "Escape" && !list.classList.contains("hidden")) { e.preventDefault(); close(); }
+    if (e.key === "Escape" && isOpen() && e.target !== display) {
+      e.preventDefault();
+      e.stopPropagation();
+      close();
+    }
   };
   document.addEventListener("mousedown", onDocMouseDown);
   window.addEventListener("resize", onResize);
@@ -29890,18 +33856,8 @@ function enhanceSelect(selectEl) {
     childList: true,
     subtree: true,
     attributes: true,
-    attributeFilter: ["selected", "disabled", "value"],
+    attributeFilter: ["selected", "disabled", "value", "label"],
   });
-
-  // Limpieza para los <select> dinámicos (filas de usuarios extra): al quitar la
-  // fila se invoca para no dejar la lista flotante ni los listeners colgando.
-  selectEl._destroyEnhanced = () => {
-    observer.disconnect();
-    list.remove();
-    document.removeEventListener("mousedown", onDocMouseDown);
-    window.removeEventListener("resize", onResize);
-    document.removeEventListener("keydown", onKeyDown);
-  };
 
   // Interceptar asignaciones `selectEl.value = X` para actualizar el display
   const proto = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value");
@@ -29911,7 +33867,54 @@ function enhanceSelect(selectEl) {
     set(v) { proto.set.call(selectEl, v); refresh(); },
   });
 
+  // Limpieza: deshace el control y deja el <select> nativo tal como estaba.
+  // Se invoca al quitar una fila dinámica (usuarios extra) y al activar la
+  // preferencia de desplegables del sistema.
+  selectEl._destroyEnhanced = () => {
+    observer.disconnect();
+    list.remove();
+    document.removeEventListener("mousedown", onDocMouseDown);
+    window.removeEventListener("resize", onResize);
+    document.removeEventListener("keydown", onKeyDown);
+    delete selectEl.value;
+    if (wrapper.parentNode) wrapper.parentNode.insertBefore(selectEl, wrapper);
+    wrapper.remove();
+    delete selectEl.dataset.enhanced;
+    delete selectEl._destroyEnhanced;
+  };
+
   refresh();
+}
+
+/** Quita de <body> las listas cuyo <select> ya no está en el documento. */
+function sweepOrphanSelectLists() {
+  document.querySelectorAll(".custom-select-list").forEach((list) => {
+    if (!list._ownerSelect?.isConnected) list.remove();
+  });
+}
+
+/**
+ * Aplica la preferencia «Usar los desplegables del sistema» a todos los
+ * <select> del documento, en vivo: activarla deshace el control propio y
+ * desactivarla lo vuelve a montar. Los que se creen después la consultan
+ * en `enhanceSelect`.
+ */
+// Tooltips propios (`modules/tooltips/`): el `title` nativo no se pinta en el
+// webview de Linux. Con la preferencia desactivada queda el comportamiento del
+// sistema (el nativo en Windows y macOS; nada en Linux).
+const appTooltips = createTooltipController();
+
+function applyTooltips(enabled) {
+  appTooltips.setEnabled(!!enabled);
+}
+
+function applyNativeSelects(enabled) {
+  sweepOrphanSelectLists();
+  if (enabled) {
+    document.querySelectorAll('select[data-enhanced="1"]').forEach((s) => s._destroyEnhanced?.());
+  } else {
+    document.querySelectorAll("select:not([data-enhanced])").forEach(enhanceSelect);
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -29996,12 +33999,36 @@ function showTabContextMenu(x, y, sessionId) {
     roItem.setAttribute("aria-checked", on ? "true" : "false");
   }
 
+  // «Resolución ▸»: solo en el RDP integrado.
+  const resItem = document.getElementById("tabctx-rdp-res");
+  const resSubmenu = document.getElementById("tabctx-rdp-res-submenu");
+  const isEmbeddedRdp = ctxSession?.type === "rdp" && !!ctxSession.embedded;
+  if (resItem && resSubmenu) {
+    if (isEmbeddedRdp) fillRdpResolutionSubmenu(resSubmenu, ctxSession);
+    else resSubmenu.innerHTML = "";
+    resItem.classList.toggle("hidden", !isEmbeddedRdp);
+  }
+
   const targetTab = document.querySelector(`.tab[data-session="${CSS.escape(sessionId)}"]`);
+  // Paneles de la sesión: los mismos que los botones de la pestaña (que la
+  // preferencia puede ocultar), para que nunca queden inaccesibles.
+  const panels = tabPanelAvailability(targetTab);
+  menu.querySelector(".tabctx-panel-sftp")?.classList.toggle("hidden", !panels.sftp);
+  menu.querySelector(".tabctx-panel-tunnels")?.classList.toggle("hidden", !panels.tunnels);
+  menu.querySelector(".tabctx-panel-runbook")?.classList.toggle("hidden", !panels.runbook);
+  menu.querySelector(".tabctx-panels-sep")?.classList.toggle("hidden",
+    !(panels.sftp || panels.tunnels || panels.runbook));
   const isPinned = !!targetTab?.classList.contains("is-pinned");
   const pinLabel = menu.querySelector(".tabctx-pin-label");
   if (pinLabel) pinLabel.textContent = isPinned ? t("tabctx.unpin") : t("tabctx.pin");
 
-  positionFloatingMenu(menu, x, y);
+  const { left: finalX, width } = positionFloatingMenu(menu, x, y);
+  // Como en el menú lateral: el submenú se abre hacia donde quepa.
+  if (resItem && resSubmenu && isEmbeddedRdp) {
+    resSubmenu.classList.toggle("open-left", finalX + width + 190 > window.innerWidth);
+    const itemRect = resItem.getBoundingClientRect();
+    resSubmenu.classList.toggle("open-up", itemRect.top + itemRect.height / 2 > window.innerHeight / 2);
+  }
   onFloatingMenuOpened(menu);
 }
 
@@ -30011,15 +34038,26 @@ function hideTabContextMenu() {
   tabCtxTargetId = null;
 }
 
-async function handleTabContextAction(action) {
+async function handleTabContextAction(action, data = {}) {
   const targetId = tabCtxTargetId;
   hideTabContextMenu();
   if (!targetId) return;
+
+  if (action === "rdp-resolution") {
+    chooseRdpResolution(targetId, data.rdpRes);
+    return;
+  }
+
+  if (action === "panel-sftp" || action === "panel-tunnels" || action === "panel-runbook") {
+    toggleTabPanel(targetId, action.slice("panel-".length));
+    return;
+  }
 
   if (action === "pin") {
     const tab = document.querySelector(`.tab[data-session="${CSS.escape(targetId)}"]`);
     if (tab) {
       tab.classList.toggle("is-pinned");
+      updateTabStateText(tab);
       // Movemos las pestañas ancladas al principio para mantenerlas
       // siempre visibles. Estado solo en runtime; no persiste entre sesiones.
       const container = document.getElementById("tabs-container");
@@ -30112,12 +34150,14 @@ async function handleTabContextAction(action) {
       const s = sessions.get(sid);
       return isSessionLive(s) || sessionHasActiveTransfers(s);
     }).length;
+    const batchTunnels = closingTunnelsCountWarning(tunnelsClosedWith(sessions, ids).length);
     if (liveCount > 0) {
       const ok = await confirmThemed({
         title: t("tabctx.close_many_title"),
-        message: liveCount === 1
+        message: (liveCount === 1
           ? t("tabctx.close_many_msg_one")
-          : t("tabctx.close_many_msg", { n: liveCount }),
+          : t("tabctx.close_many_msg", { n: liveCount }))
+          + (batchTunnels ? `\n\n${batchTunnels}` : ""),
         submitLabel: t("tabctx.close_all"),
         danger: true,
       });
@@ -30388,9 +34428,12 @@ function toast(message, type = "info", ms = 3500, options = {}) {
  */
 function updateToastContent(el, message, type, options, extra) {
   el.className = `toast ${type}`;
-  // Lectores de pantalla: los errores se anuncian de inmediato (assertive);
-  // el resto, de forma cortés a través del contenedor `aria-live="polite"`.
-  el.setAttribute("role", type === "error" ? "alert" : "status");
+  // Una sola región viva: el contenedor (`aria-live="polite"`, en el HTML
+  // desde la carga) anuncia lo que entra; solo los errores llevan además
+  // `role="alert"` para anunciarse de inmediato. Un `role="status"` por aviso
+  // duplicaba el anuncio (la región del contenedor y la propia del aviso).
+  if (type === "error") el.setAttribute("role", "alert");
+  else el.removeAttribute("role");
   if (el.dataset.category) el.classList.add(`toast-cat-${el.dataset.category}`);
   // Si el foco estaba en un botón del aviso, retirarlo del DOM no siempre
   // emite `focusout`: sin reanudar aquí, la pausa por foco no se quitaría
@@ -30441,8 +34484,79 @@ function dismissToast(el, category) {
   const tracked = category && activeCategoryToasts.get(category);
   toastTimers.get(el)?.stop();
   if (tracked && tracked.el === el) activeCategoryToasts.delete(category);
+  // Si el foco había llegado al aviso con «Ir al último aviso», retirarlo
+  // del DOM lo dejaría en el documento: vuelve a donde estaba.
+  const hadFocus = el.contains(document.activeElement);
   el.remove();
+  if (hadFocus) returnToastFocus();
   refreshToastOverflowCounter();
+}
+
+/**
+ * «Ir al último aviso» (acción configurable, sin combinación de fábrica):
+ * lleva el foco a la acción del último aviso visible con acción —o al botón
+ * de cerrar del último aviso— y recuerda quién tenía el foco para
+ * devolvérselo al salir con Escape, al salir del aviso con Tab o al cerrarse
+ * el aviso. La elección y las reglas de salida viven en
+ * `modules/toast-focus.js`.
+ */
+/** @type {{ el: HTMLElement, opener: Element|null, onKey: (e: KeyboardEvent) => void }|null} */
+let _toastFocusState = null;
+
+function focusLastToast() {
+  const container = document.getElementById("toast-container");
+  if (!container) return false;
+  const toasts = [...container.querySelectorAll(".toast:not(.toast-overflow)")];
+  const index = pickToastToFocus(toasts.map((el) => ({
+    hidden: el.classList.contains("toast-hidden"),
+    hasAction: !!el.querySelector(".toast-action"),
+  })));
+  if (index < 0) return false;
+  const el = /** @type {HTMLElement} */ (toasts[index]);
+  const target = el.querySelector(".toast-action") || el.querySelector(".toast-close");
+  if (!(target instanceof HTMLElement)) return false;
+  if (_toastFocusState && _toastFocusState.el !== el) detachToastFocus();
+  if (!_toastFocusState) {
+    const opener = document.activeElement;
+    const onKey = (e) => {
+      const controls = [...el.querySelectorAll("button:not([disabled])")];
+      const current = controls.indexOf(/** @type {HTMLButtonElement} */ (document.activeElement));
+      if (!isToastExitKey(e, current, controls.length)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      returnToastFocus();
+    };
+    el.addEventListener("keydown", onKey);
+    _toastFocusState = { el, opener, onKey };
+  }
+  target.focus();
+  return true;
+}
+
+function detachToastFocus() {
+  if (!_toastFocusState) return null;
+  const state = _toastFocusState;
+  _toastFocusState = null;
+  state.el.removeEventListener("keydown", state.onKey);
+  return state;
+}
+
+/** Devuelve el foco a quien lo tenía antes de «Ir al último aviso». */
+function returnToastFocus() {
+  const state = detachToastFocus();
+  if (!state) return;
+  const active = document.activeElement;
+  if (!shouldReturnToastFocus({
+    activeInsideToast: !!active && state.el.contains(active),
+    activeIsBody: !active || active === document.body,
+  })) return;
+  const opener = state.opener;
+  if (opener instanceof HTMLElement && opener.isConnected && opener !== document.body) {
+    opener.focus();
+    return;
+  }
+  // Sin disparador (el atajo llegó desde el documento): el terminal activo.
+  sessions.get(activeSessionId)?.terminal?.focus();
 }
 
 /**
@@ -30466,6 +34580,9 @@ function refreshToastOverflowCounter() {
       counter = document.createElement("button");
       counter.type = "button";
       counter.className = "toast toast-overflow";
+      // El contador cambia con cada aviso: no se anuncia (el aviso ya se
+      // anunció); su etiqueta dice a dónde lleva.
+      counter.setAttribute("aria-live", "off");
       counter.addEventListener("click", () => {
         openActivityCenter();
         all.forEach((t) => t.remove());
@@ -30475,6 +34592,7 @@ function refreshToastOverflowCounter() {
       container.prepend(counter);
     }
     counter.textContent = t("toast.more", { n: overflow });
+    counter.setAttribute("aria-label", t("toast.overflow_open", { n: overflow }));
   } else if (counter) {
     counter.remove();
   }

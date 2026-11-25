@@ -6,11 +6,244 @@ Todas las novedades reseñables del proyecto Rustty.
 
 ### Añadido
 
-- El escritorio remoto (RDP) se abre ahora dentro de la pestaña por defecto, con el cliente integrado. Preferencias → Sistema → «Abrir el escritorio remoto» permite volver a la ventana externa (mstsc / xfreerdp).
+- El escritorio remoto (RDP) se abre ahora dentro de la pestaña por defecto, con el cliente integrado. Preferencias → RDP → «Abrir el escritorio remoto» permite volver a la ventana externa (mstsc / xfreerdp).
 - Portapapeles compartido con el escritorio remoto en la pestaña: texto en los dos sentidos y también ficheros y carpetas. Lo copiado en el remoto se descarga a una carpeta temporal y queda listo para pegar en local; lo copiado en local se lee del disco solo cuando el remoto pega.
 - Carpeta compartida: una carpeta local elegida en Preferencias aparece como unidad en el Explorador del remoto, con lectura y escritura.
 - Rendimiento del escritorio remoto en la pestaña: «Velocidad», «Equilibrado» (por defecto) o «Calidad». Quita en el remoto el fondo, las animaciones y, en «Velocidad», los temas, y comprime lo que llega, para que vaya fluido en enlaces lentos.
 - En el escritorio remoto de la pestaña, el puntero se mueve al instante: lo pinta Rustty con la forma que manda el remoto, sin esperar a que el servidor redibuje la pantalla.
+## [2.30.1] - 2026-11-25
+
+### Añadido
+
+- Panel de archivos: el clic derecho sobre una transferencia (subida o descarga) abre su menú: pausar, reanudar, reintentar o cancelar según cómo vaya, «Mostrar en la carpeta de destino» (lleva el otro lado del panel a esa carpeta y marca el fichero), «Copiar la ruta de destino», «Quitar de la lista» y «Limpiar completadas». Hasta ahora no hacía nada.
+- Panel de archivos: la tecla Supr (Cmd+Retroceso en macOS) pide confirmar el borrado de lo seleccionado, como «Eliminar» del clic derecho.
+- Panel de archivos: Mayús+clic selecciona todas las filas entre la última pulsada y esta, como en cualquier explorador de archivos. Ctrl+clic sigue sumando o quitando filas sueltas.
+- Pestañas: cuando hay más de las que caben, el borde de la barra por el que quedan pestañas ocultas se difumina, para que se note que hay más.
+- Una sesión de producción tiñe de rojo la línea de su pestaña activa y el filo de la barra de estado (de amarillo si es de preproducción): una señal que se ve sin buscar la insignia antes de escribir una orden.
+
+### Cambiado
+
+- Panel de archivos: Alt+clic ya no selecciona varias filas; un clic con Alt no toca la selección.
+- Las explicaciones bajo los campos de los formularios salen en gris neutro; el amarillo queda para los avisos que piden atención.
+- Barra lateral: al pasar el puntero por una conexión, sus botones aparecen encima del final de la fila y el nombre ya no se recorta de golpe ni salta en cada fila.
+- «Tamaño del texto de la interfaz» agranda también la lista de conexiones, las pestañas, la barra de estado, el panel de archivos, los menús, la navegación de Preferencias y los avisos.
+- Con el zoom de la interfaz alto, la papelera, los túneles, los scripts, el editor de notas y otros diálogos ya no se salen de la ventana. El diálogo de KeePass y varios más usan el mismo fondo y las mismas sombras que el resto, más suaves en los temas claros.
+- Los iconos de Idioma en Preferencias, de la consola local en el inicio y la marca del tema elegido son dibujos en vez de letras, y se ven iguales con cualquier fuente.
+
+### Corregido
+
+- Panel de archivos: la velocidad de las transferencias pequeñas salía sin redondear («54.054054054054056 B/s»).
+
+## [2.30.0] - 2026-11-24
+
+### Añadido
+
+- Monitor de recursos: las barras de CPU, núcleos, memoria y disco cambian de color según la carga: amarillas desde el 75 % y rojas desde el 90 %, como el espacio libre del panel SFTP. Con el modo para daltónicos llevan además una trama distinta en cada nivel.
+- Monitor de recursos: las cabeceras de la tabla de procesos (PID, usuario, orden, %CPU, %MEM) se quedan arriba al bajar por la lista, y se puede seguir ordenando sin volver al principio.
+
+### Cambiado
+
+- Inicio: con la tarjeta «Anclados» a la vista, las cuatro tarjetas se reparten en dos filas de dos, en vez de dejar «Historial» sola en una segunda fila con dos tercios vacíos.
+- Dependencias puestas al día: Tauri 2.12.7, las bibliotecas de SFTP y FTP en su nueva versión mayor y el resto con sus últimas correcciones compatibles, incluido un aviso de seguridad de una de ellas.
+
+### Corregido
+
+- Panel de archivos: en una carpeta con muchos ficheros (más de 200) ya se puede bajar por la lista. Al pasar de la fila 12, el listado volvía solo arriba y no había forma de llegar a un fichero de más abajo.
+- Panel de archivos: la ruta de arriba ya no empieza por una barra doble («//home/…»). La raíz y el separador salían juntos, y una ruta escrita o recibida del terminal con barras repetidas se guardaba tal cual.
+
+## [2.29.1] - 2026-11-14
+
+### Corregido
+
+- macOS: la ventana vuelve a tener los botones de cerrar, minimizar y maximizar. Los pone el sistema, en su esquina superior izquierda, y la interfaz les deja sitio: también con la barra lateral plegada y en modo zen. A pantalla completa, donde el sistema los retira, la interfaz recupera esa esquina. Hasta ahora la ventana salía en los Mac sin ningún botón.
+
+## [2.29.0] - 2026-11-14
+
+### Añadido
+
+- macOS: Rustty ya se puede instalar en los Mac con procesador Intel. El paquete pasa a ser universal: el mismo `.dmg` sirve para Intel y para Apple Silicon, y las actualizaciones automáticas llegan a los dos.
+- Segundo factor con KeePass: cada conexión SSH tiene en «Avanzado» la opción, apagada por defecto, «Responder el código de verificación con el TOTP de KeePass». Con ella, cuando el servidor pide el código (Google Authenticator, PAM…), el diálogo ofrece «Usar código de KeePass»; Rustty lo calcula con la semilla del campo «otp» de la entrada y lo envía sin mostrarlo. El formulario avisa de que guardar la contraseña y la semilla en la misma base reduce los dos factores a uno.
+- Una segunda casilla, también apagada, envía ese código sin preguntar, también en las reconexiones y al abrir el panel SFTP. Si el servidor lo rechaza no se reintenta: se vuelve a preguntar, con el motivo a la vista, hasta que acepte un código de KeePass pedido a mano.
+- La semilla puede salir de la entrada de la contraseña o de otra (el selector lista solo las que tienen código), y la pregunta a la que se responde se reconoce con una expresión regular que se puede cambiar en cada conexión.
+- Si la base KeePass está bloqueada, el diálogo de verificación lo dice y lleva a desbloquearla; y si el código vigente ya se usó con ese servidor (pasa al abrir el panel SFTP justo después de conectar), espera al siguiente y avisa de los segundos que faltan.
+- El panel SFTP enseña, en la cabecera del lado remoto, el espacio libre y total del disco del servidor en el que está la carpeta abierta, con una barra de ocupación que cambia de color cuando se llena. Aparece con los servidores que lo admiten (OpenSSH); con los demás, y con FTP y FTPS, no sale nada.
+- Al detener el puntero sobre un enlace simbólico del servidor se ve a dónde apunta y si el destino es una carpeta, un fichero o no existe. El clic derecho ofrece «Ir al destino del enlace»: si es una carpeta, el panel entra en ella; si es un fichero, lo dice y ofrece abrir la carpeta que lo contiene.
+- Dos preferencias nuevas en Preferencias → FTP/SFTP, activadas por defecto: «Mostrar el espacio libre del servidor en el panel SFTP» y «Mostrar a dónde apuntan los enlaces simbólicos».
+- Cada entrada del historial de actividad tiene un botón para copiarla (fecha, tipo, estado, título y detalle), y «Exportar…» guarda en un fichero de texto o JSON las entradas del filtro que se está viendo.
+
+### Cambiado
+
+- Los ficheros de descarga de macOS pasan a llamarse `Rustty_<versión>_universal.dmg` y `Rustty_<versión>_universal.app.tar.gz` (antes terminaban en `_aarch64`). Quien ya tiene Rustty en un Mac con Apple Silicon no tiene que hacer nada: se actualiza solo, como siempre.
+
+## [2.28.0] - 2026-11-11
+
+### Añadido
+
+- Cada perfil de la lista de perfiles tiene su propio menú de opciones, con el clic derecho o con el botón «⋯» de su fila: renombrar, mover arriba o abajo, comprobar la salud de sus conexiones, exportarlas, editarlas en bloque, cambiar su color y eliminarlo. Actúa sobre el perfil elegido, no solo sobre el activo.
+- Al cerrar una pestaña que tiene túneles abiertos, la confirmación dice qué túneles se van a cerrar: los de esa pestaña y, si es la conexión principal, los de las pestañas abiertas sobre ella. Al cerrar varias pestañas a la vez y en «Desconectar todo» se dice cuántos túneles se cierran.
+- El historial de actividad muestra cuántas entradas tiene cada filtro, añade el filtro «Errores» (de cualquier tipo) y marca como «Nuevo» lo registrado desde la última vez que se abrió. El botón «Historial y logs» de la barra lateral lleva un distintivo rojo con los errores que aún no se han visto.
+
+### Cambiado
+
+- Eliminar un perfil dice siempre qué perfil es y cuántas conexiones se lleva, y pide escribir su nombre para confirmar, también si está vacío.
+- Bajo la lista de perfiles solo queda «Nuevo perfil…»: renombrar, mover, comprobar la salud y eliminar han pasado al menú de cada perfil.
+- La pista de teclado del buscador del inicio muestra el atajo que está configurado de verdad, y se oculta si no tiene ninguno.
+- Las flechas de los submenús son iconos, como el resto de la interfaz.
+- Los botones de Perfiles y Favoritos de la barra lateral anuncian cuál está puesto a los lectores de pantalla.
+- Dependencias puestas al día con las últimas correcciones compatibles.
+
+### Corregido
+
+- Los submenús del clic derecho ya no se pierden al llevar el ratón hasta ellos cuando el menú tiene barra de desplazamiento: siguen abiertos mientras se cruza el borde del menú, y la opción que los abre se mantiene resaltada.
+- Los iconos de un submenú conservan su color en vez de tomar el de la opción resaltada, con el que se perdían contra el fondo.
+- Las opciones de perfil del clic derecho en la vista «Todos los perfiles» (renombrar, mover, exportar, editar en bloque y eliminar) no hacían nada; vuelven a funcionar.
+
+## [2.27.2] - 2026-11-10
+
+### Corregido
+
+- Los submenús del clic derecho (como «Nota ▸» y «Túneles ▸» de una conexión) se ven enteros cuando el menú no cabe en la ventana y tiene barra de desplazamiento: salen por encima de la caja del menú en vez de quedar cortados por ella. El arreglo de la 2.27.1 no bastaba en Linux.
+
+## [2.27.1] - 2026-11-10
+
+### Corregido
+
+- Los submenús del clic derecho (como «Nota ▸» y «Túneles ▸» de una conexión) vuelven a verse cuando el menú no cabe entero en la ventana y aparece con barra de desplazamiento.
+
+## [2.27.0] - 2026-11-10
+
+### Añadido
+
+- El clic derecho sobre una nota en lectura (en su ventana y en el panel de nota de la pestaña) ofrece Copiar, Seleccionar todo y «Copiar como Markdown», que copia el texto original de la nota con su formato.
+
+### Cambiado
+
+- Los últimos símbolos de texto de la interfaz pasan a ser iconos: las flechas de las carpetas, plegar la barra lateral, el botón de herramientas de la barra, el de más pestañas, los botones de refrescar del panel de archivos, el de añadir en el panel de inicio, en las reglas de resaltado y en el selector de workspaces, y el punto de color de cada workspace. Se ven igual de nítidos y centrados en Linux, Windows y macOS.
+
+### Corregido
+
+- El texto de una nota en lectura ya se puede seleccionar con el ratón y copiar con Ctrl+C sin pasar al editor; Ctrl+A selecciona solo la nota.
+
+## [2.26.0] - 2026-11-08
+
+### Añadido
+
+- Las notas de conexión se pueden ver sin abrir el editor: el clic derecho sobre una conexión con nota ofrece «Nota ▸» con Ver, Editar y Eliminar; la vista de lectura muestra el texto con formato, el título y las etiquetas, deja marcar las casillas de tarea y pasa al editor con «Editar». El icono de nota de la barra lateral y la paleta de comandos abren también esa vista.
+- Los campos de texto de toda la aplicación recuperan el menú del botón derecho: Deshacer, Rehacer, Cortar, Copiar, Pegar, Eliminar y Seleccionar todo. En la nota se añade «Formato ▸» con negrita, cursiva, código, bloque de código, enlace, encabezado, listas, casilla y cita; si el texto ya lleva ese formato, se lo quita, y Ctrl+Z deshace cada cambio. La barra del editor de notas gana la lista numerada, la cita y el bloque de código.
+- Al pasar el ratón por una conexión de la barra lateral aparecen «Conectar» y, si tiene nota, «Ver nota» junto a favorito, editar y eliminar, para poder pulsarlos aunque la barra sea estrecha.
+- Cada túnel muestra cuántas conexiones tiene abiertas en ese momento, y los túneles locales permiten copiar su dirección o abrirla en el navegador.
+- La tabla de procesos del monitor de recursos se filtra por nombre, PID o usuario, se ordena por columna y se puede pausar para mirar un pico sin que salte; al terminar un proceso se elige entre un cierre limpio (SIGTERM) o forzado (SIGKILL).
+- Los botones de cada pestaña (SFTP, túneles, nota) se pueden mostrar siempre, solo en la pestaña activa o nunca (Preferencias → Apariencia); sus paneles también se abren desde el menú del clic derecho de la pestaña.
+
+### Cambiado
+
+- Duplicar una conexión abre el formulario relleno con los datos del original y la copia solo se crea al pulsar Guardar; cancelar ya no deja ningún clon.
+- Las operaciones del panel de archivos esperan su respuesta sin dejar un hilo del sistema bloqueado mientras dura cada transferencia.
+- La galería de temas sabe de antemano si cada tema es claro u oscuro, con el mismo criterio que al aplicarlo, y ya no lo mide tarjeta a tarjeta al abrirla o filtrarla.
+
+### Corregido
+
+- La comprobación de salud de los hosts ya no se queda colgada cuando el DNS no responde: la resolución tiene un plazo de tres segundos y da un error claro.
+- Crear un fichero nuevo desde el panel SFTP espera la confirmación del servidor y avisa si falla al cerrarlo.
+
+## [2.25.0] - 2026-11-03
+
+### Añadido
+
+- El escritorio remoto dentro de la pestaña se ajusta al tamaño de la ventana: al redimensionarla, maximizarla, plegar la barra lateral, dividir la vista o cambiar el zoom, el servidor recibe el tamaño nuevo sin reconectar. Con clic derecho en la pestaña → «Resolución» se elige «Ajustar a la pestaña» o un tamaño fijo (de 1024×768 a 2560×1440), que se ve entero y sin deformar; con servidores que no admiten el cambio en caliente, la elección reconecta la pestaña con ese tamaño.
+- Preferencias tiene una sección RDP propia con todas las opciones del escritorio remoto, que antes estaban repartidas entre Sistema y Seguridad.
+- Con «Reanudar transferencias interrumpidas» activado, las subidas y las descargas por FTP y FTPS que se cortan continúan donde se quedaron, como en SFTP; la subida se escribe en un temporal que solo ocupa su nombre al terminar, y con servidores que no saben continuar se repite entera.
+- La línea de órdenes (`rustty -c`, `-l`, `--exec`, `--get`/`--put`…) habla también inglés: ayuda, errores, resúmenes y preguntas de huella salen en el idioma de la interfaz o, si no hay, en el del sistema.
+
+### Cambiado
+
+- La librería de SSH pasa a su versión 0.65, que corrige las conexiones que dejaban de enviar cuando un canal se quedaba sin ventana; también se actualizan Tauri y sus complementos, la librería de SFTP y la de KeePass, y el actualizador automático deja atrás los avisos de seguridad de su librería de compresión.
+
+### Corregido
+
+- La conexión SSH ya no puede congelarse al mantenerla activa, al leer el monitor de recursos, al abrir o cerrar un túnel remoto ni al abrir una pestaña nueva cuando el servidor deja de leer lo que se le manda.
+- Al reconectar el escritorio remoto en su misma pestaña, el cierre de la sesión anterior ya no marcaba la nueva como cerrada.
+
+## [2.24.0] - 2026-11-02
+
+### Añadido
+
+- Escritorio remoto RDP dentro de la pestaña, como alternativa a la ventana externa (Preferencias → RDP → «Abrir el escritorio remoto»; la ventana externa sigue siendo la opción por defecto): portapapeles de texto compartido, copia de ficheros en los dos sentidos (opcional) y una carpeta local como unidad del remoto (opcional). El certificado del servidor se confirma por huella la primera vez y avisa si cambia; los ficheros que llegan del remoto solo se guardan donde eliges y la carpeta compartida no puede ser la personal entera, la de claves SSH ni la de datos de Rustty. Basado en el trabajo de Rosdyana Kusuma.
+- La interfaz, también en chino tradicional e indonesio, con detección del idioma del sistema; aportados por Rosdyana Kusuma.
+- Todos los iconos y botones dicen qué hacen al pasar el ratón o al llegar a ellos con el teclado, también en Linux, donde el webview no pintaba la descripción del sistema; se puede desactivar en Preferencias → Apariencia.
+- Preferencias se mueve arrastrando su cabecera y se redimensiona desde cualquier borde o esquina; recuerda posición y tamaño en el equipo y el doble clic en la cabecera la devuelve a su sitio. Estrecha, la barra de secciones se queda en iconos. El formulario de conexión también se mueve.
+- Los buscadores de conexiones (barra lateral e inicio) tienen un selector «Buscar en»: el perfil actual, uno concreto o todos. Sustituye al interruptor de Preferencias, que pasa a ser un desplegable con las mismas opciones.
+- Los perfiles se ordenan: arrastrándolos en la lista del menú ≡, con «Mover este perfil» (arriba/abajo) o con Alt+↑/↓, y desde el menú contextual de cada perfil en la vista «Todos». El orden viaja con la sincronización.
+- Con «Reanudar transferencias interrumpidas» activado, una subida SFTP que se corta continúa donde el servidor la había confirmado; el fichero se escribe en un temporal y solo ocupa su nombre al terminar, y un destino que aparece a mitad no se pisa.
+- La consola local tiene barra inferior: usuario y equipo, carpeta actual, tamaño del terminal y, en Linux, el monitor de recursos de este equipo con su panel ampliado. Se puede ocultar en Preferencias → Terminal.
+
+### Cambiado
+
+- Preferencias abre más ancha y más alta, con el pie separado del borde; el icono de Idioma ya no se parte en dos líneas y en ventanas estrechas los campos bajan de línea en vez de salirse.
+- Con el zoom de la interfaz distinto de 100 %, los menús contextuales, las listas de los desplegables, el popover de pestañas y los avisos crecen con ella y salen en su sitio, y los diálogos ya no se salen de la ventana.
+- La galería de temas separa claros y oscuros con el mismo criterio que se usa al aplicar el tema.
+- El workspace por defecto se muestra con su nombre traducido.
+
+### Corregido
+
+- Las cabeceras de los diálogos ya no asoman un pico cuadrado sobre las esquinas redondeadas.
+- La línea de órdenes ya no se queda colgada cuando el comando remoto no lee su entrada (pegado en una sesión interactiva, `--script` o el stdin repartido entre varios servidores).
+- Los túneles remotos, el reenvío del agente y el de X11 ya no congelan la conexión SSH entera cuando el otro extremo deja de leer.
+- Redimensionar o cerrar una pestaña SSH ya no puede congelar la conexión cuando el servidor deja de leer lo que se le manda.
+- El formulario de conexión recordaba un tamaño mayor del elegido con el zoom de la interfaz activo.
+
+## [2.23.0] - 2026-10-31
+
+### Añadido
+
+- Edición en lote de conexiones: con varias seleccionadas, o desde el menú de una carpeta o de un workspace, «Editar N conexiones…» cambia a la vez usuario, puerto, autenticación y clave, credencial maestra, bastión, keepalive, reconexión, entorno, algoritmos antiguos, grabación, solo lectura y carpeta; solo lo que se marca se toca.
+- Buscar y reemplazar en el host de muchas conexiones a la vez (texto literal, con vista previa), para migraciones de dominio. Antes de aplicar, un resumen dice cuántos campos cambian en cuántas conexiones y cuántas se saltan por ser de un tipo incompatible; después, el aviso ofrece «Deshacer».
+- La paleta de comandos ofrece «Editar las N conexiones seleccionadas…» cuando hay varias seleccionadas.
+- El pie de la sesión muestra cuántos túneles tiene abiertos la conexión, con la lista al pasar el ratón; pulsarlo abre el panel de túneles.
+- Con muchas pestañas abiertas, la rueda del ratón sobre ellas desplaza la barra; en Preferencias → Terminal se puede elegir que cambie de pestaña o que no haga nada.
+- Los desplegables se manejan con el teclado: flechas, Inicio y Fin, RePág y AvPág, búsqueda tecleando el principio de una opción, Enter para elegir y Escape para cerrar; los lectores de pantalla los anuncian como lo que son.
+- Opción «Usar los desplegables del sistema» en Apariencia → Accesibilidad, para quien prefiera el control nativo con su lector de pantalla.
+- Los submenús de los menús contextuales («Túneles», «Conectar a través de», «Conectar con otro usuario») se abren con la flecha derecha, se cierran con la izquierda o Escape y se anuncian como submenús.
+- Las pestañas describen su estado en palabras para los lectores de pantalla (conectada, desconectada, con actividad, con aviso, solo lectura, difusión, privada, anclada) y la barra se recorre con las flechas, Inicio y Fin.
+- Acción de teclado «Ir al último aviso» (sin combinación de serie, se asigna en Preferencias → Atajos): lleva el foco a la acción del aviso más reciente —«Copiar error», «Ver log»…— y lo devuelve a donde estaba al salir con Escape o Tab, también con un diálogo abierto.
+- Columna «Permisos» con su título en la cabecera del panel de archivos.
+- Los botones, la barra lateral de iconos, el menú contextual, las herramientas del inicio y las pestañas responden visualmente al pulsarlos; con «Reducir movimiento» solo cambia el tono.
+- La comprobación de estilos avisa también de colores escritos a mano en formato rgb/hsl, de colores con nombre y de transiciones con duraciones sueltas.
+- El árbol de conexiones se maneja con el teclado: las carpetas y las conexiones se enfocan, las flechas se mueven y despliegan, Inicio y Fin saltan a los extremos, el asterisco despliega las carpetas hermanas, teclear un nombre salta a esa conexión y Shift+flechas amplía la selección. La tecla Menú o Shift+F10 abren el menú contextual de la fila enfocada.
+- La galería de temas de Preferencias se recorre con el teclado: las flechas prueban cada tema al vuelo y Enter lo confirma.
+- La conexión rápida (primer inicio y paleta) propone el usuario local del equipo, como hace `ssh host`; `root` solo si el sistema no lo dice.
+
+### Cambiado
+
+- Los avisos se muestran sobre el fondo de panel, con el borde y el icono del color de su severidad siempre visibles, y se apilan por encima de la barra de estado junto al indicador de la sincronización de arranque.
+- En un panel de archivos estrecho la ruta baja a su propia línea en vez de quedar oculta tras los botones, y las columnas de permisos y fecha se retiran según el ancho de cada lado.
+- La barra de disposición de la vista múltiple se aparta del panel de bloques y de la búsqueda, y el diagnóstico de la conexión se apila sobre el aviso de reconexión en vez de taparlo.
+- Las transiciones de la interfaz usan las mismas duraciones del sistema de movimiento en toda la aplicación.
+- Tab atraviesa la barra lateral en una sola parada (más las acciones de la fila enfocada) en lugar de detenerse en cada conexión; los campos de formulario, los desplegables y los ítems de los menús muestran el mismo anillo de foco que los botones, y con el movimiento reducido activo la barra lateral ya no se desplaza con animación.
+- Al cerrar una pestaña abierta sobre otra conexión SSH, los túneles que se abrieron desde ella se cierran de verdad (antes desaparecían de la lista pero seguían escuchando).
+- La sesión interactiva de la línea de órdenes (`rustty -c perfil`) termina con el código de salida del shell remoto, como ya hacía `--exec`.
+- Las transferencias FTP y FTPS reaccionan en segundos, y no en minutos, cuando el servidor deja de responder a mitad de una transferencia o de un listado, y «Cancelar» responde en ese mismo plazo.
+- Dependencias: tokio, uuid, rand, log y tauri-build en el backend; Vite, la CLI de Tauri y el plugin de JSDoc en el frontend; dos acciones del CI al día.
+
+### Corregido
+
+- Escape sobre un desplegable abierto ya no cierra también el diálogo (Nueva conexión, Preferencias).
+- Los desplegables sustituidos al repintar un formulario dejaban listas vacías ocultas acumulándose; ahora se barren.
+- Los menús contextuales no se metían en un submenú al bajar con las flechas ni dejaban volver de él.
+- El texto de los avisos no llegaba al contraste mínimo en los temas claros, y los lectores de pantalla anunciaban dos veces cada aviso.
+- La cabecera del panel de archivos no caía sobre sus columnas, y los botones de pausar y cerrar de una transferencia tapaban su barra de progreso.
+- El centro de actividad no se anunciaba como diálogo con su título, sus filtros no indicaban cuál estaba puesto y algunos textos no eran traducibles.
+- Las casillas, barras de desplazamiento del sistema, desplegables y campos de búsqueda se pintan en el esquema claro u oscuro del tema activo, también con los temas incluidos y los personalizados.
+- Las sombras suaves de los temas claros llegan a todos los temas claros, no solo a dos; el tono correcto se aplica ya en el arranque, sin parpadeo. Los temas de alto contraste llevan el anillo de foco grueso.
+- Marcar un favorito, renombrar o una sincronización ya no expulsan el foco de la barra lateral; los lectores de pantalla anuncian solo el nombre de la carpeta, no todo su contenido; y las acciones de una conexión aparecen también al enfocarla con el teclado.
+- Con el zoom de la interfaz, el selector de carpeta de Nueva conexión ya no se escalaba dos veces y el menú de herramientas de la barra lateral vuelve a salir junto a su botón.
+- Pegar un bloque grande en una shell cuyo proceso no lo absorbía podía dejar colgada la conexión SSH entera, con todas sus pestañas y túneles.
+- Los túneles SOCKS confirmaban la conexión antes de abrirla; ahora solo confirman cuando el destino responde y, si falla, el cliente recibe el motivo (destino rechazado, no permitido, inalcanzable).
+- Reconectar una sesión con el mismo identificador dejaba viva la conexión anterior; ahora se cierra sin anunciarse como la nueva.
+- Cuando una conexión FTP o FTPS deja de responder, el panel de ficheros la da por perdida y lo dice claramente en vez de encadenar errores confusos o quedarse esperando al cerrar.
+- Descargar o subir un fichero suelto ya no sobrescribe un destino que haya aparecido después de abrir la carpeta: el panel pregunta antes (sobrescribir, renombrar, omitir o cancelar) y respeta la política de conflictos elegida.
+- Arrastrar una carpeta como si fuera un fichero ya no deja un fichero vacío en el otro lado: se rechaza antes de tocar nada.
+- Pruebas: unas ciento cincuenta pruebas nuevas, entre ellas un servidor SSH en proceso que no lee para reproducir el bloqueo del pegado, un servidor FTP que se queda mudo, y ocho secciones nuevas de extremo a extremo por la interfaz (teclado, avisos, capas del terminal, árbol, tono del tema y edición en lote).
 
 ## [2.22.0] - 2026-10-26
 

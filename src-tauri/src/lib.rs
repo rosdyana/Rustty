@@ -3,7 +3,10 @@ mod app_tray;
 mod asbru;
 mod atomic_file;
 mod auth_prompt;
+mod auth_totp;
+mod channel_pump;
 pub mod cli;
+mod cli_lang;
 mod commands;
 mod credentials;
 mod error;
@@ -27,6 +30,7 @@ mod keyring_scope;
 mod local_command;
 mod local_command_policy;
 mod local_fs_guard;
+mod local_user;
 mod local_shell_manager;
 mod locks;
 mod metrics;
@@ -41,6 +45,8 @@ mod profiles;
 mod ftp_fixture;
 #[cfg(test)]
 mod kbd_fixture;
+#[cfg(test)]
+mod shell_fixture;
 #[cfg(all(test, target_os = "linux"))]
 mod rdp_fixture;
 mod rdp_certs;
@@ -58,6 +64,7 @@ mod ssh_fixture;
 #[cfg(all(test, target_os = "linux"))]
 mod webdav_fixture;
 mod scripts;
+mod session_ops;
 mod sftp_manager;
 mod shell_integration;
 mod ssh_manager;
@@ -71,6 +78,7 @@ pub mod tmux;
 mod transfer_batch;
 mod transfer_rate;
 mod transfer_resume;
+mod transfer_resume_upload;
 mod workspace_index;
 mod transfer_slots;
 mod tunnel_throttle;
@@ -360,14 +368,6 @@ pub fn run() {
                 dirs::home_dir().as_deref(),
             ));
             app.manage(DataDir(data_dir));
-            // Descargas del portapapeles RDP de sesiones de hace más de un día.
-            {
-                let base = rdp_embedded::clipboard_downloads_base(
-                    app.handle(),
-                    &app.state::<DataDir>().0,
-                );
-                std::thread::spawn(move || rdp_embedded::clipboard::cleanup_stale_downloads(&base));
-            }
             // Señal de arranque minimizado: el frontend la consulta al inicio
             // para decidir si ocultar la ventana en lugar de mostrarla.
             app.manage(LaunchMinimized(launched_minimized));
@@ -435,6 +435,7 @@ pub fn run() {
             commands::is_launched_minimized,
             commands::reveal_main_window,
             commands::save_workspace_index,
+            commands::save_cli_language,
             commands::load_workspace_index,
             app_tray::tray_update_quick_launcher,
             // ── Perfiles de conexión
@@ -523,6 +524,8 @@ pub fn run() {
             rdp_embedded::rdp_known_certs_list,
             rdp_embedded::rdp_known_cert_remove,
             rdp_embedded::rdp_embed_clipboard_sync,
+            rdp_embedded::rdp_embed_clipboard_save,
+            rdp_embedded::rdp_embed_clipboard_cancel,
             rdp_embedded::drive::rdp_shared_folder_get,
             rdp_embedded::drive::rdp_shared_folder_pick,
             rdp_embedded::drive::rdp_shared_folder_clear,
@@ -538,11 +541,15 @@ pub fn run() {
             commands::local_shell_resize,
             commands::local_shell_close,
             commands::local_shell_has_job,
+            commands::local_machine_info,
+            commands::local_metrics_sample,
             // ── SFTP
             commands::sftp_connect,
             commands::sftp_disconnect,
             commands::sftp_list_dir,
             commands::sftp_home_dir,
+            commands::sftp_disk_space,
+            commands::sftp_read_link,
             commands::sftp_mkdir,
             commands::sftp_create_file,
             commands::sftp_remove,
@@ -563,6 +570,7 @@ pub fn run() {
             // ── FS local (panel SFTP partido)
             commands::local_list_dir,
             commands::local_home_dir,
+            commands::local_username,
             commands::local_mkdir,
             commands::local_create_file,
             commands::local_remove,
@@ -589,6 +597,8 @@ pub fn run() {
             commands::set_host_key_change_policy,
             commands::ssh_hostkey_response,
             commands::ssh_auth_prompt_response,
+            commands::ssh_auth_prompt_totp,
+            commands::totp_prompt_pattern_check,
             commands::set_ftps_cert_policy,
             commands::ftps_cert_response,
             commands::profiles_recovery,

@@ -137,10 +137,8 @@
      parece un botón que no hace nada) y los desplegables por encima de los
      avisos (su lista nace dentro de un modal). */
   --z-base: 1;
-  --z-tooltip: 300;
   --z-zen-exit: 400;
   --z-drag-overlay: 600;
-  --z-boot-indicator: 900;
   --z-modal: 1000;            /* conexión, Preferencias, papelera */
   --z-script-bar: 1200;
   --z-drawer: 1600;           /* centro de actividad */
@@ -155,9 +153,31 @@
   --z-modal-top: 11400;       /* cima de una pila de diálogos (la pone el controlador) */
   --z-toast: 11500;
   --z-dropdown: 12000;        /* lista de los desplegables */
+  --z-text-menu: 12100;       /* menú de los campos de texto: también dentro de los diálogos */
+  --z-tooltip: 12300;         /* burbuja de ayuda: encima de modales, avisos y listas */
   --z-hud: 12500;             /* indicador de zoom */
   --z-flash: 20000;           /* destello de la campana visual */
   --z-boot: 30000;            /* pantalla de arranque */
+
+  /* Capas del área del terminal (`#terminals-container` y cada pane): apilan
+     dentro de su contexto, por eso son pequeñas. De abajo arriba: separadores
+     de un split, insignias (BROADCAST, tirador del monitor), barra de estado,
+     panel de bloques, barras flotantes (disposición, búsqueda Ctrl+F),
+     diagnóstico de la conexión, aviso de reconexión, superposiciones de
+     arrastre/campana y el desplegable de la barra de estado. */
+  --z-terminal-resizer: 1;
+  --z-terminal-badge: 5;
+  --z-terminal-status: 5;
+  --z-terminal-panel: 6;
+  --z-terminal-toolbar: 10;
+  --z-terminal-popover: 11;
+  --z-terminal-notice: 12;
+  --z-terminal-overlay: 50;
+  --z-terminal-status-popover: 60;
+
+  /* Barra de estado del terminal: la leen el área del terminal y la pila de
+     avisos, que se apila por encima de ella. */
+  --status-bar-height: 24px;
 
   /* Anillo de foco accesible (keyboard-only) */
   /* Sólido: al 70 % no llegaba a 3:1 con el fondo en Claro, los Solarized y
@@ -205,9 +225,22 @@
   --font-weight-bold: 700;
 }
 
-/* Temas claros: sombras más sutiles para no oscurecer la UI */
-html.theme-light,
-html.theme-solarized-light {
+/* ─── Tono del tema como dato ─────────────────────────────────
+   `html[data-tone="light|dark"]` lo pone boot.js antes del primer pintado
+   (con el tono guardado o el que diga el id) y applyTheme() tras medir
+   `--base`/`--text` del tema aplicado (`modules/themes/tone.js`). De él
+   cuelga lo que antes solo tenían los dos temas claros de la hoja y ahora
+   alcanza a los 221 del bundle y a los personalizados:
+   - `color-scheme`: los controles nativos (casillas, barras del sistema, el
+     aspa de los campos de búsqueda, desplegables) se pintan en el esquema
+     del tema. Sin declararlo, WebKit los pintaba claros sobre temas oscuros.
+   - Sombras más sutiles en los temas claros, para no oscurecer la UI. */
+:root {
+  color-scheme: dark;
+}
+
+html[data-tone="light"] {
+  color-scheme: light;
   --shadow-1: 0 1px 2px rgba(15, 23, 42, 0.10);
   --shadow-2:
     0 0 0 1px rgba(15, 23, 42, 0.05),
@@ -245,7 +278,7 @@ html.booting #app {
   opacity: 0;
 }
 #app {
-  transition: opacity 140ms var(--motion-ease, ease);
+  transition: opacity var(--motion-fast) var(--motion-ease, ease);
 }
 @media (prefers-reduced-motion: reduce) {
   #app { transition: none; }
@@ -353,6 +386,22 @@ input, select, textarea {
 
 .hidden { display: none !important; }
 
+/* Oculto a la vista pero presente para el teclado y los lectores de pantalla
+   (un control cuyo aspecto lo da otro elemento, como los radios de la galería
+   de temas). `display: none` lo sacaba del orden de Tab. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 /* ─── Foco accesible (slice estético #1) ────────────────────────
    Anillo visible solo en navegación por teclado. No afecta al
    clic con ratón porque :focus-visible no se activa con puntero
@@ -392,17 +441,38 @@ a:focus-visible,
    visual como el espacio ocupado dentro del flex padre, así que la barra
    lateral y el rail acompañan al usuario de forma proporcional. Los diálogos
    (`[role="dialog"]`) se escalan dentro de su overlay centrado, que mantiene
-   el centrado al ser flex. */
+   el centrado al ser flex.
+   Los menús flotantes, el popover de pestañas y los avisos también son
+   chrome y se escalan: su posición la calcula el JS en píxeles de la ventana
+   y la divide por el zoom (`uiZoomFactor()`), que es en lo que se miden
+   `left`/`top` de un elemento escalado. Las listas de los desplegables
+   copian el zoom del control que las abre (ver `enhanceSelect`). */
 #rail,
 #sidebar,
 #tab-bar,
-[role="dialog"] {
+[role="dialog"],
+#script-rec-bar,
+#script-run-bar,
+#context-menu,
+#tab-context-menu,
+#sftp-context-menu,
+#sftp-transfer-menu,
+#route-menu,
+#text-context-menu,
+#tab-overflow-popover,
+#toast-container {
   zoom: var(--ui-zoom, 1);
+}
+
+/* Un diálogo dentro de otro (el selector de carpeta de Nueva conexión) ya
+   hereda la escala de su padre: sin esto se escalaba dos veces. */
+[role="dialog"] [role="dialog"] {
+  zoom: 1;
 }
 
 /* ─── Rail vertical de iconos ────────────────────────────────── */
 #rail {
-  width: 44px;
+  width: var(--rail-width, 44px);
   flex-shrink: 0;
   background: var(--surface-sunken);
   border-right: 1px solid var(--border-subtle);
@@ -435,7 +505,7 @@ a:focus-visible,
   border: 0;
   cursor: pointer;
   position: relative;
-  transition: background 0.12s, color 0.12s;
+  transition: background var(--motion-fast) var(--motion-ease), color var(--motion-fast) var(--motion-ease);
 }
 
 .rail-btn:hover {
@@ -480,6 +550,12 @@ a:focus-visible,
   line-height: 1;
   box-shadow: 0 0 0 2px var(--mantle);
   pointer-events: none;
+}
+
+/* Errores sin ver en «Historial y logs»: mismo distintivo, en rojo. */
+.rail-badge.rail-badge-error {
+  background: var(--red);
+  color: var(--on-red);
 }
 
 /* Con túneles vivos el icono deja de ser gris aunque el panel esté cerrado:
@@ -599,7 +675,7 @@ body.window-maximized .window-resize-handle {
   cursor: ew-resize;
   background: transparent;
   flex-shrink: 0;
-  transition: background 0.15s;
+  transition: background var(--motion-fast) var(--motion-ease);
 }
 
 /* Foco de teclado unificado para todos los tiradores de redimensionado
@@ -683,11 +759,12 @@ body.sidebar-collapsed #sidebar-resize-handle {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.15s, color 0.15s;
+  transition: background var(--motion-fast) var(--motion-ease), color var(--motion-fast) var(--motion-ease);
 }
 
 #btn-new-connection { font-size: 18px; }
 #btn-sidebar-tools { font-size: 16px; }
+#btn-sidebar-tools .ctx-icon-svg { width: 15px; height: 15px; vertical-align: -3px; }
 #btn-sidebar-tools:hover,
 #btn-sidebar-search:hover {
   background: var(--surface1);
@@ -834,8 +911,8 @@ body.sidebar-collapsed #sidebar-resize-handle {
 
 .tools-density-icon {
   width: 16px;
-  text-align: center;
-  font-size: 12px;
+  display: inline-flex;
+  justify-content: center;
   line-height: 1;
 }
 
@@ -852,6 +929,18 @@ body.sidebar-collapsed #sidebar-resize-handle {
 
 .sidebar-tools-popover #sidebar-search:focus { border-color: var(--blue); }
 
+/* Alcance de la búsqueda, debajo del campo. */
+.sidebar-tools-popover .custom-select,
+.sidebar-tools-popover #sidebar-search-scope {
+  margin-top: 6px;
+}
+
+.sidebar-tools-popover .custom-select-display {
+  font-size: 12px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
 /* ── Overflow de pestañas (botón ⋯ + popover con buscador y lista) ── */
 #btn-tab-overflow {
   flex: 0 0 auto;
@@ -863,11 +952,12 @@ body.sidebar-collapsed #sidebar-resize-handle {
   color: var(--subtext0);
   border-right: 1px solid var(--border-subtle);
   -webkit-app-region: no-drag;
-  transition: background 0.15s, color 0.15s;
+  transition: background var(--motion-fast) var(--motion-ease), color var(--motion-fast) var(--motion-ease);
 }
 #btn-tab-overflow.hidden { display: none; }
 #btn-tab-overflow:hover { background: var(--surface0); color: var(--text); }
-#btn-tab-overflow .tab-overflow-icon { font-size: 16px; line-height: 1; }
+#btn-tab-overflow .tab-overflow-icon { display: inline-flex; line-height: 1; }
+#btn-tab-overflow .tab-overflow-icon .ctx-icon-svg { width: 16px; height: 16px; vertical-align: 0; stroke-width: 2.4; }
 
 .tab-overflow-popover {
   position: fixed;
@@ -999,12 +1089,106 @@ body.sidebar-collapsed #sidebar-resize-handle {
 }
 
 .workspace-menu .ws-color-dot {
-  color: var(--workspace-tint, var(--overlay1));
+  display: inline-block;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1.5px solid var(--workspace-tint, var(--overlay1));
+}
+.workspace-menu .ws-color-dot.active {
+  background: var(--workspace-tint, var(--overlay1));
 }
 
 .workspace-menu .ws-item.danger {
   color: var(--red);
 }
+
+.workspace-menu .ws-item:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.workspace-menu .ws-item:disabled:hover {
+  background: transparent;
+}
+
+/* Cada perfil: el botón que lo selecciona y «⋯», que abre su menú de opciones
+   (el mismo del clic derecho). */
+.workspace-menu .ws-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.workspace-menu .ws-row > .ws-item {
+  flex: 1;
+  min-width: 0;
+}
+
+.workspace-menu .ws-item-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-menu .ws-more {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--subtext0);
+  cursor: pointer;
+  opacity: 0.6;
+}
+
+.workspace-menu .ws-more .ctx-icon-svg {
+  width: 14px;
+  height: 14px;
+  vertical-align: 0;
+  stroke-width: 1.8;
+}
+
+.workspace-menu .ws-row:hover .ws-more,
+.workspace-menu .ws-more:focus-visible {
+  opacity: 1;
+}
+
+.workspace-menu .ws-more:hover {
+  background: var(--surface0);
+  color: var(--text);
+}
+
+/* Orden de los perfiles: se arrastran en la lista; una guía marca dónde caen. */
+.workspace-menu .ws-item[draggable="true"] {
+  position: relative;
+}
+
+.workspace-menu .ws-item.is-dragging {
+  opacity: var(--dragging-opacity);
+}
+
+.workspace-menu .ws-item.drop-before::before,
+.workspace-menu .ws-item.drop-after::after {
+  content: "";
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--blue);
+  pointer-events: none;
+}
+
+.workspace-menu .ws-item.drop-before::before { top: -1px; }
+.workspace-menu .ws-item.drop-after::after { bottom: -1px; }
 
 .workspace-menu .ws-sep {
   height: 1px;
@@ -1071,7 +1255,7 @@ mark.search-hit {
   gap: 8px;
   padding: 7px 14px;
   cursor: pointer;
-  transition: background 0.12s;
+  transition: background var(--motion-fast) var(--motion-ease);
 }
 
 .search-folder-row:hover,
@@ -1267,7 +1451,7 @@ body:not(.native-scrollbars) #connection-list::-webkit-scrollbar-thumb:hover {
   padding: 7px 14px;
   cursor: pointer;
   border-radius: 0;
-  transition: background 0.12s;
+  transition: background var(--motion-fast) var(--motion-ease);
   position: relative;
 }
 
@@ -1430,7 +1614,7 @@ body:not(.native-scrollbars) #connection-list::-webkit-scrollbar-thumb:hover {
 }
 
 .conn-item-name {
-  font-size: 13px;
+  font-size: var(--font-size-md);
   font-weight: 500;
   white-space: nowrap;
   overflow: hidden;
@@ -1444,7 +1628,7 @@ body:not(.native-scrollbars) #connection-list::-webkit-scrollbar-thumb:hover {
 }
 
 .conn-item-host {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--subtext0);
   white-space: nowrap;
   overflow: hidden;
@@ -1480,6 +1664,9 @@ body:not(.native-scrollbars) #connection-list::-webkit-scrollbar-thumb:hover {
   pointer-events: none;
 }
 .conn-notes-badge:hover { color: var(--peach); }
+/* Botón «Ver nota» de las acciones de la fila: el amarillo del distintivo,
+   que en una barra estrecha queda tapado por el nombre. */
+.conn-item-actions .conn-note-action { color: var(--yellow); }
 
 /* Distintivo de «esta conexión tiene túneles abiertos». Mismo tamaño y
    alineación que el de notas; el azul lo emparenta con el contador del rail. */
@@ -1501,13 +1688,69 @@ body:not(.native-scrollbars) #connection-list::-webkit-scrollbar-thumb:hover {
   height: 11px;
 }
 
-.conn-item-actions {
-  display: none;
-  gap: 4px;
+/* La botonera va superpuesta a la derecha de la fila, no en el flujo: al
+   aparecer con el puntero no le quita sitio al nombre, que antes se volvía a
+   recortar (y saltaba) en cada fila por la que pasaba el ratón. El texto que
+   queda debajo se funde con una máscara, que vale para cualquier fondo de
+   fila (activa, abierta, seleccionada). `--conn-actions-w` es el ancho de la
+   botonera: cuatro botones, o cinco si la conexión tiene nota. */
+/* En una máscara solo cuenta la opacidad: cualquier color opaco del tema vale. */
+:root { --mask-solid: var(--text); }
+
+.conn-item {
+  --conn-actions-w: calc(4 * var(--control-icon-size-sm) + 3 * 4px);
+}
+.conn-item:has(> .conn-item-actions .conn-note-action) {
+  --conn-actions-w: calc(5 * var(--control-icon-size-sm) + 4 * 4px);
+}
+#connection-list.compact .conn-item { --conn-actions-w: calc(4 * 18px + 3 * 2px); }
+#connection-list.compact .conn-item:has(> .conn-item-actions .conn-note-action) {
+  --conn-actions-w: calc(5 * 18px + 4 * 2px);
 }
 
-.conn-item:hover .conn-item-actions {
+.conn-item-actions {
   display: flex;
+  gap: 4px;
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  transform: translateY(-50%);
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--motion-fast) var(--motion-ease),
+              visibility 0s linear var(--motion-fast);
+}
+
+.conn-item:hover .conn-item-actions,
+.conn-item:focus-within .conn-item-actions {
+  visibility: visible;
+  opacity: 1;
+  pointer-events: auto;
+  transition: opacity var(--motion-fast) var(--motion-ease), visibility 0s;
+}
+
+.conn-item:hover > .conn-item-info,
+.conn-item:focus-within > .conn-item-info {
+  -webkit-mask-image: linear-gradient(90deg, var(--mask-solid) calc(100% - var(--conn-actions-w) - 12px), transparent calc(100% - var(--conn-actions-w) + 4px));
+  mask-image: linear-gradient(90deg, var(--mask-solid) calc(100% - var(--conn-actions-w) - 12px), transparent calc(100% - var(--conn-actions-w) + 4px));
+}
+
+/* ─── Foco por teclado en el árbol (tabindex itinerante) ─────────
+   El anillo va por dentro de la fila: el contenedor tiene scroll y uno
+   exterior quedaba recortado. En una carpeta se dibuja sobre su cabecera
+   (el treeitem envuelve también a los hijos: el anillo abarcaba el subárbol).
+   El `#connection-list` da la especificidad para ganar a la regla genérica
+   de `[tabindex]:focus-visible`. */
+#connection-list .folder-item:focus-visible {
+  outline: none;
+}
+#connection-list .folder-item:focus-visible > .folder-header,
+#connection-list .conn-item:focus-visible,
+#connection-list .search-folder-row:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: calc(-1 * var(--focus-ring-width));
+  border-radius: var(--radius-sm);
 }
 
 #connection-list.compact .conn-item-actions {
@@ -1529,7 +1772,7 @@ body:not(.native-scrollbars) #connection-list::-webkit-scrollbar-thumb:hover {
   justify-content: center;
   font-size: 11px;
   color: var(--subtext0);
-  transition: background 0.12s, color 0.12s;
+  transition: background var(--motion-fast) var(--motion-ease), color var(--motion-fast) var(--motion-ease);
 }
 
 .btn-icon-sm:hover {
@@ -1591,6 +1834,21 @@ body:not(.native-scrollbars) #connection-list::-webkit-scrollbar-thumb:hover {
 
 body:not(.native-scrollbars) #tab-scroll::-webkit-scrollbar { display: none; }
 
+/* Pestañas fuera de la vista: el borde por el que quedan se funde (ver
+   `updateTabScrollEdges`). */
+#tab-scroll.fade-start {
+  -webkit-mask-image: linear-gradient(90deg, transparent, var(--mask-solid) 28px);
+  mask-image: linear-gradient(90deg, transparent, var(--mask-solid) 28px);
+}
+#tab-scroll.fade-end {
+  -webkit-mask-image: linear-gradient(90deg, var(--mask-solid) calc(100% - 28px), transparent);
+  mask-image: linear-gradient(90deg, var(--mask-solid) calc(100% - 28px), transparent);
+}
+#tab-scroll.fade-start.fade-end {
+  -webkit-mask-image: linear-gradient(90deg, transparent, var(--mask-solid) 28px, var(--mask-solid) calc(100% - 28px), transparent);
+  mask-image: linear-gradient(90deg, transparent, var(--mask-solid) 28px, var(--mask-solid) calc(100% - 28px), transparent);
+}
+
 #btn-toggle-sidebar {
   flex: 0 0 auto;
   width: 32px;
@@ -1600,19 +1858,22 @@ body:not(.native-scrollbars) #tab-scroll::-webkit-scrollbar { display: none; }
   justify-content: center;
   color: var(--subtext0);
   border-right: 1px solid var(--border-subtle);
-  transition: background 0.15s, color 0.15s;
+  transition: background var(--motion-fast) var(--motion-ease), color var(--motion-fast) var(--motion-ease);
 }
 #btn-toggle-sidebar:hover {
   background: var(--surface0);
   color: var(--text);
 }
 #btn-toggle-sidebar .chevron {
-  font-size: 16px;
+  display: inline-flex;
   line-height: 1;
-  transition: transform 0.15s;
+  /* El icono apunta a la derecha: abierta la barra, «plegar» mira a la izquierda. */
+  transform: rotate(180deg);
+  transition: transform var(--motion-fast) var(--motion-ease);
 }
+#btn-toggle-sidebar .chevron .ctx-icon-svg { width: 14px; height: 14px; vertical-align: 0; stroke-width: 1.8; }
 body.sidebar-collapsed #sidebar { display: none; }
-body.sidebar-collapsed #btn-toggle-sidebar .chevron { transform: rotate(180deg); }
+body.sidebar-collapsed #btn-toggle-sidebar .chevron { transform: none; }
 
 #tabs-container {
   display: flex;
@@ -1634,6 +1895,64 @@ body.sidebar-collapsed #btn-toggle-sidebar .chevron { transform: rotate(180deg);
   -webkit-app-region: no-drag;
 }
 
+/* ── macOS: botones nativos de la ventana ──────────────────────
+   En macOS la ventana lleva sus decoraciones (`tauri.macos.conf.json`) con la
+   barra de título superpuesta: el semáforo —cerrar, minimizar, maximizar— lo
+   pinta el sistema sobre la esquina superior izquierda, encima de la interfaz.
+   Aquí se esconden los botones propios y los tiradores de redimensión (la
+   ventana ya se redimensiona sola) y se despeja esa esquina.
+
+   El semáforo no escala con el zoom de la interfaz y mide lo mismo en
+   cualquier densidad, así que el hueco se da en píxeles de la ventana y se
+   divide por `--ui-zoom` allí donde el elemento está escalado. Ocupa más que
+   el rail: la banda bajo él continúa la cabecera de la barra lateral, y el
+   resto del hueco lo cede esa cabecera —o la barra de pestañas, si la lateral
+   está plegada—. A pantalla completa el sistema retira el semáforo y todo
+   vuelve a su sitio (`window-fullscreen` lo pone `initWindowControls`). */
+:root {
+  --mac-lights-width: 78px;   /* del borde izquierdo al final del semáforo */
+  --mac-lights-height: 28px;  /* alto de la barra de título nativa */
+  --rail-width: 44px;
+}
+
+#rail-titlebar-gap { display: none; }
+
+body.platform-macos #window-controls { display: none; }
+body.platform-macos .window-resize-handle { display: none; }
+
+body.platform-macos:not(.window-fullscreen) #rail {
+  position: relative;
+  padding-top: calc(max(var(--tab-height), var(--mac-lights-height) / var(--ui-zoom, 1)) + 6px);
+}
+
+body.platform-macos:not(.window-fullscreen) #rail-titlebar-gap {
+  display: block;
+  position: absolute;
+  top: 0;
+  left: 0;
+  /* Un píxel más que el interior del rail: tapa su borde derecho para que la
+     banda y la cabecera de la barra lateral se lean como una sola. */
+  width: var(--rail-width);
+  height: max(var(--tab-height), var(--mac-lights-height) / var(--ui-zoom, 1));
+  box-sizing: border-box;
+  background: var(--surface-sunken);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+body.platform-macos:not(.window-fullscreen) #sidebar-header {
+  padding-left: max(14px, calc(var(--mac-lights-width) / var(--ui-zoom, 1) - var(--rail-width)));
+}
+
+body.platform-macos.sidebar-collapsed:not(.window-fullscreen) #tab-bar {
+  padding-left: max(0px, calc(var(--mac-lights-width) / var(--ui-zoom, 1) - var(--rail-width)));
+}
+
+/* En modo zen no queda nada de la interfaz bajo el semáforo salvo el propio
+   terminal: se le deja una franja libre para que no tape la primera línea. */
+body.platform-macos.zen-mode:not(.window-fullscreen) #main-area {
+  padding-top: var(--mac-lights-height);
+}
+
 .win-ctrl {
   flex: 0 0 auto;
   width: 44px;
@@ -1644,7 +1963,7 @@ body.sidebar-collapsed #btn-toggle-sidebar .chevron { transform: rotate(180deg);
   background: transparent;
   border: none;
   cursor: pointer;
-  transition: background 0.12s, color 0.12s;
+  transition: background var(--motion-fast) var(--motion-ease), color var(--motion-fast) var(--motion-ease);
 }
 .win-ctrl:hover {
   background: var(--surface0);
@@ -1669,10 +1988,10 @@ body.window-maximized .win-ctrl .ico-restore { display: block; }
   max-width: 200px;
   cursor: pointer;
   border-right: 1px solid var(--border-subtle);
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   color: var(--subtext1);
   position: relative;
-  transition: background 0.12s, color 0.12s;
+  transition: background var(--motion-fast) var(--motion-ease), color var(--motion-fast) var(--motion-ease);
   white-space: nowrap;
   user-select: none;
 }
@@ -1696,6 +2015,12 @@ body.window-maximized .win-ctrl .ico-restore { display: block; }
   height: 2px;
   background: var(--blue);
 }
+
+/* Sesión de un entorno delicado: la línea de la pestaña activa y el filo de
+   la barra de estado toman el color del entorno, una señal periférica que se
+   ve sin mirar la insignia antes de escribir una orden. */
+.tab.active:has(> .env-badge.env-prod)::after { background: var(--red); }
+.tab.active:has(> .env-badge.env-stage)::after { background: var(--yellow); }
 
 .tab.has-unread-activity:not(.active) {
   color: var(--text);
@@ -1818,6 +2143,20 @@ body.has-session-tabs .tab-home .tab-name {
 .tab-dot.error     { background: var(--red); }
 .tab-dot.connecting { background: var(--yellow); animation: pulse 1s infinite; }
 
+/* Texto solo para lectores de pantalla (el estado de la pestaña en palabras). */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
@@ -1852,7 +2191,7 @@ body.has-session-tabs .tab-home .tab-name {
   font-size: 10px;
   color: var(--overlay0);
   flex-shrink: 0;
-  transition: background 0.12s, color 0.12s;
+  transition: background var(--motion-fast) var(--motion-ease), color var(--motion-fast) var(--motion-ease);
 }
 
 .tab-close:hover {
@@ -1917,7 +2256,7 @@ body.has-session-tabs .tab-home .tab-name {
   width: 0;
   height: 100%;
   background: var(--blue);
-  transition: width 0.2s ease;
+  transition: width var(--motion-normal) var(--motion-ease);
 }
 .tab-progress[data-state="error"] { background: color-mix(in srgb, var(--red) 18%, transparent); }
 .tab-progress[data-state="error"] .tab-progress-fill { background: var(--red); }
@@ -1949,7 +2288,32 @@ body.reduce-motion .tab-progress[data-state="indeterminate"] .tab-progress-fill 
   flex: 1;
   position: relative;
   overflow: hidden;
-  --status-bar-height: 24px;
+  /* Medidas de las capas flotantes que las demás usan para apartarse. */
+  --blocks-panel-width: min(440px, 60%);
+  --terminal-notice-height: 42px;
+}
+
+/* Capas flotantes del área del terminal que no se pisan. La barra de
+   disposición (vista múltiple) y la búsqueda Ctrl+F nacen en la esquina
+   superior derecha, igual que el panel de bloques: con el panel abierto, la
+   barra se corre a su izquierda y la búsqueda pasa a la esquina izquierda de
+   su pane; con una búsqueda a la vista, la barra baja por debajo de ella. */
+#terminals-container:has(#blocks-panel:not(.hidden)) #view-layout-bar {
+  right: calc(var(--blocks-panel-width) + 16px);
+}
+
+#terminals-container:has(.terminal-search:not(.hidden)) #view-layout-bar {
+  top: 52px;
+}
+
+#terminals-container:has(#blocks-panel:not(.hidden)) .terminal-search {
+  right: auto;
+  left: 14px;
+}
+
+/* …y por debajo de la insignia BROADCAST si la pane replica la entrada. */
+#terminals-container:has(#blocks-panel:not(.hidden)) .pane-broadcasting .terminal-search {
+  top: 26px;
 }
 
 /* ─── Vista múltiple (split por selección de pestañas) ───────── */
@@ -1992,9 +2356,9 @@ body.reduce-motion .tab-progress[data-state="indeterminate"] .tab-progress-fill 
 .view-resizer {
   flex: 0 0 auto;
   background: transparent;
-  transition: background 0.12s;
+  transition: background var(--motion-fast) var(--motion-ease);
   position: relative;
-  z-index: 1;
+  z-index: var(--z-terminal-resizer);
 }
 .view-resizer:hover { background: var(--blue); opacity: 0.35; }
 .resizer-horizontal { width: 5px; cursor: col-resize; }
@@ -2011,7 +2375,7 @@ body.reduce-motion .tab-progress[data-state="indeterminate"] .tab-progress-fill 
   padding: 2px;
   border-radius: var(--radius-sm);
   outline: 2px solid transparent;
-  transition: outline-color 0.12s;
+  transition: outline-color var(--motion-fast) var(--motion-ease);
 }
 
 /* El pane de un terminal SSH/local adopta el fondo del tema de terminal
@@ -2054,8 +2418,15 @@ body.reduce-motion .tab-progress[data-state="indeterminate"] .tab-progress-fill 
   position: absolute;
   right: 14px;
   bottom: 14px;
-  z-index: 12;
+  z-index: var(--z-terminal-notice);
   pointer-events: none;
+}
+
+/* Con el diagnóstico de la conexión abierto en la misma esquina, el aviso de
+   reconexión se queda abajo y el diagnóstico se apila encima de él. */
+.terminal-pane:has(.terminal-reconnect-overlay:not(.hidden)) .connection-log-panel {
+  bottom: calc(14px + var(--terminal-notice-height) + 8px);
+  max-height: min(360px, calc(100% - 70px - var(--terminal-notice-height) - 8px));
 }
 
 .terminal-reconnect-box {
@@ -2136,7 +2507,7 @@ body.reduce-motion .tab-progress[data-state="indeterminate"] .tab-progress-fill 
   top: auto;
   bottom: 10px;
   right: 12px;
-  z-index: 11;
+  z-index: var(--z-terminal-popover);
   width: min(440px, calc(100% - 24px));
   max-height: min(360px, calc(100% - 70px));
   display: flex;
@@ -2271,7 +2642,7 @@ body.terminal-bell-visual::after {
   background: color-mix(in srgb, var(--blue) 26%, transparent);
   box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--blue) 70%, transparent);
   animation: terminal-bell-flash 240ms ease-out;
-  z-index: 50;
+  z-index: var(--z-terminal-overlay);
 }
 
 #modal-prefs.terminal-bell-visual {
@@ -2378,17 +2749,26 @@ body.reduce-motion.terminal-bell-visual::after {
   right: 0;
   height: var(--status-bar-height);
   box-sizing: border-box;
-  z-index: 5;
+  z-index: var(--z-terminal-status);
   display: flex;
   align-items: center;
   gap: 12px;
   padding: 3px 12px;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--overlay1);
   background: var(--surface-sunken);
   border-top: 1px solid var(--border-subtle);
   font-family: var(--font-mono);
   user-select: none;
+}
+
+#status-bar:has(#status-env.env-prod) {
+  border-top-color: color-mix(in srgb, var(--red) 70%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--red) 35%, transparent);
+}
+#status-bar:has(#status-env.env-stage) {
+  border-top-color: color-mix(in srgb, var(--yellow) 70%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--yellow) 30%, transparent);
 }
 
 #status-bar .status-conn {
@@ -2556,6 +2936,13 @@ body.reduce-motion.terminal-bell-visual::after {
   background: var(--surface0);
 }
 
+/* Consola local: el punto solo enseña el estado (no hay diagnóstico de
+   conexión que abrir), así que ni se pulsa ni cambia al pasar por encima. */
+#status-bar .status-dot.static {
+  cursor: default;
+  pointer-events: none;
+}
+
 #status-bar .status-log-dot {
   width: 7px;
   height: 7px;
@@ -2670,7 +3057,7 @@ body.reduce-motion.terminal-bell-visual::after {
   position: absolute;
   right: 8px;
   bottom: calc(100% + 6px);
-  z-index: 60;
+  z-index: var(--z-terminal-status-popover);
   min-width: 200px;
   max-width: min(80vw, 360px);
   background: var(--surface0);
@@ -2706,7 +3093,7 @@ body.reduce-motion.terminal-bell-visual::after {
   position: absolute;
   top: 8px;
   right: 8px;
-  z-index: 10;
+  z-index: var(--z-terminal-toolbar);
   display: flex;
   gap: 2px;
   padding: 3px;
@@ -2730,7 +3117,7 @@ body.reduce-motion.terminal-bell-visual::after {
   font-size: 14px;
   line-height: 1;
   cursor: pointer;
-  transition: background 0.12s, color 0.12s;
+  transition: background var(--motion-fast) var(--motion-ease), color var(--motion-fast) var(--motion-ease);
 }
 
 /* Iconos SVG de la barra de layouts (sprite `#ctx-icons`, currentColor). */
@@ -2779,7 +3166,7 @@ body.reduce-motion.terminal-bell-visual::after {
   position: absolute;
   top: 0;
   left: 0;
-  z-index: 5;
+  z-index: var(--z-terminal-badge);
   font-family: var(--font-mono);
   font-size: 10px;
   font-weight: var(--font-weight-semibold);
@@ -2821,7 +3208,7 @@ body.reduce-motion.terminal-bell-visual::after {
    izquierda en split vertical. Es una franja fina sobre el borde del panel. */
 .metrics-resize-handle {
   position: absolute;
-  z-index: 5;
+  z-index: var(--z-terminal-badge);
   top: 0;
   left: 0;
   right: 0;
@@ -2894,11 +3281,73 @@ body.metrics-resizing.metrics-resizing-v { cursor: col-resize; }
 .metrics-bar-label { display: flex; justify-content: space-between; color: var(--subtext1); gap: 8px; }
 .metrics-bar-sub { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .metrics-bar { height: 6px; border-radius: var(--radius-xs); background: var(--surface0); overflow: hidden; margin-top: 2px; }
-.metrics-bar-fill { height: 100%; background: var(--blue); transition: width 0.3s; }
+.metrics-bar-fill { height: 100%; background: var(--blue); transition: width var(--motion-slow) var(--motion-ease); }
+.metrics-summary { display: flex; flex-direction: column; gap: 12px; }
 .metrics-proc-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
 .metrics-proc-table td { padding: 1px 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .metrics-proc-cmd { max-width: 0; width: 100%; }
 .metrics-proc-num { text-align: right; color: var(--subtext1); }
+.metrics-proc-user { max-width: 8em; color: var(--subtext1); }
+
+/* Tabla de procesos: filtro y cabeceras ordenables. El filtro y las
+   cabeceras no se repintan con cada muestra (solo las filas): el foco y lo
+   escrito sobreviven al refresco. */
+.metrics-proc-filter {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0 0 4px;
+  padding: 3px 6px;
+  font-size: 12px;
+}
+.metrics-proc-table th { padding: 0; font-weight: normal; text-align: left; white-space: nowrap; }
+/* Las cabeceras de orden se quedan arriba al bajar por la lista de procesos. */
+.metrics-proc-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--mantle, var(--base));
+}
+.metrics-proc-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  width: 100%;
+  padding: 1px 4px;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--subtext0);
+  font: inherit;
+  cursor: pointer;
+}
+.metrics-proc-sort:hover { background: var(--surface0); color: var(--text); }
+th.metrics-proc-num .metrics-proc-sort { justify-content: flex-end; }
+.metrics-sort-icon { width: 10px; height: 10px; flex-shrink: 0; visibility: hidden; }
+th.is-sorted .metrics-proc-sort { color: var(--text); font-weight: 600; }
+th.is-sorted .metrics-sort-icon { visibility: visible; }
+
+/* Pausa del refresco: botón pulsado y aviso junto al título. */
+.metrics-panel-btn.active { background: var(--surface0); color: var(--blue); }
+.metrics-paused-badge {
+  margin-left: 6px;
+  padding: 0 5px;
+  border: 1px solid var(--yellow);
+  border-radius: var(--radius-xs);
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* Elección de señal en la confirmación de terminar un proceso. */
+.metrics-kill-signal {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 12px;
+  padding: 0;
+  border: 0;
+}
+.metrics-kill-signal legend { margin-bottom: 4px; color: var(--subtext1); font-size: 12px; }
 .metrics-empty { color: var(--subtext0); padding: 6px 0; }
 
 /* CPU por core: mini-columnas estilo htop bajo el sparkline. Con muchos cores
@@ -2913,7 +3362,23 @@ body.metrics-resizing.metrics-resizing-v { cursor: col-resize; }
   display: flex;
   align-items: flex-end;
 }
-.metrics-core-fill { width: 100%; background: var(--blue); transition: height 0.3s; }
+.metrics-core-fill { width: 100%; background: var(--blue); transition: height var(--motion-slow) var(--motion-ease); }
+
+/* Semáforo de uso (`usageLevel`): desde el 75 % amarillo y desde el 90 % rojo,
+   como el espacio libre del panel SFTP. En modo daltónico, además, trama: fina
+   en aviso y gruesa en crítico, para no depender solo del color. */
+.metrics-bar-fill[data-level="warn"],
+.metrics-core-fill[data-level="warn"] { background-color: var(--yellow); }
+.metrics-bar-fill[data-level="crit"],
+.metrics-core-fill[data-level="crit"] { background-color: var(--red); }
+body.color-blind-safe .metrics-bar-fill[data-level="warn"],
+body.color-blind-safe .metrics-core-fill[data-level="warn"] {
+  background-image: repeating-linear-gradient(-45deg, transparent 0 3px, rgba(0, 0, 0, 0.32) 3px 6px);
+}
+body.color-blind-safe .metrics-bar-fill[data-level="crit"],
+body.color-blind-safe .metrics-core-fill[data-level="crit"] {
+  background-image: repeating-linear-gradient(45deg, transparent 0 4px, rgba(0, 0, 0, 0.38) 4px 8px);
+}
 
 /* Terminar proceso: botón por fila, discreto hasta pasar por encima. */
 .metrics-proc-act { width: 22px; }
@@ -2938,7 +3403,7 @@ body.metrics-resizing.metrics-resizing-v { cursor: col-resize; }
   position: absolute;
   top: 6px;
   right: 14px;
-  z-index: 10;
+  z-index: var(--z-terminal-toolbar);
   display: flex;
   align-items: center;
   gap: 6px;
@@ -2971,7 +3436,7 @@ body.metrics-resizing.metrics-resizing-v { cursor: col-resize; }
   z-index: var(--z-hud);
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.18s ease, transform 0.18s ease;
+  transition: opacity var(--motion-normal) var(--motion-ease), transform var(--motion-normal) var(--motion-ease);
 }
 
 #font-zoom-indicator.visible {
@@ -3146,6 +3611,38 @@ body.metrics-resizing.metrics-resizing-v { cursor: col-resize; }
   text-align: center;
 }
 
+/* Alcance del buscador del inicio: perfil actual, uno concreto o todos. */
+.dashboard-search-scope {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: var(--font-size-xs);
+  color: var(--subtext0);
+}
+
+.dashboard-search-scope label {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--subtext0);
+}
+
+.dashboard-search-scope .custom-select {
+  width: auto;
+  min-width: 190px;
+}
+
+.dashboard-search-scope .custom-select-display,
+.dashboard-search-scope select {
+  padding-top: 3px;
+  padding-bottom: 3px;
+  font-size: var(--font-size-xs);
+}
+
 .dashboard-section {
   margin-bottom: 20px;
 }
@@ -3216,7 +3713,7 @@ body.metrics-resizing.metrics-resizing-v { cursor: col-resize; }
   padding: 8px 10px;
   background: color-mix(in srgb, var(--mantle) 78%, var(--base));
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background var(--motion-fast) var(--motion-ease);
 }
 
 .dashboard-result-row:hover {
@@ -3321,6 +3818,19 @@ body.metrics-resizing.metrics-resizing-v { cursor: col-resize; }
   .dashboard-favorites { grid-column: auto; }
 }
 
+/* Con «Anclados» a la vista son cuatro tarjetas: en tres columnas la cuarta
+   («Historial») caía sola a una segunda fila con dos tercios vacíos. Mientras
+   hay sitio para dos columnas, 2×2. Por debajo de 980 px manda la columna
+   única de siempre. */
+@media (min-width: 981px) {
+  .dashboard-grid:has(> #dashboard-pinned-card:not(.hidden)) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .dashboard-grid:has(> #dashboard-pinned-card:not(.hidden)) > .dashboard-favorites {
+    grid-column: auto;
+  }
+}
+
 .dashboard-card {
   padding: 14px;
 }
@@ -3349,7 +3859,7 @@ body.metrics-resizing.metrics-resizing-v { cursor: col-resize; }
   border-radius: var(--radius-md);
   background: var(--base);
   text-align: left;
-  transition: border-color 0.15s, background 0.15s;
+  transition: border-color var(--motion-fast) var(--motion-ease), background var(--motion-fast) var(--motion-ease);
 }
 
 .dashboard-tool:hover {
@@ -3373,8 +3883,9 @@ body.metrics-resizing.metrics-resizing-v { cursor: col-resize; }
 }
 
 .dashboard-tool-icon.new { color: var(--blue); }
+.dashboard-tool-icon .ctx-icon-svg { width: 16px; height: 16px; vertical-align: 0; stroke-width: 2; }
 .dashboard-tool-icon.rdp { color: var(--peach); }
-.dashboard-tool-icon.local { color: var(--green); font-size: 10px; }
+.dashboard-tool-icon.local { color: var(--green); }
 
 .dashboard-tool strong,
 .dashboard-tool small {
@@ -3524,7 +4035,7 @@ body.metrics-resizing.metrics-resizing-v { cursor: col-resize; }
   padding: var(--control-py) var(--control-px-btn);
   border: 1px solid var(--blue);
   border-radius: var(--control-radius);
-  transition: filter 0.15s, box-shadow 0.15s;
+  transition: filter var(--motion-fast) var(--motion-ease), box-shadow var(--motion-fast) var(--motion-ease);
 }
 
 .btn-primary:hover {
@@ -3553,8 +4064,12 @@ body.metrics-resizing.metrics-resizing-v { cursor: col-resize; }
   padding: var(--control-py) var(--control-px-btn);
   border: 1px solid var(--surface2);
   border-radius: var(--control-radius);
-  transition: background 0.15s, border-color 0.15s, color 0.15s, box-shadow 0.15s;
+  transition: background var(--motion-fast) var(--motion-ease), border-color var(--motion-fast) var(--motion-ease), color var(--motion-fast) var(--motion-ease), box-shadow var(--motion-fast) var(--motion-ease);
 }
+
+/* Icono SVG delante del texto («＋ Añadir regla» y similares). */
+.btn-secondary > .ctx-icon-svg:first-child { margin-right: 6px; }
+.workspace-menu .ws-item > .ctx-icon-svg { flex-shrink: 0; }
 
 .btn-secondary:hover {
   background: var(--surface1);
@@ -3630,7 +4145,7 @@ body.metrics-resizing.metrics-resizing-v { cursor: col-resize; }
   align-items: center;
   justify-content: center;
   color: var(--subtext0);
-  transition: background 0.12s, color 0.12s;
+  transition: background var(--motion-fast) var(--motion-ease), color var(--motion-fast) var(--motion-ease);
 }
 
 .btn-icon:hover {
@@ -3656,10 +4171,10 @@ body.metrics-resizing.metrics-resizing-v { cursor: col-resize; }
   border-radius: var(--radius-lg);
   width: var(--connection-modal-width, 480px);
   height: var(--connection-modal-height, auto);
-  min-width: min(480px, 95vw);
-  min-height: min(360px, 90vh);
-  max-width: 95vw;
-  max-height: 90vh;
+  min-width: min(480px, calc(95vw / var(--ui-zoom, 1)));
+  min-height: min(360px, calc(90vh / var(--ui-zoom, 1)));
+  max-width: calc(95vw / var(--ui-zoom, 1));
+  max-height: calc(90vh / var(--ui-zoom, 1));
   overflow-y: auto;
   resize: both;
   box-shadow: var(--shadow-3);
@@ -3695,11 +4210,11 @@ body.metrics-resizing.metrics-resizing-v { cursor: col-resize; }
 
 #credential-modal {
   width: 430px;
-  max-width: calc(100vw - 40px);
+  max-width: calc((100vw - 40px) / var(--ui-zoom, 1));
   background: var(--surface-panel);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.52);
+  box-shadow: var(--shadow-3);
   display: flex;
   flex-direction: column;
 }
@@ -3745,13 +4260,13 @@ body.metrics-resizing.metrics-resizing-v { cursor: col-resize; }
 #localcmd-edit-modal,
 #dup-modal {
   width: 520px;
-  max-width: calc(100vw - 40px);
-  max-height: 86vh;
+  max-width: calc((100vw - 40px) / var(--ui-zoom, 1));
+  max-height: calc(86vh / var(--ui-zoom, 1));
   overflow-y: auto;
   background: var(--surface-panel);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.52);
+  box-shadow: var(--shadow-3);
   display: flex;
   flex-direction: column;
 }
@@ -3760,12 +4275,12 @@ body.metrics-resizing.metrics-resizing-v { cursor: col-resize; }
    numeración por lado, al estilo de un diff de Git. */
 #block-diff-modal {
   width: 980px;
-  max-width: calc(100vw - 40px);
-  max-height: 86vh;
+  max-width: calc((100vw - 40px) / var(--ui-zoom, 1));
+  max-height: calc(86vh / var(--ui-zoom, 1));
   background: var(--surface-panel);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.52);
+  box-shadow: var(--shadow-3);
   display: flex;
   flex-direction: column;
   padding-bottom: 8px;
@@ -3931,9 +4446,9 @@ body.color-blind-safe .diff-cell.diff-del::before { content: "− "; }
 }
 #command-palette-modal {
   width: 640px;
-  max-width: calc(100vw - 40px);
-  margin-top: 12vh;
-  max-height: 70vh;
+  max-width: calc((100vw - 40px) / var(--ui-zoom, 1));
+  margin-top: calc(12vh / var(--ui-zoom, 1));
+  max-height: calc(70vh / var(--ui-zoom, 1));
   background: var(--surface-panel);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
@@ -4041,8 +4556,8 @@ body.color-blind-safe .diff-cell.diff-del::before { content: "− "; }
 }
 #shortcuts-help-modal {
   width: 620px;
-  max-width: calc(100vw - 40px);
-  max-height: 80vh;
+  max-width: calc((100vw - 40px) / var(--ui-zoom, 1));
+  max-height: calc(80vh / var(--ui-zoom, 1));
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -4109,12 +4624,12 @@ body.color-blind-safe .diff-cell.diff-del::before { content: "− "; }
 
 #import-wizard-modal {
   width: 580px;
-  max-width: calc(100vw - 40px);
-  max-height: 88vh;
+  max-width: calc((100vw - 40px) / var(--ui-zoom, 1));
+  max-height: calc(88vh / var(--ui-zoom, 1));
   background: var(--surface-panel);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.52);
+  box-shadow: var(--shadow-3);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -4134,12 +4649,12 @@ body.color-blind-safe .diff-cell.diff-del::before { content: "− "; }
 
 #cmd-editor-modal {
   width: 640px;
-  max-width: calc(100vw - 40px);
-  max-height: 88vh;
+  max-width: calc((100vw - 40px) / var(--ui-zoom, 1));
+  max-height: calc(88vh / var(--ui-zoom, 1));
   background: var(--surface-panel);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.52);
+  box-shadow: var(--shadow-3);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -4350,7 +4865,7 @@ body.color-blind-safe .diff-cell.diff-del::before { content: "− "; }
   width: 0;
   border-radius: var(--radius-pill);
   background: var(--blue);
-  transition: width 0.15s ease;
+  transition: width var(--motion-fast) var(--motion-ease);
 }
 
 #iw-progress-text {
@@ -4493,6 +5008,10 @@ body.color-blind-safe .diff-cell.diff-del::before { content: "− "; }
   top: 0;
   z-index: 4;
   background: var(--surface-panel);
+  /* La cabecera pinta su propio fondo: con esquinas rectas asomaba un pico
+     cuadrado sobre el borde redondeado del diálogo. Hereda las de arriba. */
+  border-top-left-radius: inherit;
+  border-top-right-radius: inherit;
 }
 
 .modal-header h2 {
@@ -4566,7 +5085,7 @@ select {
   color: var(--text);
   font-size: 13px;
   outline: none;
-  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+  transition: border-color var(--motion-fast) var(--motion-ease), box-shadow var(--motion-fast) var(--motion-ease), background var(--motion-fast) var(--motion-ease);
   width: 100%;
 }
 
@@ -4721,7 +5240,7 @@ input[type="number"] {
   color: var(--subtext1);
   font-size: 8px;
   line-height: 1;
-  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  transition: background var(--motion-fast) var(--motion-ease), border-color var(--motion-fast) var(--motion-ease), color var(--motion-fast) var(--motion-ease);
 }
 
 .number-stepper-btn:first-child {
@@ -4774,7 +5293,7 @@ select {
   text-align: left;
   cursor: pointer;
   position: relative;
-  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+  transition: border-color var(--motion-fast) var(--motion-ease), box-shadow var(--motion-fast) var(--motion-ease), background var(--motion-fast) var(--motion-ease);
   min-height: 34px;
   white-space: nowrap;
   overflow: hidden;
@@ -4794,7 +5313,7 @@ select {
   border-right: 4px solid transparent;
   border-top: 5px solid var(--subtext0);
   transform: translateY(-50%);
-  transition: transform 0.15s;
+  transition: transform var(--motion-fast) var(--motion-ease);
 }
 .custom-select-display:focus {
   border-color: var(--blue);
@@ -4846,6 +5365,29 @@ select {
   background: var(--blue);
   color: var(--on-blue);
 }
+/* Opción resaltada con el teclado (aria-activedescendant): el foco real sigue
+   en el botón, así que el anillo se pinta aquí a mano. */
+.custom-select-item.is-focused {
+  outline: 2px solid var(--blue);
+  outline-offset: -2px;
+}
+.custom-select-item[aria-disabled="true"] {
+  opacity: 0.45;
+  cursor: default;
+}
+.custom-select-item[aria-disabled="true"]:hover {
+  background: transparent;
+  color: var(--text);
+}
+/* Cabecera de un <optgroup> dentro de la lista. */
+.custom-select-group {
+  padding: 6px 10px 2px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--overlay1);
+  user-select: none;
+}
 
 input[type="text"]:focus,
 input[type="password"]:focus,
@@ -4854,6 +5396,28 @@ textarea:focus,
 select:focus {
   border-color: var(--blue);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--blue) 20%, transparent);
+}
+
+/* Al llegar con el teclado, los campos llevan el mismo anillo de foco que los
+   botones (respeta «Foco visible reforzado» y el contraste alto); el
+   resplandor de arriba queda para el ratón. */
+input[type="text"]:focus-visible,
+input[type="password"]:focus-visible,
+input[type="number"]:focus-visible,
+input[type="search"]:focus-visible,
+input[type="email"]:focus-visible,
+input[type="url"]:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+.custom-select-display:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: var(--focus-ring-offset);
+  box-shadow: none;
+}
+
+.custom-select-item:focus-visible {
+  background: var(--blue);
+  color: var(--on-blue);
 }
 
 input::placeholder {
@@ -4932,23 +5496,38 @@ input[type="checkbox"] {
 }
 
 /* ─── Toasts ─────────────────────────────────────────────────── */
+/* La pila vive por encima de la barra de estado (no la tapa) y aloja también
+   el indicador de la sincronización de arranque, que antes se pintaba aparte
+   en la misma esquina y se pisaba con el primer aviso. */
 #toast-container {
   position: fixed;
-  bottom: 20px;
-  right: 20px;
+  bottom: calc(var(--status-bar-height) + 12px);
+  right: 16px;
   display: flex;
   flex-direction: column;
+  align-items: flex-end;
   gap: 8px;
   z-index: var(--z-toast);
   pointer-events: none;
 }
 
+/* Un aviso es un panel con el borde izquierdo y el icono del color de su
+   severidad; el texto va en la tinta normal sobre `--surface-panel`, que es
+   el par que `check:contrast` garantiza en los temas claros (la tinta
+   `--crust` sobre el relleno de acento de antes no llegaba a AA). El icono
+   se ve siempre, no solo en el modo daltónico: el color por sí solo no
+   distingue éxito de error para todo el mundo. */
 .toast {
-  padding: 10px 16px;
+  --toast-accent: var(--blue);
+  padding: 10px 14px 10px 12px;
   border-radius: var(--border-radius);
-  font-size: 13px;
-  max-width: 320px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--border-subtle);
+  border-inline-start: 3px solid var(--toast-accent);
+  background: var(--surface-panel);
+  color: var(--text);
+  font-size: var(--font-size-md);
+  max-width: 340px;
+  box-shadow: var(--shadow-2);
   animation: slide-in 0.2s ease;
   pointer-events: auto;
   display: flex;
@@ -4956,10 +5535,37 @@ input[type="checkbox"] {
   gap: 10px;
 }
 
-.toast.success { background: var(--green);  color: var(--on-green); }
-.toast.error   { background: var(--red);    color: var(--on-red); }
-.toast.info    { background: var(--blue);   color: var(--on-blue); }
-.toast.warning { background: var(--yellow); color: var(--on-yellow); }
+.toast.success { --toast-accent: var(--green); }
+.toast.error   { --toast-accent: var(--red); }
+.toast.info    { --toast-accent: var(--blue); }
+.toast.warning { --toast-accent: var(--yellow); }
+
+/* Icono de severidad: trazos SVG monocromos pintados con `mask` y el color
+   de acento (solo cuenta su canal alfa). Sin emoji. */
+.toast.success {
+  --toast-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M4 12.5l5 5 11-12' fill='none' stroke='%23000' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+.toast.error {
+  --toast-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M6 6l12 12M18 6L6 18' fill='none' stroke='%23000' stroke-width='2.6' stroke-linecap='round'/%3E%3C/svg%3E");
+}
+.toast.info {
+  --toast-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='9' fill='none' stroke='%23000' stroke-width='2'/%3E%3Cpath d='M12 11v5.5' fill='none' stroke='%23000' stroke-width='2.4' stroke-linecap='round'/%3E%3Ccircle cx='12' cy='7.6' r='1.5' fill='%23000'/%3E%3C/svg%3E");
+}
+.toast.warning {
+  --toast-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 3.5l9.5 16.5H2.5z' fill='none' stroke='%23000' stroke-width='2' stroke-linejoin='round'/%3E%3Cpath d='M12 9.5v5' fill='none' stroke='%23000' stroke-width='2.2' stroke-linecap='round'/%3E%3Ccircle cx='12' cy='17.4' r='1.4' fill='%23000'/%3E%3C/svg%3E");
+}
+.toast.success::before,
+.toast.error::before,
+.toast.info::before,
+.toast.warning::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  background-color: var(--toast-accent);
+  -webkit-mask: var(--toast-icon) center / contain no-repeat;
+  mask: var(--toast-icon) center / contain no-repeat;
+}
 
 .toast-message {
   flex: 1;
@@ -4967,9 +5573,9 @@ input[type="checkbox"] {
 }
 
 .toast-action {
-  border: 1px solid currentColor;
-  background: transparent;
-  color: inherit;
+  border: 1px solid var(--toast-accent);
+  background: color-mix(in srgb, var(--toast-accent) 10%, transparent);
+  color: var(--text);
   border-radius: var(--radius-xs);
   padding: 3px 7px;
   font: inherit;
@@ -4980,7 +5586,7 @@ input[type="checkbox"] {
 }
 
 .toast-action:hover {
-  background: rgba(0, 0, 0, 0.12);
+  background: color-mix(in srgb, var(--toast-accent) 22%, transparent);
 }
 
 .toast-close {
@@ -5011,7 +5617,7 @@ input[type="checkbox"] {
   padding: 1px 8px;
   font-size: 11px;
   font-weight: 700;
-  background: rgba(0, 0, 0, 0.18);
+  background: color-mix(in srgb, var(--toast-accent) 16%, transparent);
   color: inherit;
   white-space: nowrap;
 }
@@ -5091,10 +5697,12 @@ input[type="checkbox"] {
 .activity-center-toolbar {
   display: flex;
   align-items: center;
+  /* Los filtros llevan recuento y no caben siempre en una línea: saltan a la
+     siguiente en vez de esconder «Limpiar» tras un scroll horizontal. */
+  flex-wrap: wrap;
   gap: 6px;
   padding: 10px 12px;
   border-bottom: 1px solid var(--border-subtle);
-  overflow-x: auto;
 }
 
 .activity-filter,
@@ -5122,8 +5730,52 @@ input[type="checkbox"] {
   background: color-mix(in srgb, var(--blue) 12%, transparent);
 }
 
+/* Recuento de entradas de cada filtro. Va en `data-count` y no en el texto:
+   la traducción reescribe el texto del chip. */
+.activity-filter[data-count]::after {
+  content: attr(data-count);
+  margin-left: 6px;
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--font-weight-bold);
+  opacity: 0.75;
+}
+
+.activity-filter-error[data-count] {
+  color: var(--red);
+}
+
+.activity-filter-error.active {
+  border-color: var(--red);
+  color: var(--red);
+  background: color-mix(in srgb, var(--red) 12%, transparent);
+}
+
+/* Entradas registradas desde la última vez que se abrió el centro. */
+.activity-new {
+  flex-shrink: 0;
+  padding: 0 5px;
+  border-radius: var(--radius-xs);
+  background: color-mix(in srgb, var(--blue) 16%, transparent);
+  color: var(--blue);
+  font-size: 10px;
+  font-weight: var(--font-weight-bold);
+  line-height: 16px;
+}
+
 .activity-clear {
   margin-left: auto;
+}
+
+/* «Exportar…» y «Limpiar» van juntos al final de la barra: el primero empuja
+   y el segundo se le pega. */
+.activity-export + .activity-clear {
+  margin-left: 0;
+}
+
+.activity-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .activity-center-list {
@@ -5306,7 +5958,7 @@ body.overlay-scrollbars:not(.native-scrollbars) ::-webkit-scrollbar-thumb:hover 
   gap: 6px;
   padding: 6px 14px;
   cursor: pointer;
-  transition: background 0.12s;
+  transition: background var(--motion-fast) var(--motion-ease);
   position: relative;
 }
 
@@ -5352,13 +6004,22 @@ body.overlay-scrollbars:not(.native-scrollbars) ::-webkit-scrollbar-thumb:hover 
 .folder-arrow {
   font-size: 8px;
   color: var(--overlay0);
-  transition: transform 0.15s ease;
+  transition: transform var(--motion-fast) var(--motion-ease);
   width: 10px;
   flex-shrink: 0;
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .folder-arrow.open { transform: rotate(90deg); }
+.folder-arrow .ctx-icon-svg,
+.ft-arrow .ctx-icon-svg {
+  display: block;
+  width: 10px;
+  height: 10px;
+  stroke-width: 1.8;
+}
 
 .folder-icon {
   display: inline-flex;
@@ -5401,7 +6062,7 @@ body.overlay-scrollbars:not(.native-scrollbars) ::-webkit-scrollbar-thumb:hover 
 
 .folder-name {
   flex: 1;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   font-weight: 500;
   white-space: nowrap;
   overflow: hidden;
@@ -5541,7 +6202,7 @@ body.overlay-scrollbars:not(.native-scrollbars) ::-webkit-scrollbar-thumb:hover 
 .ft-arrow {
   font-size: 8px;
   color: var(--overlay0);
-  transition: transform 0.15s ease;
+  transition: transform var(--motion-fast) var(--motion-ease);
   width: 12px;
   flex-shrink: 0;
   display: inline-flex;
@@ -5689,7 +6350,9 @@ body.overlay-scrollbars:not(.native-scrollbars) ::-webkit-scrollbar-thumb:hover 
 #tab-context-menu,
 #terminal-context-menu,
 #sftp-context-menu,
-#route-menu {
+#sftp-transfer-menu,
+#route-menu,
+#text-context-menu {
   position: fixed;
   z-index: var(--z-menu);
   background: var(--surface-popover);
@@ -5709,15 +6372,24 @@ body.overlay-scrollbars:not(.native-scrollbars) ::-webkit-scrollbar-thumb:hover 
 #tab-context-menu.menu-overflow,
 #terminal-context-menu.menu-overflow,
 #sftp-context-menu.menu-overflow,
-#route-menu.menu-overflow {
-  max-height: calc(100vh - 12px);
-  max-width: calc(100vw - 12px);
+#sftp-transfer-menu.menu-overflow,
+#route-menu.menu-overflow,
+#text-context-menu.menu-overflow {
+  /* En unidades del menú, que va escalado por el zoom de la interfaz. */
+  max-height: calc((100vh - 12px) / var(--ui-zoom, 1));
+  max-width: calc((100vw - 12px) / var(--ui-zoom, 1));
   overflow-y: auto;
   overscroll-behavior: contain;
 }
 
 /* Ítem del submenú de túneles que corresponde a uno en marcha. El color es un
    refuerzo: el texto del ítem ya dice si abre o para. */
+/* El menú de texto se abre también sobre los diálogos (editor de notas,
+   Preferencias…): por encima de todos ellos. */
+#text-context-menu {
+  z-index: var(--z-text-menu);
+}
+
 .ctx-item.is-running {
   color: var(--blue);
 }
@@ -5729,12 +6401,12 @@ body.overlay-scrollbars:not(.native-scrollbars) ::-webkit-scrollbar-thumb:hover 
   width: 100%;
   padding: 7px 12px;
   border-radius: var(--radius-sm);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   font-weight: 500;
   color: var(--text);
   text-align: left;
   cursor: pointer;
-  transition: background 0.1s, color 0.1s;
+  transition: background var(--motion-fast) var(--motion-ease), color var(--motion-fast) var(--motion-ease);
   background: none;
   border: none;
   font-family: inherit;
@@ -5744,7 +6416,23 @@ body.overlay-scrollbars:not(.native-scrollbars) ::-webkit-scrollbar-thumb:hover 
   background: var(--blue);
   color: var(--on-blue);
 }
-.ctx-item:hover .ctx-icon { color: var(--on-blue); }
+/* Con `>`: el icono solo cambia con SU opción. Sin él, resaltar un padre con
+   submenú teñía también los iconos de todo el submenú, que se perdían contra
+   el fondo. */
+.ctx-item:hover > .ctx-icon { color: var(--on-blue); }
+
+/* El ítem activo al recorrer el menú con el teclado se ve igual que con el
+   ratón; el anillo de foco común se mantiene por encima. */
+.ctx-item:focus-visible {
+  background: var(--blue);
+  color: var(--on-blue);
+}
+.ctx-item:focus-visible > .ctx-icon { color: var(--on-blue); }
+.ctx-item.danger:focus-visible {
+  background: var(--red);
+  color: var(--on-red);
+}
+.ctx-item.danger:focus-visible > .ctx-icon { color: var(--on-red); }
 
 .ctx-item:disabled {
   opacity: 0.45;
@@ -5754,15 +6442,15 @@ body.overlay-scrollbars:not(.native-scrollbars) ::-webkit-scrollbar-thumb:hover 
   background: transparent;
   color: var(--text);
 }
-.ctx-item:disabled:hover .ctx-icon { color: var(--blue); }
+.ctx-item:disabled:hover > .ctx-icon { color: var(--blue); }
 
 .ctx-item.danger { color: var(--red); }
-.ctx-item.danger .ctx-icon { color: var(--red); }
+.ctx-item.danger > .ctx-icon { color: var(--red); }
 .ctx-item.danger:hover {
   background: var(--red);
   color: var(--on-red);
 }
-.ctx-item.danger:hover .ctx-icon { color: var(--on-red); }
+.ctx-item.danger:hover > .ctx-icon { color: var(--on-red); }
 
 /* Submenú del menú contextual (p. ej. «Conectar con otro usuario») */
 .ctx-has-submenu {
@@ -5770,8 +6458,15 @@ body.overlay-scrollbars:not(.native-scrollbars) ::-webkit-scrollbar-thumb:hover 
 }
 .ctx-submenu-arrow {
   margin-left: auto;
-  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
   opacity: 0.7;
+}
+.ctx-submenu-arrow .ctx-icon-svg {
+  width: 11px;
+  height: 11px;
+  vertical-align: 0;
+  stroke-width: 1.8;
 }
 .ctx-submenu {
   position: absolute;
@@ -5788,10 +6483,24 @@ body.overlay-scrollbars:not(.native-scrollbars) ::-webkit-scrollbar-thumb:hover 
   overflow-y: auto;
   display: none;
   z-index: var(--z-submenu);
+  /* Color propio: si no, heredaría el del padre resaltado. */
+  color: var(--text);
 }
-.ctx-has-submenu:hover > .ctx-submenu {
+/* Se despliega con el puntero encima, con el foco dentro (teclado) y cuando
+   el código lo declara abierto (aria-expanded, que el teclado mantiene: en
+   WebKit :focus-within no se aplica si la ventana no tiene el foco del SO). */
+.ctx-has-submenu:hover > .ctx-submenu,
+.ctx-has-submenu:focus-within:not(.ctx-sub-collapsed) > .ctx-submenu,
+.ctx-has-submenu[aria-expanded="true"] > .ctx-submenu {
   display: block;
 }
+/* El padre sigue resaltado mientras su submenú está abierto, también cuando
+   el puntero ya está dentro del submenú. */
+.ctx-item.ctx-has-submenu[aria-expanded="true"] {
+  background: var(--blue);
+  color: var(--on-blue);
+}
+.ctx-item.ctx-has-submenu[aria-expanded="true"] > .ctx-icon { color: var(--on-blue); }
 /* Apertura hacia la izquierda cuando no cabe a la derecha */
 .ctx-submenu.open-left {
   left: auto;
@@ -5806,12 +6515,48 @@ body.overlay-scrollbars:not(.native-scrollbars) ::-webkit-scrollbar-thumb:hover 
   bottom: -5px;
 }
 
+/* Con el menú acotado con scroll (`.menu-overflow`) el submenú absoluto
+   quedaba recortado: ahí va fijo a la ventana y lo coloca
+   `placeOverflowSubmenu`. */
+.ctx-submenu.submenu-fixed {
+  position: fixed;
+  right: auto;
+  bottom: auto;
+  margin: 0;
+}
+/* En la capa superior (`popover`): anular los estilos del agente de usuario
+   (inset, borde, colores…) y dejar la visibilidad al `display` de siempre. */
+.ctx-submenu[popover] {
+  inset: auto;
+  overflow-y: auto;
+}
+.ctx-submenu[popover]:not(:popover-open) {
+  display: none;
+}
+.ctx-submenu.submenu-fixed.submenu-measuring {
+  display: block;
+  visibility: hidden;
+}
+
+/* Resaltado del ítem al que el teclado ha llevado el foco (y del padre cuyo
+   submenú recorre), con el mismo aspecto que el :hover del puntero. */
+.ctx-item.is-active {
+  background: var(--blue);
+  color: var(--on-blue);
+}
+.ctx-item.is-active > .ctx-icon { color: var(--on-blue); }
+.ctx-item.danger.is-active {
+  background: var(--red);
+  color: var(--on-red);
+}
+.ctx-item.danger.is-active > .ctx-icon { color: var(--on-red); }
+
 .ctx-item.active {
   color: var(--blue);
   font-weight: 600;
 }
-.ctx-item.active .ctx-icon { color: var(--blue); }
-.ctx-item.active:hover .ctx-icon { color: var(--on-blue); }
+.ctx-item.active > .ctx-icon { color: var(--blue); }
+.ctx-item.active:hover > .ctx-icon { color: var(--on-blue); }
 
 .ctx-icon {
   width: 16px;
@@ -5907,7 +6652,7 @@ body.overlay-scrollbars:not(.native-scrollbars) ::-webkit-scrollbar-thumb:hover 
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: transform 0.1s, border-color 0.1s;
+  transition: transform var(--motion-fast) var(--motion-ease), border-color var(--motion-fast) var(--motion-ease);
 }
 
 .ctx-swatch:hover {
@@ -5936,16 +6681,80 @@ body.overlay-scrollbars:not(.native-scrollbars) ::-webkit-scrollbar-thumb:hover 
 }
 
 #modal-prefs {
+  position: relative;
   background: var(--surface-panel);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
-  width: 720px;
-  max-width: 95vw;
-  height: 560px;
-  max-height: 85vh;
+  /* Tamaño de fábrica; el usuario lo cambia desde bordes y esquinas
+     (`modules/dialogs/frame.js`) y se recuerda en este equipo. */
+  width: 920px;
+  /* Topes en unidades de la ventana divididas por el zoom de la interfaz: en
+     un diálogo escalado, `vh`/`vw` también se escalan y al 140 % Preferencias
+     salía más alta que la ventana. */
+  max-width: calc(94vw / var(--ui-zoom, 1));
+  height: 660px;
+  max-height: calc(88vh / var(--ui-zoom, 1));
   display: flex;
   flex-direction: column;
   box-shadow: var(--shadow-3);
+}
+
+/* Pie con aire: sin padding, «Guardar» quedaba pegado a la esquina
+   redondeada (y debajo del asa de redimensionar). */
+#modal-prefs > .modal-actions {
+  padding: 10px 18px 12px;
+}
+
+body.density-compact #modal-prefs > .modal-actions { padding: 8px 14px 10px; }
+body.density-spacious #modal-prefs > .modal-actions { padding: 12px 22px 14px; }
+
+/* La barra de secciones pinta fondo hasta la esquina inferior izquierda. */
+#modal-prefs .prefs-nav {
+  border-bottom-left-radius: calc(var(--radius-lg) - 1px);
+}
+
+/* Diálogo estrecho (redimensionado o ventana pequeña): la barra de secciones
+   se queda en iconos y el nombre de cada sección sale en su tooltip. */
+#modal-prefs.is-narrow .prefs-nav {
+  width: 52px;
+  padding: 10px 4px;
+}
+
+#modal-prefs.is-narrow .prefs-nav-item {
+  justify-content: center;
+  padding: 9px 0;
+}
+
+#modal-prefs.is-narrow .prefs-nav-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+#modal-prefs.is-narrow .prefs-content {
+  padding: 14px 16px 16px;
+}
+
+#modal-prefs.is-narrow .settings-row-inline label {
+  white-space: normal;
+}
+
+#modal-prefs.is-narrow .settings-row-inline > .custom-select {
+  width: auto;
+  max-width: 100%;
+  margin-left: auto;
+}
+
+#modal-prefs.is-narrow .shortcut-row {
+  grid-template-columns: 1fr max-content;
+}
+
+#modal-prefs.is-narrow .shortcut-row-actions {
+  grid-column: 1 / -1;
+  justify-content: flex-end;
 }
 
 .prefs-layout {
@@ -5977,11 +6786,11 @@ body.overlay-scrollbars:not(.native-scrollbars) ::-webkit-scrollbar-thumb:hover 
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   font-weight: 500;
   text-align: left;
   cursor: pointer;
-  transition: background 0.12s, color 0.12s;
+  transition: background var(--motion-fast) var(--motion-ease), color var(--motion-fast) var(--motion-ease);
 }
 
 .prefs-nav-item::before {
@@ -5993,7 +6802,7 @@ body.overlay-scrollbars:not(.native-scrollbars) ::-webkit-scrollbar-thumb:hover 
   width: 3px;
   border-radius: 2px;
   background: transparent;
-  transition: background 0.12s;
+  transition: background var(--motion-fast) var(--motion-ease);
 }
 
 .prefs-nav-item:hover {
@@ -6011,11 +6820,14 @@ body.overlay-scrollbars:not(.native-scrollbars) ::-webkit-scrollbar-thumb:hover 
 }
 
 .prefs-nav-icon {
-  width: 18px;
+  width: 22px;
+  flex-shrink: 0;
+  white-space: nowrap;
+  letter-spacing: -0.5px;
   text-align: center;
   color: var(--subtext0);
   font-size: 14px;
-  transition: color 0.12s;
+  transition: color var(--motion-fast) var(--motion-ease);
 }
 
 .prefs-nav-item:hover .prefs-nav-icon { color: var(--text); }
@@ -6245,9 +7057,10 @@ body.overlay-scrollbars:not(.native-scrollbars) ::-webkit-scrollbar-thumb:hover 
 
 .settings-row-inline {
   display: flex;
+  flex-wrap: wrap; /* si etiqueta y control no caben, el control baja de línea */
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 8px 16px;
   margin-bottom: 12px;
 }
 
@@ -6366,7 +7179,7 @@ body.overlay-scrollbars:not(.native-scrollbars) ::-webkit-scrollbar-thumb:hover 
   width: 8px; height: 8px;
   border-radius: 50%;
   background: var(--overlay0);
-  transition: background .2s, box-shadow .2s;
+  transition: background var(--motion-normal) var(--motion-ease), box-shadow var(--motion-normal) var(--motion-ease);
 }
 .sync-dot.idle    { background: var(--overlay0); }
 .sync-dot.busy    { background: var(--yellow); box-shadow: 0 0 8px var(--yellow); animation: sync-pulse 1s infinite; }
@@ -6394,7 +7207,7 @@ body.overlay-scrollbars:not(.native-scrollbars) ::-webkit-scrollbar-thumb:hover 
   height: 100%;
   border-radius: var(--radius-xs);
   background: var(--red);
-  transition: width .2s, background .2s;
+  transition: width var(--motion-normal) var(--motion-ease), background var(--motion-normal) var(--motion-ease);
 }
 .sync-pass-meter-bar[data-score="2"] { background: var(--yellow); }
 .sync-pass-meter-bar[data-score="3"],
@@ -6424,12 +7237,13 @@ body.overlay-scrollbars:not(.native-scrollbars) ::-webkit-scrollbar-thumb:hover 
 }
 .sync-journal-empty { color: var(--overlay1, var(--subtext0)); font-style: italic; }
 
-/* Indicador discreto de la sincronización de arranque (esquina inferior) */
+/* Indicador discreto de la sincronización de arranque: último de la pila de
+   avisos (`#toast-container`), para que un aviso temprano no se le ponga
+   encima. */
 .sync-boot-indicator {
-  position: fixed;
-  right: 14px;
-  bottom: 14px;
-  z-index: var(--z-boot-indicator);
+  order: 1;
+  flex: 0 0 auto;
+  align-self: flex-end;
   display: flex;
   align-items: center;
   gap: 7px;
@@ -6502,10 +7316,16 @@ body.overlay-scrollbars:not(.native-scrollbars) ::-webkit-scrollbar-thumb:hover 
   margin: 0;
 }
 
+/* Ayuda bajo un control: texto neutro. El amarillo queda para lo que pide
+   atención (`.warn`) y el rojo para un riesgo o un error (`.warning`). */
 .form-hint {
   font-size: 12px;
-  color: var(--yellow);
+  color: var(--subtext0);
   margin: 4px 0 0;
+}
+
+.form-hint.warn {
+  color: var(--yellow);
 }
 
 .form-hint.warning {
@@ -6579,6 +7399,21 @@ body.overlay-scrollbars:not(.native-scrollbars) ::-webkit-scrollbar-thumb:hover 
   color: var(--red);
 }
 
+/* Opciones del TOTP de KeePass: se despliegan bajo su casilla, sangradas con
+   un filete para que se lean como parte de ella. Sin fondo propio: los avisos
+   conservan el contraste del resto del formulario. */
+.totp-keepass-options {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 8px;
+  padding-left: 12px;
+  border-left: 2px solid var(--border-strong);
+}
+.totp-keepass-options[hidden] {
+  display: none;
+}
+
 .form-advanced {
   margin-top: 12px;
   padding: 8px 10px;
@@ -6604,7 +7439,7 @@ body.overlay-scrollbars:not(.native-scrollbars) ::-webkit-scrollbar-thumb:hover 
   display: inline-block;
   width: 1em;
   margin-right: 4px;
-  transition: transform 0.15s;
+  transition: transform var(--motion-fast) var(--motion-ease);
 }
 
 .form-advanced[open] > summary::before {
@@ -6623,15 +7458,16 @@ body.overlay-scrollbars:not(.native-scrollbars) ::-webkit-scrollbar-thumb:hover 
   align-items: center;
   justify-content: center;
   z-index: var(--z-modal-keepass);
+  backdrop-filter: blur(4px);
 }
 
 #modal-keepass {
-  background: var(--base);
+  background: var(--surface-panel);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-3);
   width: 440px;
-  max-width: calc(100vw - 40px);
+  max-width: calc((100vw - 40px) / var(--ui-zoom, 1));
   display: flex;
   flex-direction: column;
 }
@@ -6641,6 +7477,13 @@ body.overlay-scrollbars:not(.native-scrollbars) ::-webkit-scrollbar-thumb:hover 
   color: var(--overlay0);
   margin-top: 3px;
   line-height: 1.4;
+}
+
+/* Una ayuda suelta tras una fila en línea (etiqueta + control) quedaba pegada
+   a la etiqueta de la fila siguiente: el mismo aire que entre dos filas. */
+.settings-hint + .settings-row,
+.settings-hint + .settings-row-inline {
+  margin-top: 14px;
 }
 
 /* ─── Selector de tema ───────────────────────────────────────── */
@@ -6763,30 +7606,41 @@ body.overlay-scrollbars:not(.native-scrollbars) ::-webkit-scrollbar-thumb:hover 
   box-shadow: 0 0 0 1px var(--blue);
 }
 
+/* Marca del tema elegido: círculo (::after) y encima el trazo de `#ci-check`
+   como máscara (::before), centrado igual con cualquier fuente del sistema. */
 .theme-option.selected::after {
-  content: "✓";
+  content: "";
   position: absolute;
   top: 6px;
   right: 6px;
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--base);
   background: var(--blue);
-  font-size: 11px;
-  font-weight: 800;
   box-shadow: var(--shadow-1);
+}
+.theme-option.selected::before {
+  content: "";
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 18px;
+  height: 18px;
+  z-index: 1;
+  background: var(--base);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.6 8.4l2.9 2.9 5.9-6.6' fill='none' stroke='%23000' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 12px 12px no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.6 8.4l2.9 2.9 5.9-6.6' fill='none' stroke='%23000' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 12px 12px no-repeat;
 }
 
 .theme-option.is-filtered-out {
   display: none;
 }
 
-.theme-option input[type="radio"] {
-  display: none;
+/* El radio sigue siendo enfocable (clase `visually-hidden`); el anillo de foco
+   lo lleva la tarjeta, que es lo que se ve. */
+.theme-option:has(> input[type="radio"]:focus-visible) {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: var(--focus-ring-offset);
 }
 
 .theme-option .theme-label {
@@ -7163,7 +8017,7 @@ body.overlay-scrollbars:not(.native-scrollbars) ::-webkit-scrollbar-thumb:hover 
   color: var(--text);
   font-size: 12px;
   background: var(--surface-panel);
-  transition: border-color .12s ease, background .12s ease;
+  transition: border-color var(--motion-fast) var(--motion-ease), background var(--motion-fast) var(--motion-ease);
 }
 
 .about-link:hover {
@@ -7277,8 +8131,9 @@ body.overlay-scrollbars:not(.native-scrollbars) ::-webkit-scrollbar-thumb:hover 
   display: none;
 }
 
-/* Sin tamaño CSS propio, el canvas mide su resolución en píxeles CSS; el tope
-   del panel lo reduce a 1:1 en píxeles físicos (`devicePixelRatio`). */
+/* El tamaño CSS lo pone `canvas-view.js` (`fitCanvasCss`): el escritorio
+   entero dentro del panel, centrado y sin deformar, 1:1 en píxeles físicos
+   cuando coincide con el panel. Los topes cubren el instante antes de medir. */
 .rdp-canvas {
   display: block;
   max-width: 100%;
@@ -7607,7 +8462,7 @@ html.theme-monokai {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
   overflow: hidden;
-  font-size: 13px;
+  font-size: var(--font-size-md);
 }
 
 .sftp-panel.hidden { display: none; }
@@ -7668,12 +8523,51 @@ body.sftp-panel-resizing {
   user-select: none;
 }
 
+/* Cada lado es un contenedor de consulta (`@container`): la barra de
+   herramientas y las columnas se adaptan al ancho del propio lado, no al de
+   la ventana (con el panel partido en dos, cada lado mide la mitad). */
 .sftp-side {
   display: flex;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
   border-right: 1px solid var(--border-subtle);
+  container-type: inline-size;
+}
+
+/* Plantilla de columnas compartida por la cabecera y las filas (también las
+   de la lista virtualizada, que la heredan de `.sftp-files`): icono, nombre,
+   permisos, tamaño, fecha y acciones. Antes la cabecera tenía una columna
+   menos y sus títulos no caían sobre sus datos. */
+.sftp-columns,
+.sftp-files {
+  --sftp-columns: 48px minmax(0, 1fr) 84px 80px 130px auto;
+}
+
+/* Lado estrecho: la ruta baja a su propia línea en vez de encogerse a 0 px
+   detrás de los botones, y las columnas de permisos y fecha se retiran. */
+@container (max-width: 560px) {
+  .sftp-toolbar {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+  .sftp-path-wrap {
+    flex: 1 1 100%;
+    order: 1;
+  }
+}
+
+@container (max-width: 480px) {
+  .sftp-columns,
+  .sftp-files {
+    --sftp-columns: 40px minmax(0, 1fr) 70px auto;
+  }
+  .sftp-perms,
+  .sftp-col-perms,
+  .sftp-modified,
+  .sftp-sort-modified {
+    display: none;
+  }
 }
 
 .sftp-side-local { border-right: none; }
@@ -7703,6 +8597,51 @@ body.sftp-panel-resizing {
   text-transform: uppercase;
 }
 
+/* Espacio libre del disco del servidor, a la derecha de la cabecera del lado
+   remoto: «12,3 GB libres de 50 GB» y una barra fina de ocupación. Discreto a
+   propósito (es un dato de fondo) y sin alto propio: la cabecera mide lo mismo
+   con él que sin él. En un lado estrecho el texto se corta con puntos antes de
+   empujar al título; la barra se queda. */
+.sftp-space {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--subtext0);
+  text-transform: none;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.sftp-space-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sftp-space-bar {
+  flex: 0 0 auto;
+  width: 48px;
+  height: 4px;
+  border-radius: var(--radius-pill);
+  background: var(--surface1);
+  overflow: hidden;
+}
+
+.sftp-space-fill {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: inherit;
+  background: var(--blue);
+  transition: width var(--motion-slow) var(--motion-ease);
+}
+
+.sftp-space[data-level="warn"] .sftp-space-fill { background: var(--yellow); }
+.sftp-space[data-level="full"] .sftp-space-fill { background: var(--red); }
+
 .sftp-divider {
   display: flex;
   flex-direction: column;
@@ -7726,7 +8665,7 @@ body.sftp-panel-resizing {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: background 120ms;
+  transition: background var(--motion-fast) var(--motion-ease);
 }
 
 .sftp-xfer-btn:hover {
@@ -7763,7 +8702,7 @@ body.sftp-panel-resizing {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: background 120ms;
+  transition: background var(--motion-fast) var(--motion-ease);
 }
 
 .sftp-nav-btn:hover {
@@ -7829,7 +8768,7 @@ body.sftp-panel-resizing {
    se alternan (Ctrl+L o clic en el fondo de la barra). */
 .sftp-path-wrap {
   flex: 1;
-  min-width: 0;
+  min-width: 96px;
   display: flex;
 }
 
@@ -7993,7 +8932,7 @@ body:not(.native-scrollbars) .sftp-breadcrumb::-webkit-scrollbar {
   border-radius: var(--radius-xs);
   cursor: pointer;
   white-space: nowrap;
-  transition: background 120ms, color 120ms;
+  transition: background var(--motion-fast) var(--motion-ease), color var(--motion-fast) var(--motion-ease);
 }
 
 .sftp-search-recursive:hover {
@@ -8021,6 +8960,8 @@ body:not(.native-scrollbars) .sftp-breadcrumb::-webkit-scrollbar {
    la barra de scroll siga midiendo el directorio entero. */
 .sftp-rows {
   display: flow-root;
+  /* El mínimo de altura que fija el listado virtualizado incluye los rellenos. */
+  box-sizing: border-box;
 }
 
 .sftp-row.sftp-search-result {
@@ -8032,14 +8973,35 @@ body:not(.native-scrollbars) .sftp-breadcrumb::-webkit-scrollbar {
   background: color-mix(in srgb, var(--blue) 22%, transparent);
 }
 
+/* La cabecera lleva el relleno horizontal de la lista (4 px) más el de cada
+   fila (8 px) para que sus títulos queden en vertical con los datos. */
 .sftp-columns {
   display: grid;
-  grid-template-columns: 48px 1fr 90px 150px auto;
+  grid-template-columns: var(--sftp-columns);
   align-items: center;
   gap: 8px;
-  padding: 3px 8px;
+  padding: 3px 12px;
   border-bottom: 1px solid var(--border-subtle);
   background: color-mix(in srgb, var(--crust) 78%, var(--mantle));
+}
+
+/* Título de una columna sin orden (Permisos): mismo aspecto que los botones
+   de ordenar, sin ser pulsable. */
+.sftp-col-title {
+  min-width: 0;
+  padding: 2px 0;
+  color: var(--overlay1);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sftp-col-perms {
+  text-align: right;
 }
 
 .sftp-sort-btn {
@@ -8113,7 +9075,7 @@ body:not(.native-scrollbars) .sftp-breadcrumb::-webkit-scrollbar {
   background: var(--drag-bg-soft);
   outline: var(--drag-outline-width) dashed var(--drag-color);
   outline-offset: calc(-1 * var(--drag-outline-width));
-  z-index: 50;
+  z-index: var(--z-terminal-overlay);
 }
 
 .sftp-empty {
@@ -8127,7 +9089,7 @@ body:not(.native-scrollbars) .sftp-breadcrumb::-webkit-scrollbar {
 
 .sftp-row {
   display: grid;
-  grid-template-columns: 48px 1fr 84px 80px 130px auto;
+  grid-template-columns: var(--sftp-columns);
   align-items: center;
   gap: 8px;
   padding: 4px 8px;
@@ -8145,14 +9107,6 @@ body:not(.native-scrollbars) .sftp-breadcrumb::-webkit-scrollbar {
   letter-spacing: 0.04em;
   text-align: right;
   white-space: nowrap;
-}
-
-@media (max-width: 760px) {
-  .sftp-row {
-    grid-template-columns: 40px 1fr 70px auto;
-  }
-  .sftp-perms,
-  .sftp-modified { display: none; }
 }
 
 .sftp-row:hover {
@@ -8189,7 +9143,10 @@ body:not(.native-scrollbars) .sftp-breadcrumb::-webkit-scrollbar {
   display: flex;
   gap: 2px;
   opacity: 0;
-  transition: opacity 120ms;
+  transition: opacity var(--motion-fast) var(--motion-ease);
+  /* Por debajo de la mini barra de progreso de la fila, que es posicionada. */
+  position: relative;
+  z-index: 0;
 }
 
 .sftp-row:hover .sftp-row-actions {
@@ -8351,13 +9308,16 @@ body.sftp-log-resizing {
   flex: 1;
 }
 
+/* Nombre · progreso en texto · acciones en la primera fila; la barra y el
+   detalle debajo, a todo el ancho. Las acciones ocupan su propia columna:
+   antes flotaban en la esquina y tapaban la barra y el texto. */
 .sftp-transfer {
   position: relative;
-  padding: 6px 24px 6px 10px;
+  padding: 6px 8px 6px 10px;
   border-bottom: 1px solid var(--border-subtle);
   display: grid;
-  grid-template-columns: 1fr 120px;
-  gap: 3px 10px;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 3px 8px;
   align-items: center;
 }
 
@@ -8393,10 +9353,12 @@ body.sftp-log-resizing {
 }
 
 .sftp-transfer-text {
+  grid-column: 2;
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--subtext0);
   text-align: right;
+  white-space: nowrap;
 }
 
 .sftp-transfer-bar {
@@ -8410,7 +9372,7 @@ body.sftp-log-resizing {
 .sftp-transfer-fill {
   height: 100%;
   background: var(--blue);
-  transition: width 150ms ease-out;
+  transition: width var(--motion-fast) var(--motion-ease-out);
 }
 
 .sftp-transfer.queued .sftp-transfer-fill {
@@ -8429,9 +9391,8 @@ body.sftp-log-resizing {
 }
 
 .sftp-transfer-actions {
-  position: absolute;
-  top: 4px;
-  right: 4px;
+  grid-column: 3;
+  grid-row: 1;
   display: flex;
   gap: 2px;
 }
@@ -8585,7 +9546,7 @@ body.sftp-log-resizing {
   justify-content: center;
   margin-right: 2px;
   flex-shrink: 0;
-  transition: all 120ms;
+  transition: color var(--motion-fast) var(--motion-ease), background var(--motion-fast) var(--motion-ease);
 }
 
 .tab-sftp:hover,
@@ -8630,15 +9591,15 @@ body.sftp-log-resizing {
 }
 
 #global-tunnels-modal {
-  width: min(980px, calc(100vw - 48px));
-  max-height: min(820px, calc(100vh - 48px));
+  width: min(980px, calc((100vw - 48px) / var(--ui-zoom, 1)));
+  max-height: min(820px, calc((100vh - 48px) / var(--ui-zoom, 1)));
   display: flex;
   flex-direction: column;
   overflow: hidden;
   background: var(--surface-panel);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.52);
+  box-shadow: var(--shadow-3);
 }
 
 .global-tunnels-body {
@@ -8827,7 +9788,7 @@ body.sftp-log-resizing {
   border-radius: var(--radius-xs);
   padding: 4px 8px;
   cursor: pointer;
-  transition: background 120ms, border-color 120ms;
+  transition: background var(--motion-fast) var(--motion-ease), border-color var(--motion-fast) var(--motion-ease);
 }
 
 .cred-var code {
@@ -8908,7 +9869,8 @@ body.sftp-log-resizing {
 }
 
 .tunnel-close,
-.tunnel-stop {
+.tunnel-stop,
+.tunnel-action {
   width: 24px;
   height: 24px;
   border-radius: var(--radius-xs);
@@ -8922,6 +9884,21 @@ body.sftp-log-resizing {
 .tunnel-stop:hover {
   color: var(--red);
   background: color-mix(in srgb, var(--red) 14%, transparent);
+}
+
+.tunnel-action:hover {
+  color: var(--blue);
+  background: color-mix(in srgb, var(--blue) 14%, transparent);
+}
+
+.tunnel-row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.tunnel-conns.is-active {
+  color: var(--green);
 }
 
 .tunnel-form {
@@ -8970,7 +9947,7 @@ body.sftp-log-resizing {
 
 .tunnel-row {
   display: grid;
-  grid-template-columns: 58px minmax(0, 1fr) auto 28px;
+  grid-template-columns: 58px minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 8px;
   padding: 6px 8px;
@@ -9028,7 +10005,7 @@ body.sftp-log-resizing {
     grid-template-columns: 1fr 1fr 1fr;
   }
   .tunnel-row {
-    grid-template-columns: 58px minmax(0, 1fr) 28px;
+    grid-template-columns: 58px minmax(0, 1fr) auto;
   }
   .tunnel-traffic {
     grid-column: 2 / 3;
@@ -9067,6 +10044,51 @@ body.reduce-motion *::after {
   scroll-behavior: auto !important;
 }
 
+/* ─── Estado pulsado ────────────────────────────────────────────
+   Respuesta común al pulsar en los controles de acción: un pelo más
+   oscuro y 1 px hacia abajo. En reposo y en hover no cambia nada; va
+   después de todos los componentes para pisar sus `:hover` (el botón
+   primario aclara al pasar y oscurece al pulsar). Un control desactivado
+   no responde. Una pestaña no se hunde cuando lo que se pulsa es uno de
+   sus botones internos (cerrar, SFTP, túneles). El desplazamiento es
+   movimiento: con «Reducir movimiento» (preferencia o sistema) se queda
+   solo el cambio de tono. */
+.btn-primary:active:not(:disabled),
+.btn-secondary:active:not(:disabled),
+.btn-icon:active:not(:disabled),
+.btn-icon-sm:active:not(:disabled),
+.rail-btn:active:not(:disabled),
+.ctx-item:active:not(:disabled),
+.dashboard-tool:active:not(:disabled),
+.tab:active:not(:has(:active)) {
+  filter: brightness(0.94);
+  transform: translateY(1px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn-primary:active:not(:disabled),
+  .btn-secondary:active:not(:disabled),
+  .btn-icon:active:not(:disabled),
+  .btn-icon-sm:active:not(:disabled),
+  .rail-btn:active:not(:disabled),
+  .ctx-item:active:not(:disabled),
+  .dashboard-tool:active:not(:disabled),
+  .tab:active:not(:has(:active)) {
+    transform: none;
+  }
+}
+
+body.reduce-motion .btn-primary:active:not(:disabled),
+body.reduce-motion .btn-secondary:active:not(:disabled),
+body.reduce-motion .btn-icon:active:not(:disabled),
+body.reduce-motion .btn-icon-sm:active:not(:disabled),
+body.reduce-motion .rail-btn:active:not(:disabled),
+body.reduce-motion .ctx-item:active:not(:disabled),
+body.reduce-motion .dashboard-tool:active:not(:disabled),
+body.reduce-motion .tab:active:not(:has(:active)) {
+  transform: none;
+}
+
 /* ─── Foco visible reforzado (toggle explícito) ─────────────────
    Engrosa el anillo de foco (su color ya es sólido y comprobado por
    tema). Reutiliza los tokens `--focus-ring-*` que ya consume
@@ -9082,6 +10104,12 @@ html[data-contrast="max"] {
 }
 
 html[data-contrast="max"] {
+  --focus-ring-width: 3px;
+}
+
+/* Un tema que se declara de alto contraste por su id (`data-tone-hc`, lo pone
+   applyTheme()) lleva el anillo grueso del nivel máximo sin tocar el nivel. */
+html[data-tone-hc] {
   --focus-ring-width: 3px;
 }
 
@@ -9314,6 +10342,14 @@ body.view-fade #terminals-container.view-fade-run {
 }
 
 .tab.is-pinned .tab-close { display: none; }
+
+/* Preferencia «Botones de la pestaña» (modules/tab-buttons.js): «always» es
+   lo de arriba; «active», solo en la pestaña activa; «never», ninguno (sus
+   funciones siguen en el menú contextual de la pestaña y en los atajos). */
+body[data-tab-buttons="active"] .tab:not(.active) :is(.tab-sftp, .tab-tunnels, .tab-notes),
+body[data-tab-buttons="never"] .tab :is(.tab-sftp, .tab-tunnels, .tab-notes) {
+  display: none;
+}
 
 /* ─── Estado ocupado global — slice estético #6 ────────────────
    Aplica cursor: progress a cualquier elemento (y sus hijos) que
@@ -9682,7 +10718,7 @@ body.zen-mode #zen-exit-btn {
   color: var(--subtext0);
   cursor: pointer;
   opacity: 0;
-  transition: opacity var(--motion-fast) var(--motion-ease), background 120ms, color 120ms;
+  transition: opacity var(--motion-fast) var(--motion-ease), background var(--motion-fast) var(--motion-ease), color var(--motion-fast) var(--motion-ease);
 }
 .dashboard-pinned-tile:hover .dashboard-pin-sftp,
 .dashboard-pin-sftp:focus-visible { opacity: 1; }
@@ -9820,6 +10856,7 @@ body.zen-mode #zen-exit-btn {
   left: 0;
   right: 0;
   bottom: 0;
+  z-index: var(--z-terminal-resizer);
   height: 2px;
   background: var(--surface0);
   opacity: 0;
@@ -9899,29 +10936,28 @@ body.zen-mode #zen-exit-btn {
   color: var(--text);
 }
 
-/* ─── Sistema de tooltips consistente — slice estético #18 ──────
-   Tooltip CSS-only basado en [data-tooltip]. Aparece tras 400 ms
-   de hover; convive con `title=""` (lo deja para a11y). Para evitar
-   el doble tooltip del navegador, los elementos que usan data-tooltip
-   pueden no tener title, o tener uno equivalente (a11y). */
+/* ─── Tooltips propios ────────────────────────────────────────
+   Una única burbuja en <body> (`modules/tooltips/`) que enseña el `title`,
+   el `data-tooltip` o el `aria-label` de los botones de solo icono. Sustituye
+   al tooltip nativo, que el webview de Linux no pinta, y a los de CSS
+   (`::after`), que recortaban los contenedores con `overflow`. Vive fuera de
+   la escala del chrome (`--ui-zoom`): se coloca en píxeles de la ventana. */
 :root {
-  --tooltip-bg: color-mix(in srgb, var(--crust) 92%, transparent);
+  --tooltip-bg: color-mix(in srgb, var(--crust) 94%, transparent);
   --tooltip-fg: var(--text);
   --tooltip-border: var(--surface1);
-  --tooltip-delay: 400ms;
 }
 
 [data-tooltip] {
   position: relative;
 }
 
-[data-tooltip]::after {
-  content: attr(data-tooltip);
-  position: absolute;
+.app-tooltip {
+  position: fixed;
+  left: 0;
+  top: 0;
   z-index: var(--z-tooltip);
-  bottom: calc(100% + 6px);
-  left: 50%;
-  transform: translate(-50%, 4px);
+  max-width: min(360px, calc(100vw - 12px));
   padding: 4px 8px;
   border: 1px solid var(--tooltip-border);
   border-radius: var(--radius-sm);
@@ -9930,54 +10966,33 @@ body.zen-mode #zen-exit-btn {
   font-family: var(--font-ui);
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-medium);
-  white-space: nowrap;
+  line-height: 1.4;
+  white-space: normal;
+  overflow-wrap: anywhere;
   pointer-events: none;
-  opacity: 0;
-  transition: opacity var(--motion-fast) var(--motion-ease),
-              transform var(--motion-fast) var(--motion-ease);
-  transition-delay: 0ms;
   box-shadow: var(--shadow-1);
   backdrop-filter: blur(4px);
+  animation: tooltip-in var(--motion-fast) var(--motion-ease-out);
 }
 
-[data-tooltip]:hover::after,
-[data-tooltip]:focus-visible::after {
-  opacity: 1;
-  transform: translate(-50%, 0);
-  transition-delay: var(--tooltip-delay);
+.app-tooltip[hidden] {
+  display: none;
 }
 
-/* Variante para tooltips que enumeran cosas (la lista de túneles activos): el
-   tooltip normal es de una línea y cortaría la enumeración en seco. */
-[data-tooltip].tooltip-multiline::after {
+/* Listas (los túneles activos): un elemento por línea. */
+.app-tooltip.is-multiline {
   white-space: pre-line;
   text-align: left;
-  max-width: 320px;
+  max-width: min(320px, calc(100vw - 12px));
 }
 
-/* Variante de posición: tooltips que deben aparecer abajo (cuando el
-   elemento está en la parte superior de la ventana, p. ej. la topbar). */
-[data-tooltip][data-tooltip-pos="bottom"]::after {
-  bottom: auto;
-  top: calc(100% + 6px);
-  transform: translate(-50%, -4px);
+@keyframes tooltip-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 
-[data-tooltip][data-tooltip-pos="bottom"]:hover::after,
-[data-tooltip][data-tooltip-pos="bottom"]:focus-visible::after {
-  transform: translate(-50%, 0);
-}
-
-[data-tooltip][data-tooltip-pos="right"]::after {
-  left: calc(100% + 6px);
-  top: 50%;
-  bottom: auto;
-  transform: translate(-4px, -50%);
-}
-
-[data-tooltip][data-tooltip-pos="right"]:hover::after,
-[data-tooltip][data-tooltip-pos="right"]:focus-visible::after {
-  transform: translate(0, -50%);
+body.reduce-motion .app-tooltip {
+  animation: none;
 }
 
 /* ─── Modal de conexión rediseñado — slice estético #19 ────────
@@ -10106,36 +11121,11 @@ body.color-blind-safe .sync-dot.busy {
 }
 
 /* ─── Modo daltónico ampliado — toasts ─────────────────────────
-   Los toasts se distinguen solo por el color de fondo (verde éxito /
-   rojo error / azul info / amarillo aviso), justo la confusión más
-   habitual (deuteranopia/protanopia). Con el modo daltónico se antepone
-   un icono SVG monocromo distinto por severidad: se pinta con `mask` +
-   `background-color: currentColor`, que en el toast es `--crust` (su color
-   de texto), de modo que el significado deja de depender solo del color.
-   No usa emoji: son trazos SVG (solo cuenta su canal alfa para la máscara). */
-body.color-blind-safe .toast.success {
-  --cb-toast-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M4 12.5l5 5 11-12' fill='none' stroke='%23000' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-}
-body.color-blind-safe .toast.error {
-  --cb-toast-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M6 6l12 12M18 6L6 18' fill='none' stroke='%23000' stroke-width='2.6' stroke-linecap='round'/%3E%3C/svg%3E");
-}
-body.color-blind-safe .toast.info {
-  --cb-toast-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='9' fill='none' stroke='%23000' stroke-width='2'/%3E%3Cpath d='M12 11v5.5' fill='none' stroke='%23000' stroke-width='2.4' stroke-linecap='round'/%3E%3Ccircle cx='12' cy='7.6' r='1.5' fill='%23000'/%3E%3C/svg%3E");
-}
-body.color-blind-safe .toast.warning {
-  --cb-toast-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 3.5l9.5 16.5H2.5z' fill='none' stroke='%23000' stroke-width='2' stroke-linejoin='round'/%3E%3Cpath d='M12 9.5v5' fill='none' stroke='%23000' stroke-width='2.2' stroke-linecap='round'/%3E%3Ccircle cx='12' cy='17.4' r='1.4' fill='%23000'/%3E%3C/svg%3E");
-}
-body.color-blind-safe .toast.success::before,
-body.color-blind-safe .toast.error::before,
-body.color-blind-safe .toast.info::before,
-body.color-blind-safe .toast.warning::before {
-  content: "";
-  flex: 0 0 auto;
-  width: 18px;
-  height: 18px;
-  background-color: currentColor;
-  -webkit-mask: var(--cb-toast-icon) center / contain no-repeat;
-  mask: var(--cb-toast-icon) center / contain no-repeat;
+   El icono de severidad de los avisos se ve siempre (ver «Toasts»); con el
+   modo daltónico, además, el borde de acento se ensancha para que la
+   severidad no dependa de distinguir el tono del borde fino. */
+body.color-blind-safe .toast {
+  border-inline-start-width: 5px;
 }
 
 /* ─── Modo daltónico ampliado — transferencias SFTP ────────────
@@ -10186,13 +11176,13 @@ body.color-blind-safe .modal-summary-badge.warn::before {
 
 #note-editor-modal {
   width: 1000px;
-  max-width: calc(100vw - 40px);
-  height: 80vh;
-  max-height: 88vh;
+  max-width: calc((100vw - 40px) / var(--ui-zoom, 1));
+  height: calc(80vh / var(--ui-zoom, 1));
+  max-height: calc(88vh / var(--ui-zoom, 1));
   background: var(--surface-panel);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.52);
+  box-shadow: var(--shadow-3);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -10295,6 +11285,38 @@ body.color-blind-safe .modal-summary-badge.warn::before {
 }
 .note-editor-spacer { flex: 1; }
 
+/* ── Nota en lectura ─────────────────────────────────────────────
+   El mismo modal sin editor: la vista previa a todo el ancho, el título y
+   las etiquetas arriba, y «Editar» / «Cerrar» abajo. */
+#note-editor-modal .note-view-only { display: none; }
+#note-editor-modal.is-view .note-view-only { display: revert; }
+#note-editor-modal.is-view .note-view-meta.hidden,
+#note-editor-modal.is-view .note-edit-only,
+#note-editor-modal.is-view .note-editor-textarea { display: none; }
+#note-editor-modal.is-view .note-editor-split { grid-template-columns: 1fr; }
+#note-editor-modal.is-view .note-editor-preview { padding: 4px 24px; }
+.note-view-meta {
+  padding: 12px 20px 8px;
+}
+.note-view-title {
+  margin: 0 0 6px;
+  font-size: 1.05em;
+  font-weight: 600;
+  color: var(--text);
+}
+.note-view-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.note-view-tag {
+  font-size: 0.78em;
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--surface1);
+  color: var(--subtext1);
+}
+
 /* ── Pestaña Notas del modal de conexión ─────────────────────── */
 .note-modal-preview {
   background: var(--surface-sunken);
@@ -10356,7 +11378,15 @@ body.color-blind-safe .modal-summary-badge.warn::before {
 .runbook-add { margin-top: 4px; }
 
 /* ── Render Markdown común (preview + runbook) ───────────────── */
-.markdown-body { font-size: 0.9em; line-height: 1.55; color: var(--text); word-break: break-word; }
+.markdown-body {
+  font-size: 0.9em; line-height: 1.55; color: var(--text); word-break: break-word;
+  /* Una nota se lee para copiar de ella: seleccionable pese al
+     `user-select: none` global del body. */
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+}
+.markdown-body input, .markdown-body button { cursor: default; }
 .markdown-body h1, .markdown-body h2, .markdown-body h3,
 .markdown-body h4, .markdown-body h5, .markdown-body h6 {
   margin: 0.9em 0 0.4em;
@@ -10419,19 +11449,19 @@ body.color-blind-safe .modal-summary-badge.warn::before {
 #scripts-modal,
 #script-run-modal,
 #script-pick-modal {
-  width: min(980px, calc(100vw - 48px));
-  max-height: min(820px, calc(100vh - 48px));
+  width: min(980px, calc((100vw - 48px) / var(--ui-zoom, 1)));
+  max-height: min(820px, calc((100vh - 48px) / var(--ui-zoom, 1)));
   display: flex;
   flex-direction: column;
   overflow: hidden;
   background: var(--surface-panel);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.52);
+  box-shadow: var(--shadow-3);
 }
 
-#script-run-modal { width: min(860px, calc(100vw - 48px)); }
-#script-pick-modal { width: min(520px, calc(100vw - 48px)); }
+#script-run-modal { width: min(860px, calc((100vw - 48px) / var(--ui-zoom, 1))); }
+#script-pick-modal { width: min(520px, calc((100vw - 48px) / var(--ui-zoom, 1))); }
 
 .scripts-toolbar {
   display: flex;
@@ -10851,12 +11881,6 @@ body.color-blind-safe .modal-summary-badge.warn::before {
 }
 
 @media (max-width: 760px) {
-  /* Toolbars del panel SFTP: envolver a segunda línea antes que solapar. */
-  .sftp-toolbar {
-    flex-wrap: wrap;
-    row-gap: 4px;
-  }
-
   /* Dimensiones del terminal: informativas; ceden ante la latencia. */
   #status-bar .status-dims,
   #status-bar #status-dims-wrap {
@@ -10884,10 +11908,63 @@ body.color-blind-safe .modal-summary-badge.warn::before {
   }
 }
 
+/* ─── Diálogos movibles y redimensionables ───────────────────────
+   `modules/dialogs/frame.js`: la cabecera arrastra el diálogo y, si es
+   redimensionable, ocho tiradores invisibles en bordes y esquinas cambian su
+   tamaño. Los tiradores sobresalen un poco del borde para no tapar la barra
+   de desplazamiento del contenido. */
+.dialog-framed {
+  position: relative;
+}
+
+.dialog-drag-handle {
+  cursor: move;
+}
+
+.dialog-drag-handle :is(button, a, input, select, textarea, label, [role="tab"], [role="button"]) {
+  cursor: pointer;
+}
+
+.dialog-dragging,
+.dialog-dragging * {
+  user-select: none;
+}
+
+.dialog-resize-handle {
+  position: absolute;
+  z-index: 6;
+  touch-action: none;
+}
+
+.dialog-resize-handle[data-dir="n"]  { top: -4px; left: 12px; right: 12px; height: 8px; cursor: ns-resize; }
+.dialog-resize-handle[data-dir="s"]  { bottom: -4px; left: 12px; right: 12px; height: 8px; cursor: ns-resize; }
+.dialog-resize-handle[data-dir="e"]  { right: -4px; top: 12px; bottom: 12px; width: 8px; cursor: ew-resize; }
+.dialog-resize-handle[data-dir="w"]  { left: -4px; top: 12px; bottom: 12px; width: 8px; cursor: ew-resize; }
+.dialog-resize-handle[data-dir="ne"] { top: -5px; right: -5px; width: 16px; height: 16px; cursor: nesw-resize; }
+.dialog-resize-handle[data-dir="nw"] { top: -5px; left: -5px; width: 16px; height: 16px; cursor: nwse-resize; }
+.dialog-resize-handle[data-dir="se"] { bottom: -5px; right: -5px; width: 16px; height: 16px; cursor: nwse-resize; }
+.dialog-resize-handle[data-dir="sw"] { bottom: -5px; left: -5px; width: 16px; height: 16px; cursor: nesw-resize; }
+
+/* Asa visible en la esquina inferior derecha, la que se busca primero. */
+.dialog-resize-handle[data-dir="se"]::after {
+  content: "";
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  width: 10px;
+  height: 10px;
+  pointer-events: none;
+  background:
+    linear-gradient(135deg, transparent 0 45%, var(--surface2) 45% 55%, transparent 55%),
+    linear-gradient(135deg, transparent 0 62%, var(--surface1) 62% 72%, transparent 72%);
+  opacity: 0.8;
+}
+
 /* ─── Tamaño mínimo del texto de la interfaz (Apariencia) ──────
    Eleva los tokens tipográficos del chrome; el terminal y el zoom de UI
-   van aparte. Los elementos con tamaños fijos se irán sumando al sistema
-   de tokens, como el resto del slice estético. */
+   van aparte. Los consumen la barra lateral (conexiones y carpetas), las
+   pestañas, la barra de estado, el panel de archivos, los menús, la
+   navegación de Preferencias y los avisos, además de lo que ya los usaba. */
 html.uitext-large {
   --font-size-base: 14px;
   --font-size-xs: 12px;
@@ -10909,14 +11986,14 @@ html.uitext-xlarge {
   top: 8px;
   right: 8px;
   bottom: 34px;
-  width: min(440px, 60%);
+  width: var(--blocks-panel-width);
   display: flex;
   flex-direction: column;
   background: var(--surface-popover);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-2);
-  z-index: 6;
+  z-index: var(--z-terminal-panel);
   overflow: hidden;
 }
 
@@ -11074,8 +12151,8 @@ html.uitext-xlarge {
 
 #trash-modal {
   width: 560px;
-  max-width: 95vw;
-  max-height: 80vh;
+  max-width: calc(95vw / var(--ui-zoom, 1));
+  max-height: calc(80vh / var(--ui-zoom, 1));
   display: flex;
   flex-direction: column;
   background: var(--surface-panel);
@@ -11506,9 +12583,9 @@ body.sidebar-mode-rail .sidebar-route-pill {
 
 #jump-picker-modal {
   width: 520px;
-  max-width: calc(100vw - 40px);
-  margin-top: 12vh;
-  max-height: 70vh;
+  max-width: calc((100vw - 40px) / var(--ui-zoom, 1));
+  margin-top: calc(12vh / var(--ui-zoom, 1));
+  max-height: calc(70vh / var(--ui-zoom, 1));
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -11615,6 +12692,38 @@ body.sidebar-mode-rail .sidebar-route-pill {
   vertical-align: 0;
 }
 
+/* Túneles abiertos de la conexión activa: icono + recuento, lista en el
+   tooltip, y pulsarlo abre el panel de túneles de la sesión. */
+#status-bar .status-tunnels {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  height: 18px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--blue) 14%, transparent);
+  color: var(--blue);
+  font: inherit;
+  font-size: 10.5px;
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+}
+
+#status-bar .status-tunnels .ctx-icon-svg {
+  flex-shrink: 0;
+  width: 12px;
+  height: 12px;
+}
+
+#status-bar .status-tunnels:hover { background: color-mix(in srgb, var(--blue) 26%, transparent); }
+
+#status-bar .status-tunnels:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: 1px;
+}
+
 /* Segmento de la barra inferior con la ruta de la sesión activa. */
 #status-bar .status-route {
   display: inline-flex;
@@ -11657,4 +12766,155 @@ body.sidebar-mode-rail .sidebar-route-pill {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* ── Edición en lote de conexiones (#bulk-edit-modal) ──
+   Cada campo lleva su casilla «Cambiar»: los controles nacen desactivados y
+   solo cobran color al marcarla, para que se vea de un vistazo qué se va a
+   tocar. Las reglas son propias (ids/clases bulk-*) para no pisar las de
+   otros modales. */
+#bulk-edit-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: var(--z-modal);
+  backdrop-filter: blur(4px);
+}
+
+#bulk-edit-modal {
+  width: 680px;
+  max-width: calc((100vw - 40px) / var(--ui-zoom, 1));
+  max-height: calc(88vh / var(--ui-zoom, 1));
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-3);
+}
+
+#bulk-edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 20px 18px;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.bulk-scope {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.bulk-hint {
+  color: var(--subtext0);
+}
+
+.bulk-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bulk-field {
+  display: grid;
+  grid-template-columns: minmax(150px, 190px) minmax(0, 1fr);
+  gap: 4px 14px;
+  align-items: start;
+  padding: 8px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+}
+
+.bulk-field.is-on {
+  border-color: var(--blue);
+}
+
+.bulk-toggle {
+  padding-top: 6px;
+  align-items: flex-start;
+}
+
+.bulk-toggle input {
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.bulk-control {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.bulk-field:not(.is-on) .bulk-control {
+  opacity: 0.55;
+}
+
+.bulk-sub {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.bulk-sub label {
+  font-size: 11.5px;
+  color: var(--subtext1);
+}
+
+.bulk-split {
+  display: flex;
+  gap: 8px;
+}
+
+.bulk-split > * {
+  flex: 1;
+}
+
+.bulk-skip {
+  grid-column: 2;
+  font-size: 11.5px;
+  color: var(--subtext0);
+}
+
+.bulk-summary {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--text);
+}
+
+.bulk-error {
+  margin: 0;
+  font-size: 12px;
+  color: var(--red);
+}
+
+.bulk-host-preview {
+  margin: 0;
+  padding: 6px 8px;
+  list-style: none;
+  font-family: var(--terminal-font, monospace);
+  font-size: 11.5px;
+  color: var(--subtext1);
+  max-height: 110px;
+  overflow: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+@media (max-width: 640px) {
+  .bulk-field {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .bulk-skip {
+    grid-column: 1;
+  }
 }

@@ -11,7 +11,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
 use zeroize::Zeroizing;
@@ -25,25 +25,31 @@ use std::borrow::Cow;
 use russh::client::{self, AuthResult, KeyboardInteractiveAuthResponse};
 use russh::keys::ssh_key::Algorithm;
 use russh::keys::{load_secret_key, PrivateKeyWithHashAlg};
-use russh::{cipher, kex, mac, ChannelMsg, MethodKind, Preferred};
+use russh::{cipher, kex, mac, ChannelMsg, ChannelOpenFailure, ChannelWriteHalf, MethodKind, Preferred};
 use russh_sftp::client::SftpSession;
 use serde::{Deserialize, Serialize};
 use tauri::ipc::{Channel, Response};
 use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 
 use crate::auth_prompt;
+use crate::auth_totp;
+use crate::cli_lang::tr;
+use crate::channel_pump::{finish_channel, pump_tunnel};
 use crate::error::AppError;
 use crate::host_keys;
 use crate::ipc::{event_name, EventKind};
 use crate::metrics;
 use crate::mux;
 use crate::profiles::{AuthType, ConnectionProfile, SshTunnelType};
+use crate::session_ops::{
+    self, ForwardStep, KeepaliveOutcome, OpDone, OpLimits, SessionOps, SharedHandle, ShellRequest,
+};
 use crate::tmux::bridge::{BridgeOut, ControlBridge};
-use crate::tunnel_throttle::TunnelTraffic;
+use crate::tunnel_throttle::{TrafficSink, TunnelConnection, TunnelTraffic};
 
 /// Timeout TCP por defecto al abrir la conexión inicial. Sin techo russh
 /// puede colgarse minutos si el destino no responde (puerto filtrado, host
@@ -81,9 +87,9 @@ const SSH_DATA_FLUSH_QUIET: Duration = Duration::from_millis(4);
 /// (preconexión de navegador, escáner de puertos) acumularía tareas y sockets
 /// abiertos indefinidamente.
 const SOCKS5_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
-/// Tiempo máximo de espera del open de canal direct-tcpip. Se espera dentro del
-/// bucle de sesión (el `Handle` russh no es clonable), así que debe estar
-/// acotado para que un servidor que no responde al open no congele el terminal.
+/// Tiempo máximo de espera del open de canal direct-tcpip. Se espera en una
+/// tarea aparte (ver `crate::session_ops`), pero acotado: un servidor que no
+/// responde al open no debe dejar la tarea, el socket y el handle retenidos.
 const TUNNEL_OPEN_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// Abre un `TcpStream` al destino con SO_KEEPALIVE activo y timeout. La
@@ -92,7 +98,7 @@ const TUNNEL_OPEN_TIMEOUT: Duration = Duration::from_secs(15);
 pub(crate) async fn tcp_connect_robust(addr: &str) -> Result<TcpStream, String> {
     let stream = tokio::time::timeout(TCP_CONNECT_TIMEOUT, TcpStream::connect(addr))
         .await
-        .map_err(|_| format!("Timeout TCP conectando a {addr}"))?
+        .map_err(|_| tr!("Timeout TCP conectando a {addr}", "TCP timeout connecting to {addr}"))?
         .map_err(|e| format!("TCP {addr}: {e}"))?;
     apply_socket_keepalive(&stream);
     Ok(stream)
@@ -168,6 +174,8 @@ struct SshTunnelTrafficEvent {
     id: String,
     bytes_up: u64,
     bytes_down: u64,
+    /// Conexiones abiertas ahora mismo por el túnel.
+    active_connections: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -280,9 +288,12 @@ pub enum SessionCommand {
         command: String,
         reply: Option<oneshot::Sender<Result<String, String>>>,
     },
-    /// Arranca un túnel sobre la conexión SSH ya autenticada.
+    /// Arranca un túnel sobre la conexión SSH ya autenticada. `owner` es la
+    /// shell hija desde la que se abrió (`None` = la raíz): el túnel muere con
+    /// ella, igual que la interfaz lo retira de su pestaña.
     StartTunnel {
         config: SshTunnelConfig,
+        owner: Option<String>,
         reply: oneshot::Sender<Result<SshTunnelInfo, String>>,
     },
     /// Cierra un túnel activo.
@@ -333,6 +344,43 @@ struct SessionHandle {
     /// `Some(id)` = esta entrada es una shell hija: comparte el `cmd_tx` del
     /// worker de su conexión y los comandos viajan con este id de shell.
     shell: Option<String>,
+    /// Lo pone a `true` un `connect` posterior con el MISMO id: el worker de
+    /// esta entrada ha sido reemplazado, se cierra y no vuelve a anunciarse
+    /// (ni `ssh-connected` ni `ssh-closed`) para no pisar al nuevo.
+    superseded: Arc<AtomicBool>,
+}
+
+impl SessionHandle {
+    fn root(cmd_tx: mpsc::UnboundedSender<SessionCommand>, superseded: Arc<AtomicBool>) -> Self {
+        Self {
+            cmd_tx,
+            shell: None,
+            superseded,
+        }
+    }
+
+    fn child(cmd_tx: mpsc::UnboundedSender<SessionCommand>, shell_id: String) -> Self {
+        Self {
+            cmd_tx,
+            shell: Some(shell_id),
+            superseded: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    /// Esta entrada deja de ser la de su id: cierra lo que representaba. Una
+    /// raíz se desconecta en silencio (su worker queda marcado como
+    /// reemplazado); una hija cierra solo su shell, nunca su conexión.
+    fn supersede(self) {
+        match self.shell {
+            Some(shell_id) => {
+                let _ = self.cmd_tx.send(SessionCommand::CloseShell { shell_id });
+            }
+            None => {
+                self.superseded.store(true, Ordering::SeqCst);
+                let _ = self.cmd_tx.send(SessionCommand::Disconnect);
+            }
+        }
+    }
 }
 
 /// Mensajes del worker de la conexión hacia la tarea de una shell hija.
@@ -340,6 +388,106 @@ enum ShellMsg {
     Input(Vec<u8>),
     Resize { cols: u32, rows: u32 },
     Close,
+}
+
+/// Plazo que se concede a la cola de escritura de un canal para vaciarse al
+/// cerrar la shell antes de abortarla: lo tecleado justo antes de cerrar sale;
+/// un servidor que no lee (ventana a cero) no retiene el cierre.
+const SHELL_WRITER_DRAIN_TIMEOUT: Duration = Duration::from_millis(250);
+
+/// Escritor desacoplado de un canal de shell: UNA tarea escribe, en orden, lo
+/// que se le encola, separada del bucle que lee el canal.
+///
+/// Antes la entrada del usuario se escribía con `channel.data(..).await` dentro
+/// del mismo `select!` que leía el canal. Con la ventana del servidor llena (un
+/// pegado grande sobre un proceso que no lee su stdin) esa espera no termina
+/// y, como el bucle deja de leer, el buffer de 100 mensajes por canal de russh
+/// se llena y la tarea de sesión de russh se bloquea al entregar el siguiente:
+/// la conexión ENTERA (todas sus pestañas y túneles) quedaba colgada. Con el
+/// canal partido (`Channel::split`) el lector siempre drena y la espera del
+/// escritor solo frena la cola de esa shell.
+///
+/// Garantías: una sola cola por canal (los bytes salen en el orden en que se
+/// encolaron), encolar nunca bloquea al lector, y `finish` deja la tarea
+/// terminada —vacía la cola con un plazo y, si el servidor sigue sin leer, la
+/// aborta— para que no sobreviva a la shell.
+///
+/// Los cambios de tamaño van por una tarea propia ([`Self::resize`]) y no por
+/// la cola de datos: tampoco esperan ventana, así que no tienen por qué
+/// quedarse detrás de un pegado que el servidor no absorbe (OpenSSH también
+/// los adelanta). Y el lector no los espera: todo envío a la sesión pasa por
+/// una cola común que russh puede dejar de vaciar (ver `crate::channel_pump`),
+/// y un `window_change().await` en el bucle que lee volvía a congelar la
+/// conexión entera al redimensionar.
+struct ChannelWriter {
+    tx: Option<mpsc::UnboundedSender<Vec<u8>>>,
+    task: JoinHandle<()>,
+    /// Último tamaño pedido; la tarea de tamaño manda siempre el más reciente
+    /// (los intermedios de un arrastre se funden).
+    size_tx: watch::Sender<Option<(u32, u32)>>,
+    resize_task: JoinHandle<()>,
+}
+
+impl ChannelWriter {
+    fn spawn(write: Arc<ChannelWriteHalf<client::Msg>>) -> Self {
+        let (tx, mut rx) = mpsc::unbounded_channel::<Vec<u8>>();
+        let (size_tx, mut size_rx) = watch::channel(None::<(u32, u32)>);
+        let resize_write = write.clone();
+        let task = tokio::spawn(async move {
+            while let Some(bytes) = rx.recv().await {
+                // `data_bytes` toma los bytes en propiedad (sin copia). Un
+                // error es canal cerrado: nada de lo que quede tiene destino.
+                if write.data_bytes(bytes).await.is_err() {
+                    break;
+                }
+            }
+        });
+        let resize_task = tokio::spawn(async move {
+            while size_rx.changed().await.is_ok() {
+                let size = *size_rx.borrow_and_update();
+                if let Some((cols, rows)) = size {
+                    if resize_write.window_change(cols, rows, 0, 0).await.is_err() {
+                        break;
+                    }
+                }
+            }
+        });
+        Self {
+            tx: Some(tx),
+            task,
+            size_tx,
+            resize_task,
+        }
+    }
+
+    /// Pide un cambio de tamaño del PTY. Nunca espera: si hay uno sin mandar,
+    /// lo sustituye.
+    fn resize(&self, cols: u32, rows: u32) {
+        self.size_tx.send_replace(Some((cols, rows)));
+    }
+
+    /// Encola bytes para el canal. `Err` si la tarea escritora ya terminó
+    /// (canal cerrado): el llamador lo trata como un `data` fallido.
+    fn send(&self, bytes: Vec<u8>) -> Result<(), ()> {
+        match self.tx.as_ref() {
+            Some(tx) if !self.task.is_finished() => tx.send(bytes).map_err(|_| ()),
+            _ => Err(()),
+        }
+    }
+
+    /// Cierra la cola: deja de aceptar bytes, espera (con plazo) a que se
+    /// vacíe lo pendiente y aborta la tarea si el servidor sigue sin leer. Un
+    /// tamaño pendiente ya no le importa a nadie: su tarea se aborta.
+    async fn finish(mut self) {
+        self.resize_task.abort();
+        drop(self.tx.take());
+        if tokio::time::timeout(SHELL_WRITER_DRAIN_TIMEOUT, &mut self.task)
+            .await
+            .is_err()
+        {
+            self.task.abort();
+        }
+    }
 }
 
 // ─── Estado global gestionado por Tauri ─────────────────────────────────────
@@ -399,6 +547,8 @@ impl SshManager {
     pub fn connect(&self, spec: SessionSpec, default_log_dir: PathBuf) -> Result<(), AppError> {
         let (cmd_tx, cmd_rx) = mpsc::unbounded_channel::<SessionCommand>();
         let worker_cmd_tx = cmd_tx.clone();
+        let superseded = Arc::new(AtomicBool::new(false));
+        let worker_superseded = superseded.clone();
 
         let session_id = spec.session_id.clone();
         let sid = spec.session_id.clone();
@@ -424,15 +574,30 @@ impl SshManager {
                 cmd_rx,
                 worker_cmd_tx,
                 default_log_dir,
+                worker_superseded.clone(),
             ));
-            let _ = ah.emit(&event_name(EventKind::SshClosed, &sid), "");
+            // Un worker reemplazado por otro con el mismo id no anuncia su
+            // cierre: el frontend lo tomaría por el cierre del nuevo.
+            if !worker_superseded.load(Ordering::SeqCst) {
+                let _ = ah.emit(&event_name(EventKind::SshClosed, &sid), "");
+            }
         });
 
-        self.sessions
-            .lock_recover()
-            .insert(session_id, SessionHandle { cmd_tx, shell: None });
+        self.register(session_id, SessionHandle::root(cmd_tx, superseded));
 
         Ok(())
+    }
+
+    /// Registra la entrada de `session_id` y, si ya había una con ese id,
+    /// cierra lo que representaba (defensa en profundidad contra conexiones
+    /// huérfanas): el worker anterior conservaba un clon de su propio `cmd_tx`,
+    /// así que perder la entrada del mapa no lo terminaba y seguía conectado,
+    /// reconectando y emitiendo eventos con el id del nuevo.
+    fn register(&self, session_id: String, handle: SessionHandle) {
+        let previous = self.sessions.lock_recover().insert(session_id, handle);
+        if let Some(previous) = previous {
+            previous.supersede();
+        }
     }
 
     /// Abre una shell adicional sobre la conexión de `parent_session_id`,
@@ -469,13 +634,7 @@ impl SshManager {
             .map_err(|_| format!("Sesión SSH {parent_session_id} no disponible"))?;
         rx.await
             .map_err(|_| "La sesión SSH no respondió".to_string())??;
-        self.sessions.lock_recover().insert(
-            shell_id.clone(),
-            SessionHandle {
-                cmd_tx,
-                shell: Some(shell_id),
-            },
-        );
+        self.register(shell_id.clone(), SessionHandle::child(cmd_tx, shell_id));
         Ok(())
     }
 
@@ -610,17 +769,16 @@ impl SshManager {
         session_id: &str,
         config: SshTunnelConfig,
     ) -> Result<SshTunnelInfo, String> {
-        let cmd_tx = {
+        let (cmd_tx, owner) = {
             let sessions = self.sessions.lock_recover();
-            sessions
+            let handle = sessions
                 .get(session_id)
-                .ok_or_else(|| format!("Sesión SSH {session_id} no encontrada"))?
-                .cmd_tx
-                .clone()
+                .ok_or_else(|| format!("Sesión SSH {session_id} no encontrada"))?;
+            (handle.cmd_tx.clone(), handle.shell.clone())
         };
         let (reply, rx) = oneshot::channel();
         cmd_tx
-            .send(SessionCommand::StartTunnel { config, reply })
+            .send(SessionCommand::StartTunnel { config, owner, reply })
             .map_err(|_| format!("Sesión SSH {session_id} no disponible"))?;
         rx.await
             .map_err(|_| "La sesión SSH no respondió".to_string())?
@@ -756,6 +914,9 @@ struct ActiveTunnel {
     local_task: Option<JoinHandle<()>>,
     /// Tráfico acumulado del túnel: lo suman todas sus conexiones.
     traffic: Arc<TunnelTraffic>,
+    /// Shell hija que lo abrió (`None` = la raíz). Al cerrarse esa shell el
+    /// túnel se para con ella (ver `detach_shell_tunnels`).
+    owner: Option<String>,
 }
 
 impl ActiveTunnel {
@@ -763,9 +924,41 @@ impl ActiveTunnel {
         info: SshTunnelInfo,
         local_task: Option<JoinHandle<()>>,
         traffic: Arc<TunnelTraffic>,
+        owner: Option<String>,
     ) -> Self {
-        Self { info, local_task, traffic }
+        Self {
+            info,
+            local_task,
+            traffic,
+            owner,
+        }
     }
+}
+
+/// Retira del mapa los túneles abiertos desde la shell hija `shell_id` y para
+/// sus listeners locales. Devuelve lo retirado para que el llamador cancele
+/// además los forwards remotos (eso necesita el handle de la conexión).
+///
+/// Desde v1.66.0 una conexión multiplexa N shells y los túneles viven en el
+/// worker de la raíz; al cerrar una hija, la interfaz borraba sus túneles de la
+/// lista pero aquí seguían escuchando sin nada en pantalla que lo dijera.
+fn detach_shell_tunnels(
+    tunnels: &mut HashMap<String, ActiveTunnel>,
+    shell_id: &str,
+) -> Vec<ActiveTunnel> {
+    let ids: Vec<String> = tunnels
+        .iter()
+        .filter(|(_, tunnel)| tunnel.owner.as_deref() == Some(shell_id))
+        .map(|(id, _)| id.clone())
+        .collect();
+    ids.iter()
+        .filter_map(|id| tunnels.remove(id))
+        .inspect(|tunnel| {
+            if let Some(task) = tunnel.local_task.as_ref() {
+                task.abort();
+            }
+        })
+        .collect()
 }
 
 async fn run_session_with_reconnect(
@@ -773,6 +966,7 @@ async fn run_session_with_reconnect(
     mut cmd_rx: mpsc::UnboundedReceiver<SessionCommand>,
     cmd_tx: mpsc::UnboundedSender<SessionCommand>,
     default_log_dir: PathBuf,
+    superseded: Arc<AtomicBool>,
 ) {
     let SessionSpec {
         session_id,
@@ -826,8 +1020,15 @@ async fn run_session_with_reconnect(
             log_path.clone(),
             keepalive_secs.clone(),
             metrics_secs.clone(),
+            &superseded,
         )
         .await;
+
+        // Reemplazado por un worker nuevo con el mismo id: ni error, ni
+        // reconexión, ni un evento más con ese id.
+        if superseded.load(Ordering::SeqCst) {
+            return;
+        }
 
         match exit {
             SessionExit::UserDisconnect => return,
@@ -1029,14 +1230,17 @@ async fn run_connection_test(
         "info",
         format!("Autenticando como {}", profile.username),
     );
-    match authenticate_handle(
-        &mut handle,
-        &profile.auth_type,
-        &profile.username,
-        &profile.host,
-        password.as_ref(),
-        passphrase.as_ref(),
-        profile.key_path.as_deref(),
+    match auth_totp::with_policy(
+        auth_totp::Policy::from_profile(&profile),
+        authenticate_handle(
+            &mut handle,
+            &profile.auth_type,
+            &profile.username,
+            &profile.host,
+            password.as_ref(),
+            passphrase.as_ref(),
+            profile.key_path.as_deref(),
+        ),
     )
     .await?
     {
@@ -1163,46 +1367,19 @@ fn make_periodic_timer(secs: u32) -> Option<tokio::time::Interval> {
     Some(it)
 }
 
-/// Plazo máximo para leer la salida de una muestra del monitor. Si el servidor
-/// tarda más (muy cargado, red mala), se descarta esa muestra y la siguiente lo
-/// reintenta —nunca se acumula ni bloquea el canal indefinidamente—.
-const METRICS_READ_TIMEOUT: Duration = Duration::from_secs(10);
-
-/// Lee la salida de un `exec` de muestreo ya lanzado, la parsea, deriva las
-/// métricas contra la muestra previa (compartida) y las emite al frontend. Corre
-/// en su **propia tarea**, fuera del bucle de sesión, para no frenar el terminal.
-async fn collect_and_emit_metrics(
-    mut channel: russh::Channel<client::Msg>,
-    session_id: String,
-    app_handle: AppHandle,
-    prev: Arc<Mutex<Option<metrics::RawSample>>>,
+/// Parsea la salida de una muestra del monitor, deriva las métricas contra la
+/// muestra previa y las emite al frontend. El canal `exec` y su lectura van en
+/// una tarea de `crate::session_ops`; aquí, en el bucle, solo lo que no espera.
+fn emit_metrics_sample(
+    text: &str,
+    prev: &mut Option<metrics::RawSample>,
+    app_handle: &AppHandle,
+    session_id: &str,
 ) {
-    let mut buf = Vec::new();
-    let read = async {
-        while let Some(msg) = channel.wait().await {
-            match msg {
-                ChannelMsg::Data { ref data } => buf.extend_from_slice(data),
-                ChannelMsg::Eof
-                | ChannelMsg::Close
-                | ChannelMsg::ExitStatus { .. }
-                | ChannelMsg::ExitSignal { .. } => break,
-                _ => {}
-            }
-        }
-    };
-    if tokio::time::timeout(METRICS_READ_TIMEOUT, read).await.is_err() {
-        return; // muestra demasiado lenta: se salta.
-    }
-
-    let text = String::from_utf8_lossy(&buf);
-    let cur = metrics::RawSample::parse(&text);
-    let derived = {
-        let mut guard = prev.lock_recover();
-        let m = metrics::Metrics::derive(guard.as_ref(), &cur);
-        *guard = Some(cur);
-        m
-    };
-    let _ = app_handle.emit(&event_name(EventKind::SshMetrics, &session_id), derived);
+    let cur = metrics::RawSample::parse(text);
+    let derived = metrics::Metrics::derive(prev.as_ref(), &cur);
+    *prev = Some(cur);
+    let _ = app_handle.emit(&event_name(EventKind::SshMetrics, session_id), derived);
 }
 
 /// Plazo del sondeo de binario en el remoto (sesiones persistentes). Si el
@@ -1393,45 +1570,6 @@ fn dispatch_bridge_outs(
     ended
 }
 
-/// Lee el desenlace de un `kill` remoto ya lanzado y lo devuelve por `reply`:
-/// estado de salida 0 → `Ok`; cualquier otro estado o el plazo agotado → `Err`
-/// con lo que el remoto haya impreso (p. ej. «Operation not permitted» o «No
-/// such process»). Corre en su propia tarea, fuera del bucle de sesión.
-async fn kill_remote_process(
-    mut channel: russh::Channel<client::Msg>,
-    reply: oneshot::Sender<Result<(), String>>,
-) {
-    let mut out = Vec::new();
-    let mut status: Option<u32> = None;
-    let read = async {
-        while let Some(msg) = channel.wait().await {
-            match msg {
-                ChannelMsg::Data { ref data } => out.extend_from_slice(data),
-                ChannelMsg::ExtendedData { ref data, .. } => out.extend_from_slice(data),
-                ChannelMsg::ExitStatus { exit_status } => status = Some(exit_status),
-                ChannelMsg::Eof | ChannelMsg::Close | ChannelMsg::ExitSignal { .. } => break,
-                _ => {}
-            }
-        }
-    };
-    let result = if tokio::time::timeout(METRICS_READ_TIMEOUT, read).await.is_err() {
-        Err("El servidor no respondió al kill a tiempo".to_string())
-    } else {
-        match status {
-            Some(0) => Ok(()),
-            other => {
-                let text = String::from_utf8_lossy(&out).trim().to_string();
-                if text.is_empty() {
-                    Err(format!("kill terminó con estado {}", other.map_or_else(|| "desconocido".to_string(), |s| s.to_string())))
-                } else {
-                    Err(text)
-                }
-            }
-        }
-    };
-    let _ = reply.send(result);
-}
-
 /// Plazo para las respuestas del servidor a las variables de entorno pedidas
 /// con respuesta: llegan enseguida; si no, se sigue sin saber cuáles rechazó.
 const ENV_REPLY_TIMEOUT: Duration = Duration::from_secs(5);
@@ -1479,36 +1617,48 @@ pub(crate) async fn send_env_vars(
     refused
 }
 
-/// Abre una shell hija (F0.3) sobre el handle ya autenticado: canal nuevo +
-/// PTY + shell, y su tarea de E/S propia. Siempre un shell **pelado**, aunque
-/// el perfil tenga sesión persistente o comando al conectar: un segundo
-/// `attach -A` a la misma sesión tmux/screen duplicaría la misma pantalla, no
-/// daría otra terminal, y «Nueva pestaña en esta conexión» promete un shell.
-/// Sí hereda el TERM y las variables de entorno del perfil (sin esperar
-/// respuesta: lo que el servidor rechace ya lo anotó la conexión principal).
-async fn open_extra_shell(
+/// Abre el canal de una shell hija (F0.3) sobre el handle ya autenticado:
+/// canal nuevo + PTY + shell. Siempre un shell **pelado**, aunque el perfil
+/// tenga sesión persistente o comando al conectar: un segundo `attach -A` a la
+/// misma sesión tmux/screen duplicaría la misma pantalla, no daría otra
+/// terminal, y «Nueva pestaña en esta conexión» promete un shell. Sí hereda el
+/// TERM y las variables de entorno del perfil (sin esperar respuesta: lo que
+/// el servidor rechace ya lo anotó la conexión principal).
+///
+/// Lo espera una tarea de `crate::session_ops`, nunca el bucle raíz; el canal
+/// abierto vuelve al bucle, que lo arranca con [`start_extra_shell`].
+pub(crate) async fn open_extra_shell_channel(
     handle: &client::Handle<host_keys::KnownHostsClient>,
-    shell_id: &str,
-    on_data: Channel<Response>,
     (cols, rows): (u32, u32),
-    launch: &crate::remote_launch::SessionLaunch,
-    cmd_tx: mpsc::UnboundedSender<SessionCommand>,
-    shells: &mut HashMap<String, mpsc::UnboundedSender<ShellMsg>>,
-) -> Result<(), String> {
+    env: &[(String, String)],
+    term: &str,
+) -> Result<russh::Channel<client::Msg>, String> {
     let (cols, rows) = if cols == 0 || rows == 0 { (80, 24) } else { (cols, rows) };
     let mut channel = handle
         .channel_open_session()
         .await
         .map_err(|e| format!("No se pudo abrir el canal: {e}"))?;
-    send_env_vars(&mut channel, &launch.env, false).await;
+    send_env_vars(&mut channel, env, false).await;
     channel
-        .request_pty(true, launch.term(), cols, rows, 0, 0, &[])
+        .request_pty(true, term, cols, rows, 0, 0, &[])
         .await
         .map_err(|e| format!("No se pudo solicitar PTY: {e}"))?;
     channel
         .request_shell(true)
         .await
         .map_err(|e| format!("No se pudo abrir shell: {e}"))?;
+    Ok(channel)
+}
+
+/// Arranca la tarea de E/S de una shell hija ya abierta y la registra en el
+/// mapa de shells de la conexión.
+fn start_extra_shell(
+    shell_id: &str,
+    channel: russh::Channel<client::Msg>,
+    on_data: Channel<Response>,
+    cmd_tx: mpsc::UnboundedSender<SessionCommand>,
+    shells: &mut HashMap<String, mpsc::UnboundedSender<ShellMsg>>,
+) {
     let (tx, rx) = mpsc::unbounded_channel();
     shells.insert(shell_id.to_string(), tx);
     tokio::spawn(run_extra_shell(
@@ -1518,7 +1668,6 @@ async fn open_extra_shell(
         rx,
         cmd_tx,
     ));
-    Ok(())
 }
 
 /// E/S de una shell hija, en su propia tarea del mismo runtime: lee el canal
@@ -1527,16 +1676,21 @@ async fn open_extra_shell(
 /// al terminar avisa al worker con `ShellClosed`, que es quien emite (si la
 /// tarea muriera cancelada al caer el runtime, el drain del worker cubre).
 async fn run_extra_shell(
-    mut channel: russh::Channel<client::Msg>,
+    channel: russh::Channel<client::Msg>,
     shell_id: String,
     on_data: Channel<Response>,
     mut rx: mpsc::UnboundedReceiver<ShellMsg>,
     cmd_tx: mpsc::UnboundedSender<SessionCommand>,
 ) {
+    // Lectura y escritura separadas: la entrada se encola y la escribe una
+    // tarea aparte; este bucle solo lee (ver `ChannelWriter`).
+    let (mut read, write) = channel.split();
+    let write = Arc::new(write);
+    let writer = ChannelWriter::spawn(write.clone());
     let mut out_buf: Vec<u8> = Vec::with_capacity(SSH_DATA_FLUSH_THRESHOLD);
     loop {
         tokio::select! {
-            msg = channel.wait() => {
+            msg = read.wait() => {
                 match msg {
                     Some(ChannelMsg::Data { data }) => {
                         out_buf.extend_from_slice(&data);
@@ -1564,11 +1718,9 @@ async fn run_extra_shell(
             cmd = rx.recv() => {
                 match cmd {
                     Some(ShellMsg::Input(data)) => {
-                        let _ = channel.data(&data[..]).await;
+                        let _ = writer.send(data);
                     }
-                    Some(ShellMsg::Resize { cols, rows }) => {
-                        let _ = channel.window_change(cols, rows, 0, 0).await;
-                    }
+                    Some(ShellMsg::Resize { cols, rows }) => writer.resize(cols, rows),
                     Some(ShellMsg::Close) | None => break,
                 }
             }
@@ -1577,8 +1729,8 @@ async fn run_extra_shell(
     if !out_buf.is_empty() {
         let _ = on_data.send(Response::new(std::mem::take(&mut out_buf)));
     }
-    let _ = channel.eof().await;
-    let _ = channel.close().await;
+    writer.finish().await;
+    finish_channel(&write, true).await;
     let _ = cmd_tx.send(SessionCommand::ShellClosed { shell_id });
 }
 
@@ -1589,6 +1741,7 @@ async fn run_session(
     log_path: Option<PathBuf>,
     keepalive_secs: Arc<AtomicU32>,
     metrics_secs: Arc<AtomicU32>,
+    superseded: &AtomicBool,
 ) -> SessionExit {
     let SessionSpec {
         session_id,
@@ -1825,14 +1978,20 @@ async fn run_session(
         "info",
         format!("Autenticando como {}", profile.username),
     );
-    let auth = match authenticate_handle(
-        &mut handle,
-        &profile.auth_type,
-        &profile.username,
-        &profile.host,
-        password.as_ref(),
-        passphrase.as_ref(),
-        profile.key_path.as_deref(),
+    // Con la política de TOTP del perfil a la vista: `run_session` corre igual
+    // en la primera conexión y en cada reconexión, así que el modo automático
+    // (y su «un rechazo no se reintenta») vale para las dos.
+    let auth = match auth_totp::with_policy(
+        auth_totp::Policy::from_profile(&profile),
+        authenticate_handle(
+            &mut handle,
+            &profile.auth_type,
+            &profile.username,
+            &profile.host,
+            password.as_ref(),
+            passphrase.as_ref(),
+            profile.key_path.as_deref(),
+        ),
     )
     .await
     {
@@ -2105,6 +2264,13 @@ async fn run_session(
         "ok",
         "Shell remota abierta",
     );
+    // Mientras conectaba llegó otro `connect` con el mismo id (los comandos
+    // no se atienden hasta el bucle): este worker ya no es el de la sesión.
+    // Se va en silencio, sin anunciarse como conectado.
+    if superseded.load(Ordering::SeqCst) {
+        let _ = channel.close().await;
+        return SessionExit::UserDisconnect;
+    }
     emit_connection_log(
         &app_handle,
         &session_id,
@@ -2119,6 +2285,14 @@ async fn run_session(
     // Desde aquí cuenta la estabilidad de la sesión para la reconexión.
     let connected_at = Instant::now();
 
+    // Lectura y escritura del canal raíz separadas (ver `ChannelWriter`): la
+    // entrada del usuario y los comandos de tmux se encolan y los escribe una
+    // tarea aparte; este bucle solo lee, y así un pegado que el servidor no
+    // absorbe no bloquea la conexión entera.
+    let (mut read, write) = channel.split();
+    let write = Arc::new(write);
+    let writer = ChannelWriter::spawn(write.clone());
+
     // Arranque del modo control: declarar el tamaño real del cliente (tmux no
     // hará ventanas mayores) y pedir los layouts iniciales — tmux solo emite
     // `%layout-change` ante un cambio, y un reenganche sin cambios no lo es.
@@ -2128,21 +2302,32 @@ async fn run_session(
             .bridge
             .command(&crate::tmux::bridge::cmd_set_client_size(cols, rows), now)
         {
-            let _ = channel.data(&bytes[..]).await;
+            let _ = writer.send(bytes);
         }
         if let Ok((tag, bytes)) = state
             .bridge
             .command(&crate::tmux::bridge::cmd_boot_windows(), now)
         {
-            if channel.data(&bytes[..]).await.is_ok() {
+            if writer.send(bytes).is_ok() {
                 state.boot_layout_tag = Some(tag);
             }
         }
     }
 
-    // 4. Bucle de E/S: multiplexa datos del servidor y comandos del frontend
+    // 4. Bucle de E/S: multiplexa datos del servidor y comandos del frontend.
+    // INVARIANTE: aquí no se espera ninguna llamada del `Handle` (keepalive,
+    // abrir canales, forwards): con la cola de salida de russh atascada no
+    // volverían y el bucle dejaría de leer, congelando la conexión entera. Las
+    // lanza `ops` en tareas propias y sus resultados vuelven por `ops.next()`
+    // (ver `crate::session_ops`). El `&mut` del handle ya no hace falta.
+    let handle: SharedHandle = Arc::new(handle);
+    let mut ops = SessionOps::new(OpLimits::DEFAULT);
+    // Entorno que heredan las pestañas nuevas (una copia para todas).
+    let shell_env = Arc::new(launch.env.clone());
     let mut exit_kind = SessionExit::ServerClosed { stable: false };
     let mut tunnels: HashMap<String, ActiveTunnel> = HashMap::new();
+    // Túneles remotos esperando su forward (ver `PendingForward`).
+    let mut pending_forwards: HashMap<String, PendingForward> = HashMap::new();
     // Shells hijas multiplexadas sobre este mismo handle (F0.3): cada una vive
     // en su propia tarea con su canal russh; aquí solo queda su buzón.
     let mut shells: HashMap<String, mpsc::UnboundedSender<ShellMsg>> = HashMap::new();
@@ -2154,21 +2339,23 @@ async fn run_session(
     // Keepalive de aplicación togglable en vivo (ver `SessionCommand::SetKeepAlive`).
     // A 0 el temporizador queda inerte y su rama del `select!` se desactiva.
     let mut ka_timer = make_periodic_timer(keepalive_secs.load(Ordering::Relaxed));
+    // Un keepalive que no sale en su plazo se anota una vez por atasco.
+    let mut ka_stalled = false;
     // Con modo control activo, un tick por segundo para vencer comandos
     // pendientes (`ControlClient::check_timeouts`); sin él, timer apagado.
     let mut control_timer = make_periodic_timer(u32::from(control.is_some()));
     // Monitor de recursos: temporizador (misma mecánica que el keepalive) y la
-    // muestra anterior, para derivar %CPU y tasas de red por delta. Se comparte
-    // con las tareas de recogida por `Arc<Mutex>`; se reinicia al cambiar el
-    // intervalo para no calcular una tasa con una muestra de otra cadencia.
+    // muestra anterior, para derivar %CPU y tasas de red por delta. Se reinicia
+    // al cambiar el intervalo para no calcular una tasa con una muestra de otra
+    // cadencia.
     let mut metrics_timer = make_periodic_timer(metrics_secs.load(Ordering::Relaxed));
-    let metrics_prev: Arc<Mutex<Option<metrics::RawSample>>> = Arc::new(Mutex::new(None));
+    let mut metrics_prev: Option<metrics::RawSample> = None;
     // Con modo control, la entrada dirigida a la raíz se descarta (ver el brazo
     // de `Input`); se anota una sola vez en el log de conexión.
     let mut root_input_dropped = false;
     loop {
         tokio::select! {
-            msg = channel.wait() => {
+            msg = read.wait() => {
                 match msg {
                     Some(ChannelMsg::Data { data }) => {
                         if let Some(state) = control.as_mut() {
@@ -2241,8 +2428,12 @@ async fn run_session(
             // El `unwrap` lo cubre la guarda: `tokio::select!` evalúa la
             // precondición ANTES de construir el futuro de la rama, así que
             // aquí el Option siempre es Some.
+            //
+            // Lo envía una tarea (ver el invariante de arriba); si el anterior
+            // aún no ha salido, este tic se salta. Un fallo no se cuenta aquí:
+            // si la sesión cayó, lo ve el lector del canal raíz.
             _ = async { ka_timer.as_mut().unwrap().tick().await }, if ka_timer.is_some() => {
-                let _ = handle.send_keepalive(false).await;
+                ops.keepalive(&handle);
             }
             // Vencimiento de comandos del modo control: un comando sin
             // respuesta en su plazo cierra la sesión de control entera (si
@@ -2257,23 +2448,93 @@ async fn run_session(
                     }
                 }
             }
-            // Muestra del monitor de recursos: abrimos un canal `exec` (round-trip
-            // corto, como el open de un túnel) y delegamos la **lectura** de su
-            // salida a una tarea aparte, para no congelar el terminal mientras se
-            // lee. La tarea parsea, deriva contra la muestra previa y emite.
+            // Muestra del monitor de recursos: el canal `exec`, su lectura y su
+            // cierre van en una tarea (una muestra a la vez); la salida vuelve
+            // por `ops.next()` y aquí se deriva contra la previa y se emite.
             // Mismo invariante que el keepalive: lo garantiza la guarda.
             _ = async { metrics_timer.as_mut().unwrap().tick().await }, if metrics_timer.is_some() => {
-                if let Ok(channel) = handle.channel_open_session().await {
-                    if channel.exec(false, metrics::linux_sample_command()).await.is_ok() {
-                        tokio::spawn(collect_and_emit_metrics(
-                            channel,
-                            session_id.clone(),
-                            app_handle.clone(),
-                            metrics_prev.clone(),
-                        ));
+                ops.metrics_sample(&handle, metrics::linux_sample_command());
+            }
+            // Resultados de las operaciones lanzadas por `ops`.
+            Some(done) = ops.next(), if !ops.is_idle() => match done {
+                OpDone::Keepalive(KeepaliveOutcome::TimedOut) => {
+                    if !ka_stalled {
+                        ka_stalled = true;
+                        emit_connection_log(
+                            &app_handle,
+                            &session_id,
+                            "keepalive",
+                            "warning",
+                            "El keepalive lleva un rato sin poder salir: la conexión no \
+                             está enviando nada al servidor",
+                        );
                     }
                 }
-            }
+                OpDone::Keepalive(_) => ka_stalled = false,
+                OpDone::MetricsSample { generation, text } => {
+                    // De antes de apagar o cambiar el intervalo: ya no vale.
+                    if generation == ops.metrics_generation() && metrics_timer.is_some() {
+                        emit_metrics_sample(&text, &mut metrics_prev, &app_handle, &session_id);
+                    }
+                }
+                OpDone::ShellOpened { shell_id, on_data, reply, result } => {
+                    let result = result.map(|channel| {
+                        start_extra_shell(&shell_id, channel, on_data, cmd_tx.clone(), &mut shells);
+                        // `ssh-connected` ANTES de responder al invoke: el
+                        // frontend registra sus listeners antes de invocar
+                        // y así nunca se pierde el evento de vida.
+                        let _ = app_handle.emit(
+                            &event_name(EventKind::SshConnected, &shell_id),
+                            &profile.name,
+                        );
+                    });
+                    let _ = reply.send(result);
+                }
+                OpDone::RemoteForward { tunnel_id, result } => {
+                    // Un pendiente solo sale del mapa aquí (o al cerrar la
+                    // sesión, ya fuera del bucle): siempre está.
+                    let Some(pending) = pending_forwards.remove(&tunnel_id) else {
+                        continue;
+                    };
+                    let PendingForward { plan, reply, cancelled, stop_replies } = pending;
+                    let requested = u32::from(plan.remote_port);
+                    match session_ops::forward_step(requested, result, cancelled) {
+                        ForwardStep::Register { port } => {
+                            let info = register_remote_forward(
+                                plan,
+                                port,
+                                &session_id,
+                                &app_handle,
+                                &remote_forwards,
+                                &mut tunnels,
+                            );
+                            let _ = reply.send(Ok(info));
+                            // Nadie lo cerró mientras se abría (si no, sería
+                            // `Abandon`): no hay cierres que contestar.
+                            for stop in stop_replies {
+                                let _ = stop.send(Ok(()));
+                            }
+                        }
+                        ForwardStep::Abandon { cancel_port, error } => {
+                            let _ = reply.send(Err(error));
+                            match cancel_port {
+                                Some(port) => ops.cancel_remote_forward(
+                                    &handle,
+                                    plan.bind_host,
+                                    port,
+                                    stop_replies,
+                                ),
+                                None => {
+                                    for stop in stop_replies {
+                                        let _ = stop.send(Ok(()));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                OpDone::Idle => {}
+            },
             cmd = cmd_rx.recv() => {
                 match cmd {
                     Some(SessionCommand::Input { data, shell }) => match shell {
@@ -2300,7 +2561,7 @@ async fn run_session(
                                 );
                             }
                         }
-                        None => { let _ = channel.data(&data[..]).await; }
+                        None => { let _ = writer.send(data); }
                         Some(id) => {
                             // Shell hija: reenvío a su tarea. Si ya no está
                             // (canal muerto en carrera), se descarta igual que
@@ -2315,33 +2576,28 @@ async fn run_session(
                         // (`refresh-client -C` por `tmux_set_client_size`); un
                         // window-change sobre su exec sin PTY no significa nada.
                         None if control.is_some() => {}
-                        None => { let _ = channel.window_change(cols, rows, 0, 0).await; }
+                        None => writer.resize(cols, rows),
                         Some(id) => {
                             if let Some(tx) = shells.get(&id) {
                                 let _ = tx.send(ShellMsg::Resize { cols, rows });
                             }
                         }
                     },
+                    // El canal, su PTY y su shell los abre una tarea; el
+                    // registro, `ssh-connected` y la respuesta, al volver
+                    // (`OpDone::ShellOpened`). La hija aún no está en el mapa
+                    // de sesiones hasta esa respuesta: nada puede cerrarla ni
+                    // escribirle antes.
                     Some(SessionCommand::OpenShell { shell_id, on_data, cols, rows, reply }) => {
-                        let result = open_extra_shell(
-                            &handle,
-                            &shell_id,
+                        ops.open_shell(&handle, ShellRequest {
+                            shell_id,
                             on_data,
-                            (cols, rows),
-                            &launch,
-                            cmd_tx.clone(),
-                            &mut shells,
-                        ).await;
-                        if result.is_ok() {
-                            // `ssh-connected` ANTES de responder al invoke: el
-                            // frontend registra sus listeners antes de invocar
-                            // y así nunca se pierde el evento de vida.
-                            let _ = app_handle.emit(
-                                &event_name(EventKind::SshConnected, &shell_id),
-                                &profile.name,
-                            );
-                        }
-                        let _ = reply.send(result);
+                            cols,
+                            rows,
+                            env: shell_env.clone(),
+                            term: launch.term(),
+                            reply,
+                        });
                     }
                     Some(SessionCommand::CloseShell { shell_id }) => {
                         if let Some(tx) = shells.get(&shell_id) {
@@ -2349,6 +2605,21 @@ async fn run_session(
                         }
                     }
                     Some(SessionCommand::ShellClosed { shell_id }) => {
+                        // Sus túneles mueren con ella: los abiertos desde esa
+                        // pestaña dejan de escuchar (la interfaz ya los retira
+                        // de la lista al recibir su `ssh-closed`).
+                        for tunnel in detach_shell_tunnels(&mut tunnels, &shell_id) {
+                            if let Some((bind_host, port)) = teardown_tunnel(&remote_forwards, tunnel) {
+                                ops.cancel_remote_forward(&handle, bind_host, port, Vec::new());
+                            }
+                        }
+                        // Y los suyos que aún esperaban su forward no llegan a
+                        // abrirse.
+                        for pending in pending_forwards.values_mut() {
+                            if pending.plan.owner.as_deref() == Some(shell_id.as_str()) {
+                                pending.cancelled = true;
+                            }
+                        }
                         // Único punto de emisión del cierre de una hija (la
                         // tarea no emite): así el drain final no duplica.
                         if shells.remove(&shell_id).is_some() {
@@ -2381,7 +2652,7 @@ async fn run_session(
                                 let now = state.now_ms();
                                 match state.bridge.command(&command, now) {
                                     Ok((tag, bytes)) => {
-                                        if channel.data(&bytes[..]).await.is_err() {
+                                        if writer.send(bytes).is_err() {
                                             if let Some(tx) = reply {
                                                 let _ = tx.send(Err(
                                                     "no se pudo escribir en el canal de control"
@@ -2419,8 +2690,10 @@ async fn run_session(
                         metrics_secs.store(n, Ordering::Relaxed);
                         metrics_timer = make_periodic_timer(n);
                         // La cadencia cambió: la muestra previa ya no sirve para
-                        // el delta (daría una tasa disparatada). Se reinicia.
-                        *metrics_prev.lock_recover() = None;
+                        // el delta (daría una tasa disparatada). Se reinicia, y
+                        // la que estuviera en vuelo ya no cuenta.
+                        metrics_prev = None;
+                        ops.reset_metrics();
                     }
                     Some(SessionCommand::KillProcess { pid, force, reply }) => {
                         // PID 0 mataría el grupo de procesos del propio kill y
@@ -2429,44 +2702,60 @@ async fn run_session(
                         if pid < 2 {
                             let _ = reply.send(Err(format!("PID no válido: {pid}")));
                         } else {
-                            match handle.channel_open_session().await {
-                                Ok(kill_channel) => {
-                                    let sig = if force { "KILL" } else { "TERM" };
-                                    // Solo literales y un entero: sin datos del
-                                    // usuario que escapar hacia el shell remoto.
-                                    let kill_cmd = format!("kill -{sig} {pid}");
-                                    if kill_channel.exec(false, kill_cmd.as_str()).await.is_ok() {
-                                        tokio::spawn(kill_remote_process(kill_channel, reply));
-                                    } else {
-                                        let _ = reply.send(Err("No se pudo lanzar el kill remoto".to_string()));
-                                    }
-                                }
-                                Err(e) => {
-                                    let _ = reply.send(Err(format!("No se pudo abrir el canal: {e}")));
-                                }
+                            let sig = if force { "KILL" } else { "TERM" };
+                            // Solo literales y un entero: sin datos del usuario
+                            // que escapar hacia el shell remoto. El `exec` y su
+                            // veredicto, en una tarea que contesta a `reply`.
+                            ops.kill(&handle, format!("kill -{sig} {pid}"), reply);
+                        }
+                    }
+                    Some(SessionCommand::StartTunnel { config, owner, reply }) => {
+                        match start_tunnel_runtime(
+                            &session_id,
+                            config,
+                            owner,
+                            &mut tunnels,
+                            &pending_forwards,
+                            cmd_tx.clone(),
+                            app_handle.clone(),
+                        ).await {
+                            TunnelStart::Done(result) => {
+                                let _ = reply.send(result);
+                            }
+                            // Remoto: el forward lo pide una tarea y el túnel
+                            // no se da por abierto (ni se contesta) hasta que el
+                            // servidor lo conceda (`OpDone::RemoteForward`).
+                            TunnelStart::Forward(plan) => {
+                                ops.remote_forward(
+                                    &handle,
+                                    plan.id.clone(),
+                                    plan.bind_host.clone(),
+                                    u32::from(plan.remote_port),
+                                );
+                                pending_forwards.insert(plan.id.clone(), PendingForward {
+                                    plan,
+                                    reply,
+                                    cancelled: false,
+                                    stop_replies: Vec::new(),
+                                });
                             }
                         }
                     }
-                    Some(SessionCommand::StartTunnel { config, reply }) => {
-                        let result = start_tunnel_runtime(
-                            &session_id,
-                            config,
-                            &mut handle,
-                            &mut tunnels,
-                            cmd_tx.clone(),
-                            app_handle.clone(),
-                            remote_forwards.clone(),
-                        ).await;
-                        let _ = reply.send(result);
-                    }
                     Some(SessionCommand::StopTunnel { tunnel_id, reply }) => {
-                        let result = stop_tunnel_runtime(
-                            &mut handle,
-                            &mut tunnels,
-                            remote_forwards.clone(),
-                            &tunnel_id,
-                        ).await;
-                        let _ = reply.send(result);
+                        if let Some(pending) = pending_forwards.get_mut(&tunnel_id) {
+                            // Aún abriéndose: se contesta cuando llegue la
+                            // respuesta del servidor y se haya deshecho.
+                            pending.cancelled = true;
+                            pending.stop_replies.push(reply);
+                        } else if let Some((bind_host, port)) = tunnels
+                            .remove(&tunnel_id)
+                            .and_then(|tunnel| teardown_tunnel(&remote_forwards, tunnel))
+                        {
+                            // Remoto: se contesta con el forward ya cancelado.
+                            ops.cancel_remote_forward(&handle, bind_host, port, vec![reply]);
+                        } else {
+                            let _ = reply.send(Ok(()));
+                        }
                     }
                     Some(SessionCommand::TunnelAccepted { tunnel_id, stream, peer_host, peer_port }) => {
                         if let Some(tunnel) = tunnels.get(&tunnel_id) {
@@ -2501,19 +2790,19 @@ async fn run_session(
                                 if let Some((host, port)) =
                                     info.remote_host.clone().zip(info.remote_port)
                                 {
-                                    open_tunnel_channel(
-                                        &mut handle,
-                                        &session_id,
-                                        &tunnel_id,
+                                    ops.spawn(open_tunnel_channel(
+                                        handle.clone(),
+                                        session_id.clone(),
+                                        tunnel_id,
                                         stream,
                                         host,
                                         port,
                                         peer_host,
                                         peer_port,
-                                        &app_handle,
+                                        app_handle.clone(),
                                         tunnel.traffic.clone(),
-                                    )
-                                    .await;
+                                        false,
+                                    ));
                                 }
                             }
                         }
@@ -2529,19 +2818,19 @@ async fn run_session(
                         // El túnel puede haberse cerrado mientras se negociaba
                         // el handshake; en ese caso se descarta la conexión.
                         if let Some(traffic) = tunnels.get(&tunnel_id).map(|t| t.traffic.clone()) {
-                            open_tunnel_channel(
-                                &mut handle,
-                                &session_id,
-                                &tunnel_id,
+                            ops.spawn(open_tunnel_channel(
+                                handle.clone(),
+                                session_id.clone(),
+                                tunnel_id,
                                 stream,
                                 target_host,
                                 target_port,
                                 peer_host,
                                 peer_port,
-                                &app_handle,
+                                app_handle.clone(),
                                 traffic,
-                            )
-                            .await;
+                                true,
+                            ));
                         }
                     }
                     Some(SessionCommand::Disconnect) | None => {
@@ -2554,6 +2843,17 @@ async fn run_session(
     }
 
     // 5. Cierre limpio
+    // Lo que quedara en vuelo se aborta (y suelta el handle). Los túneles
+    // remotos que esperaban su forward no llegan a abrirse.
+    drop(ops);
+    for (_, pending) in pending_forwards.drain() {
+        let _ = pending
+            .reply
+            .send(Err("La sesión SSH se cerró antes de abrir el túnel".to_string()));
+        for stop in pending.stop_replies {
+            let _ = stop.send(Ok(()));
+        }
+    }
     // Vaciar cualquier resto del buffer de coalescing antes de cerrar, para no
     // perder el último tramo de salida si el loop terminó con datos pendientes.
     if !out_buf.is_empty() {
@@ -2577,25 +2877,138 @@ async fn run_session(
     if let Ok(mut map) = remote_forwards.lock() {
         map.clear();
     }
-    let _ = channel.eof().await;
-    let _ = channel.close().await;
+    writer.finish().await;
+    finish_channel(&write, true).await;
     exit_kind
 }
 
+/// Cómo sigue un `StartTunnel`.
+enum TunnelStart {
+    /// Ya resuelto: túnel local o SOCKS escuchando, o un error.
+    Done(Result<SshTunnelInfo, String>),
+    /// Túnel remoto válido: falta que el servidor conceda el forward, que se
+    /// pide fuera del bucle (`SessionOps::remote_forward`).
+    Forward(RemoteForwardPlan),
+}
+
+/// Túnel remoto validado, a falta del forward del servidor.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RemoteForwardPlan {
+    id: String,
+    name: Option<String>,
+    bind_host: String,
+    remote_port: u16,
+    /// Destino local de las conexiones que lleguen por el forward.
+    local_host: String,
+    local_port: u16,
+    owner: Option<String>,
+}
+
+/// Valida un túnel remoto ya con su id y su `bind_host` resueltos.
+fn plan_remote_forward(
+    id: String,
+    bind_host: String,
+    config: SshTunnelConfig,
+    owner: Option<String>,
+) -> Result<RemoteForwardPlan, String> {
+    let remote_port = config
+        .remote_port
+        .filter(|p| *p > 0)
+        .ok_or_else(|| "El túnel remoto requiere puerto remoto".to_string())?;
+    let local_host = config
+        .remote_host
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("127.0.0.1")
+        .to_string();
+    if config.local_port == 0 {
+        return Err("El túnel remoto requiere puerto local de destino".into());
+    }
+    Ok(RemoteForwardPlan {
+        id,
+        name: config.name,
+        bind_host,
+        remote_port,
+        local_host,
+        local_port: config.local_port,
+        owner,
+    })
+}
+
+/// Túnel remoto pedido al servidor y aún sin respuesta. No cuenta como activo
+/// (nadie lo ve abierto antes de que el servidor lo conceda), pero sí ocupa su
+/// id y se puede cerrar: entonces queda `cancelled` y, cuando llegue la
+/// respuesta, lo concedido se cancela y `stop_replies` se contesta.
+struct PendingForward {
+    plan: RemoteForwardPlan,
+    reply: oneshot::Sender<Result<SshTunnelInfo, String>>,
+    cancelled: bool,
+    stop_replies: Vec<oneshot::Sender<Result<(), String>>>,
+}
+
+/// Da por abierto un túnel remoto que el servidor concedió en `port`: lo
+/// apunta en el mapa de forwards (por donde `host_keys` enruta las conexiones
+/// que lleguen) y en el de túneles activos.
+fn register_remote_forward(
+    plan: RemoteForwardPlan,
+    port: u32,
+    session_id: &str,
+    app_handle: &AppHandle,
+    remote_forwards: &host_keys::RemoteForwardMap,
+    tunnels: &mut HashMap<String, ActiveTunnel>,
+) -> SshTunnelInfo {
+    let traffic = Arc::new(TunnelTraffic::default());
+    if let Ok(mut map) = remote_forwards.lock() {
+        map.insert(
+            (plan.bind_host.clone(), port),
+            host_keys::RemoteForwardTarget {
+                host: plan.local_host.clone(),
+                port: plan.local_port,
+                session_id: session_id.to_string(),
+                tunnel_id: plan.id.clone(),
+                app_handle: app_handle.clone(),
+                traffic: traffic.clone(),
+            },
+        );
+    }
+    let info = SshTunnelInfo {
+        id: plan.id.clone(),
+        name: plan.name,
+        tunnel_type: SshTunnelType::Remote,
+        bind_host: plan.bind_host,
+        local_port: plan.local_port,
+        remote_host: Some(plan.local_host),
+        remote_port: Some(port as u16),
+        status: "running".into(),
+        bytes_up: 0,
+        bytes_down: 0,
+    };
+    tunnels.insert(
+        plan.id,
+        ActiveTunnel::from_info(info.clone(), None, traffic, plan.owner),
+    );
+    info
+}
+
+/// Arranca un túnel. Los locales y SOCKS solo escuchan en un puerto local y
+/// quedan listos aquí; los remotos se validan y vuelven como
+/// [`TunnelStart::Forward`]: el forward lo pide una tarea, no el bucle.
 async fn start_tunnel_runtime(
     session_id: &str,
     config: SshTunnelConfig,
-    handle: &mut client::Handle<host_keys::KnownHostsClient>,
+    owner: Option<String>,
     tunnels: &mut HashMap<String, ActiveTunnel>,
+    pending_forwards: &HashMap<String, PendingForward>,
     cmd_tx: mpsc::UnboundedSender<SessionCommand>,
     app_handle: AppHandle,
-    remote_forwards: host_keys::RemoteForwardMap,
-) -> Result<SshTunnelInfo, String> {
+) -> TunnelStart {
     let id = config
         .id
+        .clone()
         .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-    if tunnels.contains_key(&id) {
-        return Err(format!("El túnel {id} ya está activo"));
+    if tunnels.contains_key(&id) || pending_forwards.contains_key(&id) {
+        return TunnelStart::Done(Err(format!("El túnel {id} ya está activo")));
     }
 
     let bind_host = config
@@ -2606,258 +3019,289 @@ async fn start_tunnel_runtime(
         .unwrap_or("127.0.0.1")
         .to_string();
 
-    match config.tunnel_type {
-        SshTunnelType::Local | SshTunnelType::Dynamic => {
-            if config.local_port == 0 {
-                return Err("El puerto local debe ser mayor que 0".into());
-            }
-            if config.tunnel_type == SshTunnelType::Local
-                && (config
-                    .remote_host
-                    .as_deref()
-                    .unwrap_or("")
-                    .trim()
-                    .is_empty()
-                    || config.remote_port.unwrap_or(0) == 0)
-            {
-                return Err("El túnel local requiere host y puerto remotos".into());
-            }
-
-            let listener = TcpListener::bind((bind_host.as_str(), config.local_port))
-                .await
-                .map_err(|e| {
-                    format!(
-                        "No se pudo escuchar en {bind_host}:{}: {e}",
-                        config.local_port
-                    )
-                })?;
-            let local_addr = listener
-                .local_addr()
-                .map_err(|e| format!("No se pudo leer el puerto local: {e}"))?;
-            let tunnel_id = id.clone();
-            let task_tx = cmd_tx.clone();
-            let task_session_id = session_id.to_string();
-            let local_task = tokio::spawn(async move {
-                // Fallos de `accept()` seguidos. Casi siempre son pasajeros
-                // (EMFILE con un navegador abriendo cientos de conexiones por
-                // un SOCKS, ECONNABORTED): se espera y se sigue escuchando; el
-                // túnel solo se da por roto tras una racha larga.
-                let mut accept_failures: u32 = 0;
-                loop {
-                    match listener.accept().await {
-                        Ok((stream, peer)) => {
-                            accept_failures = 0;
-                            let msg = SessionCommand::TunnelAccepted {
-                                tunnel_id: tunnel_id.clone(),
-                                stream,
-                                peer_host: peer.ip().to_string(),
-                                peer_port: peer.port() as u32,
-                            };
-                            if task_tx.send(msg).is_err() {
-                                break;
-                            }
-                        }
-                        Err(err) => {
-                            // Al log de conexión, NO como `ssh-error`: la sesión
-                            // sigue viva y la interfaz trata todo `ssh-error`
-                            // como fatal (la daba por muerta y, al reconectar,
-                            // dejaba huérfana esta conexión con sus puertos).
-                            accept_failures += 1;
-                            if accept_failures >= TUNNEL_ACCEPT_MAX_FAILURES {
-                                emit_connection_log(
-                                    &app_handle,
-                                    &task_session_id,
-                                    "tunnel",
-                                    "error",
-                                    format!("Listener de túnel cerrado: {err}"),
-                                );
-                                break;
-                            }
-                            if accept_failures == 1 {
-                                emit_connection_log(
-                                    &app_handle,
-                                    &task_session_id,
-                                    "tunnel",
-                                    "warning",
-                                    format!("El túnel no pudo aceptar una conexión: {err}"),
-                                );
-                            }
-                            tokio::time::sleep(Duration::from_millis(
-                                100 * u64::from(accept_failures.min(10)),
-                            ))
-                            .await;
-                        }
-                    }
-                }
-            });
-
-            let info = SshTunnelInfo {
-                id: id.clone(),
-                name: config.name,
-                tunnel_type: config.tunnel_type,
-                bind_host,
-                local_port: local_addr.port(),
-                remote_host: config.remote_host,
-                remote_port: config.remote_port,
-                status: "running".into(),
-                bytes_up: 0,
-                bytes_down: 0,
-            };
-            tunnels.insert(
-                id,
-                ActiveTunnel::from_info(
-                    info.clone(),
-                    Some(local_task),
-                    Arc::new(TunnelTraffic::default()),
-                ),
-            );
-            Ok(info)
-        }
-        SshTunnelType::Remote => {
-            let remote_port = config
-                .remote_port
-                .filter(|p| *p > 0)
-                .ok_or_else(|| "El túnel remoto requiere puerto remoto".to_string())?;
-            let local_host = config
-                .remote_host
-                .as_deref()
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .unwrap_or("127.0.0.1")
-                .to_string();
-            if config.local_port == 0 {
-                return Err("El túnel remoto requiere puerto local de destino".into());
-            }
-
-            let returned_port = handle
-                .tcpip_forward(bind_host.clone(), remote_port as u32)
-                .await
-                .map_err(|e| format!("El servidor rechazó el túnel remoto: {e}"))?;
-            let returned_port = if returned_port == 0 {
-                remote_port as u32
-            } else {
-                returned_port
-            };
-
-            let traffic = Arc::new(TunnelTraffic::default());
-            if let Ok(mut map) = remote_forwards.lock() {
-                map.insert(
-                    (bind_host.clone(), returned_port),
-                    host_keys::RemoteForwardTarget {
-                        host: local_host.clone(),
-                        port: config.local_port,
-                        session_id: session_id.to_string(),
-                        tunnel_id: id.clone(),
-                        app_handle: app_handle.clone(),
-                        traffic: traffic.clone(),
-                    },
-                );
-            }
-
-            let info = SshTunnelInfo {
-                id: id.clone(),
-                name: config.name,
-                tunnel_type: SshTunnelType::Remote,
-                bind_host,
-                local_port: config.local_port,
-                remote_host: Some(local_host),
-                remote_port: Some(returned_port as u16),
-                status: "running".into(),
-                bytes_up: 0,
-                bytes_down: 0,
-            };
-            tunnels.insert(id, ActiveTunnel::from_info(info.clone(), None, traffic));
-            Ok(info)
-        }
+    if config.tunnel_type == SshTunnelType::Remote {
+        return match plan_remote_forward(id, bind_host, config, owner) {
+            Ok(plan) => TunnelStart::Forward(plan),
+            Err(err) => TunnelStart::Done(Err(err)),
+        };
     }
+    TunnelStart::Done(
+        start_local_tunnel(session_id, id, bind_host, config, owner, tunnels, cmd_tx, app_handle)
+            .await,
+    )
 }
 
-async fn stop_tunnel_runtime(
-    handle: &mut client::Handle<host_keys::KnownHostsClient>,
+/// Túnel local (`-L`) o SOCKS: escucha en el puerto local y cada conexión
+/// aceptada vuelve al bucle como `TunnelAccepted`.
+#[allow(clippy::too_many_arguments)] // el worker le pasa su estado tal cual
+async fn start_local_tunnel(
+    session_id: &str,
+    id: String,
+    bind_host: String,
+    config: SshTunnelConfig,
+    owner: Option<String>,
     tunnels: &mut HashMap<String, ActiveTunnel>,
-    remote_forwards: host_keys::RemoteForwardMap,
-    tunnel_id: &str,
-) -> Result<(), String> {
-    let Some(tunnel) = tunnels.remove(tunnel_id) else {
-        return Ok(());
+    cmd_tx: mpsc::UnboundedSender<SessionCommand>,
+    app_handle: AppHandle,
+) -> Result<SshTunnelInfo, String> {
+    if config.local_port == 0 {
+        return Err("El puerto local debe ser mayor que 0".into());
+    }
+    if config.tunnel_type == SshTunnelType::Local
+        && (config
+            .remote_host
+            .as_deref()
+            .unwrap_or("")
+            .trim()
+            .is_empty()
+            || config.remote_port.unwrap_or(0) == 0)
+    {
+        return Err("El túnel local requiere host y puerto remotos".into());
+    }
+
+    let listener = TcpListener::bind((bind_host.as_str(), config.local_port))
+        .await
+        .map_err(|e| {
+            format!(
+                "No se pudo escuchar en {bind_host}:{}: {e}",
+                config.local_port
+            )
+        })?;
+    let local_addr = listener
+        .local_addr()
+        .map_err(|e| format!("No se pudo leer el puerto local: {e}"))?;
+    let tunnel_id = id.clone();
+    let task_tx = cmd_tx.clone();
+    let task_session_id = session_id.to_string();
+    let local_task = tokio::spawn(async move {
+        // Fallos de `accept()` seguidos. Casi siempre son pasajeros
+        // (EMFILE con un navegador abriendo cientos de conexiones por
+        // un SOCKS, ECONNABORTED): se espera y se sigue escuchando; el
+        // túnel solo se da por roto tras una racha larga.
+        let mut accept_failures: u32 = 0;
+        loop {
+            match listener.accept().await {
+                Ok((stream, peer)) => {
+                    accept_failures = 0;
+                    let msg = SessionCommand::TunnelAccepted {
+                        tunnel_id: tunnel_id.clone(),
+                        stream,
+                        peer_host: peer.ip().to_string(),
+                        peer_port: peer.port() as u32,
+                    };
+                    if task_tx.send(msg).is_err() {
+                        break;
+                    }
+                }
+                Err(err) => {
+                    // Al log de conexión, NO como `ssh-error`: la sesión
+                    // sigue viva y la interfaz trata todo `ssh-error`
+                    // como fatal (la daba por muerta y, al reconectar,
+                    // dejaba huérfana esta conexión con sus puertos).
+                    accept_failures += 1;
+                    if accept_failures >= TUNNEL_ACCEPT_MAX_FAILURES {
+                        emit_connection_log(
+                            &app_handle,
+                            &task_session_id,
+                            "tunnel",
+                            "error",
+                            format!("Listener de túnel cerrado: {err}"),
+                        );
+                        break;
+                    }
+                    if accept_failures == 1 {
+                        emit_connection_log(
+                            &app_handle,
+                            &task_session_id,
+                            "tunnel",
+                            "warning",
+                            format!("El túnel no pudo aceptar una conexión: {err}"),
+                        );
+                    }
+                    tokio::time::sleep(Duration::from_millis(
+                        100 * u64::from(accept_failures.min(10)),
+                    ))
+                    .await;
+                }
+            }
+        }
+    });
+
+    let info = SshTunnelInfo {
+        id: id.clone(),
+        name: config.name,
+        tunnel_type: config.tunnel_type,
+        bind_host,
+        local_port: local_addr.port(),
+        remote_host: config.remote_host,
+        remote_port: config.remote_port,
+        status: "running".into(),
+        bytes_up: 0,
+        bytes_down: 0,
     };
+    tunnels.insert(
+        id,
+        ActiveTunnel::from_info(
+            info.clone(),
+            Some(local_task),
+            Arc::new(TunnelTraffic::default()),
+            owner,
+        ),
+    );
+    Ok(info)
+}
+
+/// Para un túnel ya retirado del mapa: aborta su listener local y, si es
+/// remoto, lo olvida en el mapa de forwards (desde ya, las conexiones que
+/// lleguen por él se rechazan). Devuelve el forward `(bind_host, puerto)` que
+/// queda por cancelar en el servidor: eso espera una respuesta y lo hace una
+/// tarea (`SessionOps::cancel_remote_forward`), no el bucle.
+fn teardown_tunnel(
+    remote_forwards: &host_keys::RemoteForwardMap,
+    tunnel: ActiveTunnel,
+) -> Option<(String, u32)> {
     if let Some(task) = tunnel.local_task {
         task.abort();
     }
-    if tunnel.info.tunnel_type == SshTunnelType::Remote {
-        if let Some(remote_port) = tunnel.info.remote_port {
-            let _ = handle
-                .cancel_tcpip_forward(tunnel.info.bind_host.clone(), remote_port as u32)
-                .await;
-            if let Ok(mut map) = remote_forwards.lock() {
-                map.remove(&(tunnel.info.bind_host, remote_port as u32));
-            }
-        }
+    if tunnel.info.tunnel_type != SshTunnelType::Remote {
+        return None;
     }
-    Ok(())
+    let remote_port = u32::from(tunnel.info.remote_port?);
+    if let Ok(mut map) = remote_forwards.lock() {
+        map.remove(&(tunnel.info.bind_host.clone(), remote_port));
+    }
+    Some((tunnel.info.bind_host, remote_port))
 }
 
 /// Abre el canal direct-tcpip de una conexión de túnel ya resuelta y arranca el
-/// bombeo de bytes. La espera del open corre dentro del bucle de sesión (el
-/// `Handle` russh no es clonable), por eso se acota con `TUNNEL_OPEN_TIMEOUT`.
+/// bombeo de bytes. Corre en una tarea de `crate::session_ops` (nunca en el
+/// bucle de sesión: con la cola de salida atascada el open no volvería) y se
+/// acota con `TUNNEL_OPEN_TIMEOUT`.
+///
+/// Con `socks`, el cliente SOCKS5 todavía espera la respuesta a su CONNECT: oye
+/// «conectado» solo cuando el canal está abierto de verdad y, si no se pudo,
+/// recibe el código de error que corresponde en vez de un cierre sin explicar.
 #[allow(clippy::too_many_arguments)]
 async fn open_tunnel_channel(
-    handle: &mut client::Handle<host_keys::KnownHostsClient>,
-    session_id: &str,
-    tunnel_id: &str,
+    handle: SharedHandle,
+    session_id: String,
+    tunnel_id: String,
     stream: TcpStream,
     target_host: String,
     target_port: u16,
     peer_host: String,
     peer_port: u32,
-    app_handle: &AppHandle,
+    app_handle: AppHandle,
     traffic: Arc<TunnelTraffic>,
+    socks: bool,
 ) {
     // Sin el puerto efímero del cliente: así la deduplicación consecutiva del
     // log de conexión absorbe las ráfagas (un navegador por SOCKS reintenta).
     let target = format!("{target_host}:{target_port}");
-    match tokio::time::timeout(
+    let failure = match tokio::time::timeout(
         TUNNEL_OPEN_TIMEOUT,
         handle.channel_open_direct_tcpip(target_host, target_port as u32, peer_host, peer_port),
     )
     .await
     {
         Ok(Ok(channel)) => {
-            tokio::spawn(pump_tunnel(
-                channel,
-                stream,
-                session_id.to_string(),
-                tunnel_id.to_string(),
-                app_handle.clone(),
+            // Desde aquí la conexión cuenta como activa en el túnel, hasta que
+            // se suelte `conn` (fin, error o tarea abortada).
+            let conn = TunnelConnection::open(
                 traffic,
-            ));
-        }
-        // Un open fallido (destino que el servidor no alcanza, puerto cerrado,
-        // `AllowTcpForwarding no`) afecta solo a ESA conexión: la sesión sigue
-        // viva. Va al log de conexión como aviso, nunca como `ssh-error`, que
-        // la interfaz trata como fatal (overlay de error, teclado bloqueado y
-        // una reconexión que dejaba huérfana la conexión viva).
-        Ok(Err(err)) => {
-            emit_connection_log(
-                app_handle,
-                session_id,
-                "tunnel",
-                "warning",
-                format!("No se pudo abrir el canal del túnel hacia {target}: {err}"),
+                tunnel_traffic_emitter(app_handle.clone(), &session_id, &tunnel_id),
             );
+            tokio::spawn(async move {
+                let mut stream = stream;
+                if socks
+                    && stream
+                        .write_all(&socks5_reply(SOCKS5_SUCCEEDED))
+                        .await
+                        .is_err()
+                {
+                    return;
+                }
+                pump_tunnel(channel, stream, conn).await;
+            });
+            return;
         }
-        Err(_) => {
-            emit_connection_log(
-                app_handle,
-                session_id,
-                "tunnel",
-                "warning",
-                format!("Tiempo agotado abriendo el canal del túnel hacia {target}"),
-            );
+        Ok(Err(err)) => TunnelOpenError::Ssh(err),
+        Err(_) => TunnelOpenError::Timeout,
+    };
+    // Un open fallido (destino que el servidor no alcanza, puerto cerrado,
+    // `AllowTcpForwarding no`) afecta solo a ESA conexión: la sesión sigue
+    // viva. Va al log de conexión como aviso, nunca como `ssh-error`, que
+    // la interfaz trata como fatal (overlay de error, teclado bloqueado y
+    // una reconexión que dejaba huérfana la conexión viva).
+    let message = match &failure {
+        TunnelOpenError::Ssh(err) => {
+            format!("No se pudo abrir el canal del túnel hacia {target}: {err}")
         }
+        TunnelOpenError::Timeout => {
+            format!("Tiempo agotado abriendo el canal del túnel hacia {target}")
+        }
+    };
+    emit_connection_log(&app_handle, &session_id, "tunnel", "warning", message);
+    if socks {
+        socks5_reject(stream, socks5_failure_code(&failure));
     }
 }
 
+/// Por qué no se abrió el canal `direct-tcpip` de una conexión de túnel.
+enum TunnelOpenError {
+    /// El servidor no contestó al open en `TUNNEL_OPEN_TIMEOUT`.
+    Timeout,
+    /// El servidor rechazó el open (o cayó el transporte).
+    Ssh(russh::Error),
+}
+
+/// Códigos de respuesta SOCKS5 (RFC 1928, campo REP).
+const SOCKS5_SUCCEEDED: u8 = 0x00;
+const SOCKS5_GENERAL_FAILURE: u8 = 0x01;
+const SOCKS5_NOT_ALLOWED: u8 = 0x02;
+const SOCKS5_HOST_UNREACHABLE: u8 = 0x04;
+const SOCKS5_CONNECTION_REFUSED: u8 = 0x05;
+const SOCKS5_COMMAND_NOT_SUPPORTED: u8 = 0x07;
+const SOCKS5_ADDRESS_NOT_SUPPORTED: u8 = 0x08;
+
+/// Respuesta SOCKS5 de 10 bytes: VER, REP, RSV, ATYP=IPv4 y BND.ADDR/BND.PORT
+/// a cero (no se anuncia ninguna dirección de enlace).
+fn socks5_reply(code: u8) -> [u8; 10] {
+    [0x05, code, 0x00, 0x01, 0, 0, 0, 0, 0, 0]
+}
+
+/// Código SOCKS5 con el que se explica al cliente por qué no hay conexión. Los
+/// motivos los da el servidor SSH al rechazar el `direct-tcpip`: «connect
+/// failed» es el destino que no acepta (puerto cerrado), «administratively
+/// prohibited» es `AllowTcpForwarding no` o una regla; sin respuesta en plazo,
+/// el destino no es alcanzable; cualquier otra cosa, fallo general.
+fn socks5_failure_code(err: &TunnelOpenError) -> u8 {
+    match err {
+        TunnelOpenError::Timeout => SOCKS5_HOST_UNREACHABLE,
+        TunnelOpenError::Ssh(russh::Error::ChannelOpenFailure(reason)) => match reason {
+            ChannelOpenFailure::ConnectFailed => SOCKS5_CONNECTION_REFUSED,
+            ChannelOpenFailure::AdministrativelyProhibited => SOCKS5_NOT_ALLOWED,
+            _ => SOCKS5_GENERAL_FAILURE,
+        },
+        TunnelOpenError::Ssh(_) => SOCKS5_GENERAL_FAILURE,
+    }
+}
+
+/// Contesta al CONNECT con `code` y cierra la conexión del cliente SOCKS, en
+/// su propia tarea: el bucle de sesión no espera a un cliente que no lea.
+fn socks5_reject(mut stream: TcpStream, code: u8) {
+    tokio::spawn(async move {
+        let _ = stream.write_all(&socks5_reply(code)).await;
+        let _ = stream.shutdown().await;
+    });
+}
+
+/// Handshake SOCKS5 de una conexión al túnel dinámico: negocia «sin
+/// autenticación» y lee el CONNECT. Devuelve el destino SIN contestar al
+/// CONNECT: la respuesta de éxito sale solo cuando el canal `direct-tcpip` se
+/// abre (`open_tunnel_channel`); antes se mandaba aquí y el cliente oía
+/// «conectado» para luego ver cerrarse el socket sin explicación. Los errores
+/// del propio handshake sí se contestan aquí con su código.
 async fn read_socks5_target(mut stream: TcpStream) -> std::io::Result<(TcpStream, String, u16)> {
     let mut head = [0u8; 2];
     stream.read_exact(&mut head).await?;
@@ -2875,7 +3319,7 @@ async fn read_socks5_target(mut stream: TcpStream) -> std::io::Result<(TcpStream
     stream.read_exact(&mut req).await?;
     if req[0] != 0x05 || req[1] != 0x01 {
         let _ = stream
-            .write_all(&[0x05, 0x07, 0x00, 0x01, 0, 0, 0, 0, 0, 0])
+            .write_all(&socks5_reply(SOCKS5_COMMAND_NOT_SUPPORTED))
             .await;
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
@@ -2903,7 +3347,7 @@ async fn read_socks5_target(mut stream: TcpStream) -> std::io::Result<(TcpStream
         }
         _ => {
             let _ = stream
-                .write_all(&[0x05, 0x08, 0x00, 0x01, 0, 0, 0, 0, 0, 0])
+                .write_all(&socks5_reply(SOCKS5_ADDRESS_NOT_SUPPORTED))
                 .await;
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
@@ -2914,93 +3358,30 @@ async fn read_socks5_target(mut stream: TcpStream) -> std::io::Result<(TcpStream
     let mut port_bytes = [0u8; 2];
     stream.read_exact(&mut port_bytes).await?;
     let port = u16::from_be_bytes(port_bytes);
-    stream
-        .write_all(&[0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0])
-        .await?;
     Ok((stream, host, port))
 }
 
-async fn pump_tunnel(
-    mut channel: russh::Channel<russh::client::Msg>,
-    stream: TcpStream,
-    session_id: String,
-    tunnel_id: String,
+/// Emisor de `ssh-tunnel-traffic-{session}` para las conexiones del túnel
+/// `tunnel_id`: el bombeo solo conoce esta clausura, no el `AppHandle`, y así
+/// se prueba sin Tauri.
+pub(crate) fn tunnel_traffic_emitter(
     app_handle: AppHandle,
-    traffic: Arc<TunnelTraffic>,
-) {
-    let (mut local_rx, mut local_tx) = tokio::io::split(stream);
-    let mut buf = vec![0u8; 16384];
-    let mut bytes_up = 0u64;
-    let mut bytes_down = 0u64;
-    // Coalescing de los eventos de tráfico: en vez de emitir por cada chunk
-    // (avalancha IPC en transferencias masivas), emitimos a lo sumo cada
-    // TRAFFIC_MIN_INTERVAL o cada TRAFFIC_MIN_BYTES; al final se hace un flush
-    // con los totales exactos. El ritmo lo deciden los bytes de ESTA conexión
-    // (`bytes_up`/`bytes_down`); el evento lleva el acumulado del túnel.
-    let event = event_name(EventKind::SshTunnelTraffic, &session_id);
-    let mut last_emit = std::time::Instant::now();
-    let mut last_emit_total = 0u64;
-    let mut maybe_emit = |bytes_up: u64, bytes_down: u64| {
-        let total = bytes_up.saturating_add(bytes_down);
-        if crate::tunnel_throttle::should_emit_traffic(
-            last_emit.elapsed(),
-            total.saturating_sub(last_emit_total),
-        ) {
-            let (bytes_up, bytes_down) = traffic.totals();
-            let _ = app_handle.emit(
-                &event,
-                SshTunnelTrafficEvent { id: tunnel_id.clone(), bytes_up, bytes_down },
-            );
-            last_emit = std::time::Instant::now();
-            last_emit_total = total;
-        }
-    };
-    loop {
-        tokio::select! {
-            read = local_rx.read(&mut buf) => {
-                match read {
-                    Ok(0) | Err(_) => break,
-                    Ok(n) => {
-                        if channel.data(&buf[..n]).await.is_err() {
-                            break;
-                        }
-                        bytes_up = bytes_up.saturating_add(n as u64);
-                        traffic.add(n as u64, 0);
-                        maybe_emit(bytes_up, bytes_down);
-                    }
-                }
-            }
-            msg = channel.wait() => {
-                match msg {
-                    Some(ChannelMsg::Data { data }) => {
-                        if local_tx.write_all(&data).await.is_err() {
-                            break;
-                        }
-                        bytes_down = bytes_down.saturating_add(data.len() as u64);
-                        traffic.add(0, data.len() as u64);
-                        maybe_emit(bytes_up, bytes_down);
-                    }
-                    Some(ChannelMsg::Eof)
-                    | Some(ChannelMsg::Close)
-                    | Some(ChannelMsg::ExitStatus { .. })
-                    | Some(ChannelMsg::ExitSignal { .. }) => break,
-                    Some(_) => {}
-                    None => break,
-                }
-            }
-        }
-    }
-    // Flush final: asegura que la UI vea los totales exactos aunque el último
-    // chunk no cruzara el umbral de emisión.
-    if bytes_up.saturating_add(bytes_down) != last_emit_total {
-        let (bytes_up, bytes_down) = traffic.totals();
+    session_id: &str,
+    tunnel_id: &str,
+) -> TrafficSink {
+    let event = event_name(EventKind::SshTunnelTraffic, session_id);
+    let id = tunnel_id.to_string();
+    Arc::new(move |snap| {
         let _ = app_handle.emit(
             &event,
-            SshTunnelTrafficEvent { id: tunnel_id.clone(), bytes_up, bytes_down },
+            SshTunnelTrafficEvent {
+                id: id.clone(),
+                bytes_up: snap.bytes_up,
+                bytes_down: snap.bytes_down,
+                active_connections: snap.active_connections,
+            },
         );
-    }
-    let _ = channel.eof().await;
-    let _ = channel.close().await;
+    })
 }
 
 /// Autenticación vía agente SSH. Probamos cada identidad hasta que una
@@ -3014,16 +3395,17 @@ async fn authenticate_with_agent(
 
     let mut agent = AgentClient::connect_env()
         .await
-        .map_err(|e| AppError::Auth(format!("No se pudo contactar con el agente SSH: {e}")))?
+        .map_err(|e| AppError::Auth(tr!("No se pudo contactar con el agente SSH: {e}", "Could not reach the SSH agent: {e}")))?
         .dynamic();
     let identities = agent.request_identities().await.map_err(|e| {
-        AppError::Auth(format!("No se pudieron listar identidades del agente: {e}"))
+        AppError::Auth(tr!("No se pudieron listar identidades del agente: {e}", "Could not list the agent identities: {e}"))
     })?;
 
     if identities.is_empty() {
-        return Err(AppError::Auth(
-            "El agente SSH no tiene claves cargadas".into(),
-        ));
+        return Err(AppError::Auth(tr!(
+            "El agente SSH no tiene claves cargadas",
+            "The SSH agent has no keys loaded"
+        )));
     }
 
     let hash_alg = handle
@@ -3041,7 +3423,7 @@ async fn authenticate_with_agent(
         match res {
             Ok(AuthResult::Success) => return Ok(AuthResult::Success),
             Ok(other) => last_failure = Some(other),
-            Err(e) => return Err(AppError::Auth(format!("Error al firmar con agente: {e}"))),
+            Err(e) => return Err(AppError::Auth(tr!("Error al firmar con agente: {e}", "Error signing with the agent: {e}"))),
         }
     }
     Ok(last_failure.unwrap_or(AuthResult::Failure {
@@ -3055,9 +3437,10 @@ async fn authenticate_with_agent(
     _handle: &mut client::Handle<host_keys::KnownHostsClient>,
     _username: &str,
 ) -> Result<AuthResult, AppError> {
-    Err(AppError::Auth(
-        "Autenticación vía agente SSH no soportada en esta plataforma".into(),
-    ))
+    Err(AppError::Auth(tr!(
+        "Autenticación vía agente SSH no soportada en esta plataforma",
+        "SSH agent authentication is not supported on this platform"
+    )))
 }
 
 /// Tipo de un algoritmo legacy del catálogo, ligado a la lista de `Preferred`
@@ -3327,7 +3710,7 @@ pub(crate) async fn password_auth_with_fallback(
     let result = handle
         .authenticate_password(username.to_string(), password.clone())
         .await
-        .map_err(|e| AppError::Auth(format!("Autenticación por contraseña fallida: {e}")))?;
+        .map_err(|e| AppError::Auth(tr!("Autenticación por contraseña fallida: {e}", "Password authentication failed: {e}")))?;
     if let AuthResult::Failure {
         ref remaining_methods,
         partial_success: false,
@@ -3364,14 +3747,14 @@ async fn authenticate_first_factor(
         AuthType::Password => {
             let pass = password
                 .cloned()
-                .ok_or_else(|| AppError::Auth("Se requiere contraseña".into()))?;
+                .ok_or_else(|| AppError::Auth(tr!("Se requiere contraseña", "A password is required")))?;
             password_auth_with_fallback(handle, username, host, pass).await
         }
         AuthType::PublicKey => {
             let key_path = key_path
-                .ok_or_else(|| AppError::Auth("Se requiere ruta de clave privada".into()))?;
+                .ok_or_else(|| AppError::Auth(tr!("Se requiere ruta de clave privada", "A private key path is required")))?;
             let key = load_secret_key(Path::new(key_path), passphrase.map(|s| s.as_str()))
-                .map_err(|e| AppError::Auth(format!("Clave inválida: {e}")))?;
+                .map_err(|e| AppError::Auth(tr!("Clave inválida: {e}", "Invalid key: {e}")))?;
             let hash_alg = handle
                 .best_supported_rsa_hash()
                 .await
@@ -3384,7 +3767,7 @@ async fn authenticate_first_factor(
                     PrivateKeyWithHashAlg::new(Arc::new(key), hash_alg),
                 )
                 .await
-                .map_err(|e| AppError::Auth(format!("Autenticación por clave fallida: {e}")))
+                .map_err(|e| AppError::Auth(tr!("Autenticación por clave fallida: {e}", "Key authentication failed: {e}")))
         }
         AuthType::Agent => authenticate_with_agent(handle, username).await,
         AuthType::KeyboardInteractive => {
@@ -3414,6 +3797,14 @@ const MAX_INTERACTIVE_ROUNDS: usize = 12;
 /// ([`round_asks_for_password`]); todo lo demás —un segundo factor después,
 /// una ronda con otra forma, una contraseña que el servidor vuelve a pedir— va
 /// al usuario como siempre.
+///
+/// **TOTP de KeePass.** Si el perfil lo ha activado (ver [`auth_totp`]; la
+/// política llega con `auth_totp::with_policy`, no por la firma), la ronda que
+/// pregunta el código se contesta con el de KeePass —sola en modo automático,
+/// o desde el botón del diálogo— y nunca cuenta como la ronda de la
+/// contraseña: con `pam_google_authenticator` por delante de la contraseña, el
+/// servidor pide primero el código, y la contraseña del perfil sigue valiendo
+/// para la ronda siguiente. Se entrega una sola vez, como antes.
 pub(crate) async fn keyboard_interactive_auth(
     handle: &mut client::Handle<host_keys::KnownHostsClient>,
     username: &str,
@@ -3423,19 +3814,29 @@ pub(crate) async fn keyboard_interactive_auth(
     let mut response = handle
         .authenticate_keyboard_interactive_start(username.to_string(), None)
         .await
-        .map_err(|e| AppError::Auth(format!("Autenticación interactiva fallida: {e}")))?;
+        .map_err(|e| AppError::Auth(tr!("Autenticación interactiva fallida: {e}", "Interactive authentication failed: {e}")))?;
 
-    for round in 0..MAX_INTERACTIVE_ROUNDS {
+    let mut totp = auth_totp::Exchange::for_current_task();
+    // La contraseña del perfil, mientras no se haya gastado su ronda.
+    let mut password = password;
+
+    for _ in 0..MAX_INTERACTIVE_ROUNDS {
         let (name, instructions, prompts) = match response {
-            KeyboardInteractiveAuthResponse::Success => return Ok(AuthResult::Success),
+            KeyboardInteractiveAuthResponse::Success => {
+                totp.finished(true);
+                return Ok(AuthResult::Success);
+            }
             KeyboardInteractiveAuthResponse::Failure {
                 remaining_methods,
                 partial_success,
             } => {
+                // `partial_success`: lo contestado valió y el servidor pide
+                // otro método; para el código de KeePass es un acierto.
+                totp.finished(partial_success);
                 return Ok(AuthResult::Failure {
                     remaining_methods,
                     partial_success,
-                })
+                });
             }
             KeyboardInteractiveAuthResponse::InfoRequest {
                 name,
@@ -3452,22 +3853,62 @@ pub(crate) async fn keyboard_interactive_auth(
             })
             .collect();
 
-        let answers = match password.filter(|_| round == 0 && round_asks_for_password(&fields)) {
+        let plan = totp.plan(&fields);
+        // La contraseña va a la primera ronda que no sea la del código, y solo
+        // si tiene forma de petición de contraseña; con otra forma se pierde
+        // el turno igualmente (`take`): nunca se entrega más tarde.
+        let secret = match plan {
+            auth_totp::Round::Manual => password.take().filter(|_| round_asks_for_password(&fields)),
+            auth_totp::Round::Offer | auth_totp::Round::Auto => None,
+        };
+        // Toda salida de aquí que no sea un acierto cierra el intercambio con
+        // `finished(false)`: tras un código automático, lo que no acaba bien
+        // cuenta como rechazo y no se reintenta solo.
+        let answers = match secret {
             Some(secret) => vec![secret.to_string()],
-            None => auth_prompt::ask(host, username, &name, &instructions, &fields)
-                .await
-                .map_err(AppError::Auth)?
-                .ok_or_else(|| AppError::Auth("Autenticación interactiva cancelada".to_string()))?,
+            None => match totp.auto_answer(plan, host, &fields).await {
+                Some(code) => code,
+                None => {
+                    let asked = auth_prompt::ask(
+                        host,
+                        username,
+                        &name,
+                        &instructions,
+                        &fields,
+                        totp.offer(plan, host),
+                    )
+                    .await;
+                    match asked {
+                        Ok(Some(answers)) => {
+                            totp.answered(plan, answers.from_keepass);
+                            answers.values
+                        }
+                        Ok(None) => {
+                            totp.finished(false);
+                            return Err(AppError::Auth(tr!("Autenticación interactiva cancelada", "Interactive authentication cancelled")));
+                        }
+                        Err(reason) => {
+                            totp.finished(false);
+                            return Err(AppError::Auth(reason));
+                        }
+                    }
+                }
+            },
         };
 
-        response = handle
-            .authenticate_keyboard_interactive_respond(answers)
-            .await
-            .map_err(|e| AppError::Auth(format!("Autenticación interactiva fallida: {e}")))?;
+        response = match handle.authenticate_keyboard_interactive_respond(answers).await {
+            Ok(response) => response,
+            Err(e) => {
+                totp.finished(false);
+                return Err(AppError::Auth(tr!("Autenticación interactiva fallida: {e}", "Interactive authentication failed: {e}")));
+            }
+        };
     }
 
-    Err(AppError::Auth(format!(
-        "El servidor pidió más de {MAX_INTERACTIVE_ROUNDS} rondas de preguntas; conexión abortada"
+    totp.finished(false);
+    Err(AppError::Auth(tr!(
+        "El servidor pidió más de {MAX_INTERACTIVE_ROUNDS} rondas de preguntas; conexión abortada",
+        "The server asked more than {MAX_INTERACTIVE_ROUNDS} rounds of questions; connection aborted"
     )))
 }
 
@@ -3938,10 +4379,108 @@ mod tests {
             .expect("cancelar el tcpip-forward");
     }
 
+    /// **Integración**: las operaciones que el bucle raíz ya no espera, por
+    /// `SessionOps` contra un `sshd` real: muestra del monitor (la salida se
+    /// parsea), `kill` de un PID inexistente (el error del remoto vuelve),
+    /// pestaña nueva (el canal abierto tiene shell viva), túnel remoto concedido
+    /// y su cierre, que contesta con el puerto ya suelto en el servidor.
+    #[cfg(target_os = "linux")]
+    #[ignore = "necesita sshd y ssh-keygen; se corre con --ignored"]
+    #[tokio::test]
+    async fn ssh_operaciones_del_bucle_raiz_en_tareas_contra_sshd_real() {
+        let _guard = SSH_IT_LOCK.lock().await;
+        use crate::ssh_fixture;
+
+        let Some(server) = ssh_fixture::start().expect("arrancar sshd") else {
+            eprintln!("sshd/ssh-keygen no disponibles; test omitido");
+            return;
+        };
+        host_keys::set_strict_first_connect(false);
+        let handle: SharedHandle = Arc::new(connect_and_auth(&server).await);
+        let mut ops = SessionOps::new(OpLimits::DEFAULT);
+        async fn siguiente(ops: &mut SessionOps) -> OpDone {
+            tokio::time::timeout(Duration::from_secs(20), ops.next())
+                .await
+                .expect("la operación acaba en su plazo")
+                .expect("hay una operación en vuelo")
+        }
+
+        // Monitor: una muestra de /proc que se parsea entera.
+        assert!(ops.metrics_sample(&handle, metrics::linux_sample_command()));
+        let OpDone::MetricsSample { generation, text } = siguiente(&mut ops).await else {
+            panic!("se esperaba la muestra del monitor");
+        };
+        assert_eq!(generation, ops.metrics_generation());
+        let sample = metrics::RawSample::parse(&text);
+        assert!(sample.cpu.is_some(), "muestra sin CPU: {text:?}");
+        assert!(!sample.procs.is_empty(), "muestra sin procesos: {text:?}");
+
+        // Kill de un PID que no existe: el remoto lo explica.
+        let (kill_tx, kill_rx) = oneshot::channel();
+        ops.kill(&handle, "kill -TERM 2147483646".to_string(), kill_tx);
+        assert!(matches!(siguiente(&mut ops).await, OpDone::Idle));
+        let err = kill_rx.await.expect("el kill contesta").expect_err("el PID no existe");
+        assert!(!err.is_empty());
+
+        // Pestaña nueva: el canal llega con PTY y shell.
+        let (shell_tx, _shell_rx) = oneshot::channel();
+        ops.open_shell(
+            &handle,
+            ShellRequest {
+                shell_id: "hija".to_string(),
+                on_data: Channel::new(|_| Ok(())),
+                cols: 100,
+                rows: 30,
+                env: Arc::new(Vec::new()),
+                term: "xterm",
+                reply: shell_tx,
+            },
+        );
+        let OpDone::ShellOpened { shell_id, result, .. } = siguiente(&mut ops).await else {
+            panic!("se esperaba la pestaña nueva");
+        };
+        assert_eq!(shell_id, "hija");
+        let mut shell = result.expect("la pestaña abre");
+        shell.data(&b"echo vive-$((6*7))\n"[..]).await.expect("escribir");
+        let mut salida = String::new();
+        let lectura = async {
+            while let Some(msg) = shell.wait().await {
+                if let ChannelMsg::Data { data } = msg {
+                    salida.push_str(&String::from_utf8_lossy(&data));
+                    if salida.contains("vive-42") {
+                        break;
+                    }
+                }
+            }
+        };
+        tokio::time::timeout(Duration::from_secs(15), lectura)
+            .await
+            .unwrap_or_else(|_| panic!("la shell no contestó: {salida:?}"));
+
+        // Túnel remoto: concedido en el puerto que asigne el servidor...
+        ops.remote_forward(&handle, "t1".to_string(), "127.0.0.1".to_string(), 0);
+        let OpDone::RemoteForward { tunnel_id, result } = siguiente(&mut ops).await else {
+            panic!("se esperaba la respuesta al forward");
+        };
+        assert_eq!(tunnel_id, "t1");
+        let session_ops::ForwardResult::Granted(port) = result else {
+            panic!("el servidor debió conceder el forward: {result:?}");
+        };
+        assert!(port > 0);
+        assert!(TcpStream::connect(("127.0.0.1", port as u16)).await.is_ok());
+        // ...y su cierre contesta con el puerto ya suelto.
+        let (stop_tx, stop_rx) = oneshot::channel();
+        ops.cancel_remote_forward(&handle, "127.0.0.1".to_string(), port, vec![stop_tx]);
+        assert!(matches!(siguiente(&mut ops).await, OpDone::Idle));
+        assert_eq!(stop_rx.await.expect("el cierre contesta"), Ok(()));
+        assert!(TcpStream::connect(("127.0.0.1", port as u16)).await.is_err());
+        assert!(ops.is_idle());
+    }
+
     /// **Integración**: el primitivo de F0.3 («varias shells sobre una única
     /// conexión SSH», la base de «Nueva pestaña en esta conexión»): dos
     /// `channel_open_session` + PTY + shell sobre el MISMO handle autenticado
-    /// —exactamente lo que hace `open_extra_shell`— contra un `sshd` real, y
+    /// —exactamente lo que hace `open_extra_shell_channel`— contra un `sshd` real, y
     /// cada shell ejecuta lo suyo y responde por su canal sin cruzarse con la
     /// otra. Los marcadores usan `$((…))`: el eco del tecleo contiene la
     /// expresión sin evaluar, así que el marcador evaluado solo puede venir de
@@ -4025,6 +4564,71 @@ mod tests {
             .await
             .expect("escribir en B tras cerrar A");
         leer_hasta(&mut shell_b, "sigo-viva-48").await;
+    }
+
+    /// Un cambio de tamaño de una shell hija llega al PTY real por la tarea
+    /// de tamaño del escritor (ya no lo manda el bucle lector): `stty size`
+    /// en el servidor ve las filas y columnas nuevas.
+    #[cfg(target_os = "linux")]
+    #[ignore = "necesita sshd y ssh-keygen; se corre con --ignored"]
+    #[tokio::test]
+    async fn ssh_redimensionar_una_shell_hija_llega_al_pty() {
+        let _guard = SSH_IT_LOCK.lock().await;
+        use crate::ssh_fixture;
+
+        let Some(server) = ssh_fixture::start().expect("arrancar sshd") else {
+            eprintln!("sshd/ssh-keygen no disponibles; test omitido");
+            return;
+        };
+        host_keys::set_strict_first_connect(false);
+        let handle = connect_and_auth(&server).await;
+        let channel = open_shell_channel(&handle).await;
+        let (on_data, mut data_rx) = capture_channel();
+        let (shell_tx, shell_rx) = mpsc::unbounded_channel();
+        let (cmd_tx, _cmd_rx) = mpsc::unbounded_channel::<SessionCommand>();
+        let task = tokio::spawn(run_extra_shell(
+            channel,
+            "hija".to_string(),
+            on_data,
+            shell_rx,
+            cmd_tx,
+        ));
+
+        shell_tx
+            .send(ShellMsg::Resize {
+                cols: 123,
+                rows: 45,
+            })
+            .unwrap();
+        // El tamaño viaja aparte de la entrada: se reintenta hasta verlo.
+        let mut salida = Vec::new();
+        let visto = async {
+            loop {
+                shell_tx
+                    .send(ShellMsg::Input(b"stty size\n".to_vec()))
+                    .unwrap();
+                let pausa = tokio::time::sleep(Duration::from_millis(300));
+                tokio::pin!(pausa);
+                loop {
+                    tokio::select! {
+                        Some(bytes) = data_rx.recv() => salida.extend_from_slice(&bytes),
+                        _ = &mut pausa => break,
+                    }
+                }
+                if String::from_utf8_lossy(&salida).contains("45 123") {
+                    break;
+                }
+            }
+        };
+        tokio::time::timeout(Duration::from_secs(15), visto)
+            .await
+            .unwrap_or_else(|_| panic!("el PTY no cambió: {}", String::from_utf8_lossy(&salida)));
+
+        shell_tx.send(ShellMsg::Close).unwrap();
+        tokio::time::timeout(Duration::from_secs(5), task)
+            .await
+            .expect("cierre")
+            .unwrap();
     }
 
     /// Perfil SSH con comando al conectar, variables y TERM, resuelto como al
@@ -4114,7 +4718,7 @@ mod tests {
         assert!(salida.contains("con-tty"), "el comando corre sobre el PTY: {salida:?}");
     }
 
-    /// **Integración**: «Nueva pestaña en esta conexión» por `open_extra_shell`
+    /// **Integración**: «Nueva pestaña en esta conexión» por `open_extra_shell_channel`
     /// contra un `sshd` real: hereda el entorno y el TERM del perfil, pero abre
     /// un **shell** aunque el perfil tenga comando al conectar. El marcador usa
     /// `$((…))`: solo una shell viva lo evalúa.
@@ -4144,9 +4748,10 @@ mod tests {
         });
         let (cmd_tx, _cmd_rx) = mpsc::unbounded_channel::<SessionCommand>();
         let mut shells = HashMap::new();
-        open_extra_shell(&handle, "hija", on_data, (80, 24), &launch, cmd_tx, &mut shells)
+        let channel = open_extra_shell_channel(&handle, (80, 24), &launch.env, launch.term())
             .await
             .expect("abrir la shell hija");
+        start_extra_shell("hija", channel, on_data, cmd_tx, &mut shells);
         shells["hija"]
             .send(ShellMsg::Input(
                 b"echo marca-$RUSTTY_PRUEBA-$TERM-$((6*7))\n".to_vec(),
@@ -4453,8 +5058,10 @@ mod tests {
     }
 
     /// Parser de entrada de red NO confiable: CONNECT válido con destino por
-    /// nombre de dominio. El cliente recibe el `[5,0]` del método y el reply
-    /// de éxito antes de que el server devuelva el objetivo parseado.
+    /// nombre de dominio. El cliente recibe el `[5,0]` del método, pero NO la
+    /// respuesta al CONNECT: esa llega solo cuando el canal se abre (aquí, lo
+    /// simula el test al escribirla tras parsear) y hasta entonces el cliente
+    /// no oye nada.
     #[tokio::test]
     async fn read_socks5_target_parsea_connect_valido() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -4471,15 +5078,127 @@ mod tests {
             req.extend_from_slice(b"example.com");
             req.extend_from_slice(&443u16.to_be_bytes());
             c.write_all(&req).await.unwrap();
+            // Nada de «conectado» por adelantado: el canal aún no está abierto.
             let mut ok = [0u8; 10];
+            assert!(
+                tokio::time::timeout(Duration::from_millis(300), c.read_exact(&mut ok))
+                    .await
+                    .is_err(),
+                "el cliente recibió una respuesta al CONNECT antes de abrirse el canal"
+            );
             c.read_exact(&mut ok).await.unwrap();
-            assert_eq!(&ok[..2], &[5, 0]);
+            assert_eq!(ok, socks5_reply(SOCKS5_SUCCEEDED));
         });
         let (stream, _) = listener.accept().await.unwrap();
-        let (_stream, host, port) = read_socks5_target(stream).await.unwrap();
+        let (mut stream, host, port) = read_socks5_target(stream).await.unwrap();
         assert_eq!(host, "example.com");
         assert_eq!(port, 443);
+        // «Canal abierto»: ahora sí se contesta.
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        stream.write_all(&socks5_reply(SOCKS5_SUCCEEDED)).await.unwrap();
         client.await.unwrap();
+    }
+
+    /// Si el canal no se abre, el cliente SOCKS recibe el código del motivo
+    /// (aquí «connection refused») y el socket se cierra, en vez de un cierre
+    /// mudo tras un «conectado» que era mentira.
+    #[tokio::test]
+    async fn un_canal_que_no_abre_se_explica_al_cliente_socks() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let client = tokio::spawn(async move {
+            let mut c = TcpStream::connect(addr).await.unwrap();
+            c.write_all(&[5, 1, 0]).await.unwrap();
+            let mut resp = [0u8; 2];
+            c.read_exact(&mut resp).await.unwrap();
+            c.write_all(&[5, 1, 0, 1, 10, 0, 0, 1, 0, 80]).await.unwrap();
+            let mut reply = [0u8; 10];
+            c.read_exact(&mut reply).await.unwrap();
+            assert_eq!(reply, socks5_reply(SOCKS5_CONNECTION_REFUSED));
+            // Tras el rechazo, el servidor cierra.
+            let mut rest = [0u8; 1];
+            assert_eq!(c.read(&mut rest).await.unwrap(), 0);
+        });
+        let (stream, _) = listener.accept().await.unwrap();
+        let (stream, host, port) = read_socks5_target(stream).await.unwrap();
+        assert_eq!((host.as_str(), port), ("10.0.0.1", 80));
+        let failure = TunnelOpenError::Ssh(russh::Error::ChannelOpenFailure(
+            ChannelOpenFailure::ConnectFailed,
+        ));
+        socks5_reject(stream, socks5_failure_code(&failure));
+        tokio::time::timeout(Duration::from_secs(5), client)
+            .await
+            .expect("el cliente debe recibir el rechazo")
+            .unwrap();
+    }
+
+    /// Mapa de motivos del servidor SSH a códigos SOCKS5: puerto cerrado →
+    /// «connection refused», prohibido por el servidor → «not allowed», sin
+    /// respuesta en plazo → «host unreachable», el resto → fallo general.
+    #[test]
+    fn el_codigo_socks_describe_por_que_no_abrio_el_canal() {
+        let ssh = |reason| TunnelOpenError::Ssh(russh::Error::ChannelOpenFailure(reason));
+        assert_eq!(
+            socks5_failure_code(&ssh(ChannelOpenFailure::ConnectFailed)),
+            SOCKS5_CONNECTION_REFUSED
+        );
+        assert_eq!(
+            socks5_failure_code(&ssh(ChannelOpenFailure::AdministrativelyProhibited)),
+            SOCKS5_NOT_ALLOWED
+        );
+        assert_eq!(
+            socks5_failure_code(&ssh(ChannelOpenFailure::ResourceShortage)),
+            SOCKS5_GENERAL_FAILURE
+        );
+        assert_eq!(
+            socks5_failure_code(&ssh(ChannelOpenFailure::UnknownChannelType)),
+            SOCKS5_GENERAL_FAILURE
+        );
+        assert_eq!(
+            socks5_failure_code(&TunnelOpenError::Timeout),
+            SOCKS5_HOST_UNREACHABLE
+        );
+        assert_eq!(
+            socks5_failure_code(&TunnelOpenError::Ssh(russh::Error::Disconnect)),
+            SOCKS5_GENERAL_FAILURE
+        );
+        assert_eq!(socks5_reply(SOCKS5_SUCCEEDED), [5, 0, 0, 1, 0, 0, 0, 0, 0, 0]);
+    }
+
+    /// Reconectar con el MISMO id de sesión reemplaza al worker anterior: se le
+    /// manda desconectar y queda marcado como reemplazado (así no anuncia su
+    /// cierre con el id del nuevo), y los comandos siguientes van al nuevo.
+    /// Si el id era de una shell hija, se cierra solo esa shell, no su
+    /// conexión.
+    #[test]
+    fn reconectar_con_el_mismo_id_reemplaza_al_worker_anterior() {
+        let manager = SshManager::new();
+        let (tx_a, mut rx_a) = mpsc::unbounded_channel();
+        let flag_a = Arc::new(AtomicBool::new(false));
+        manager.register("s".to_string(), SessionHandle::root(tx_a, flag_a.clone()));
+        let (tx_b, mut rx_b) = mpsc::unbounded_channel();
+        let flag_b = Arc::new(AtomicBool::new(false));
+        manager.register("s".to_string(), SessionHandle::root(tx_b, flag_b.clone()));
+
+        assert!(flag_a.load(Ordering::SeqCst), "el worker viejo debe quedar marcado");
+        assert!(!flag_b.load(Ordering::SeqCst));
+        assert!(matches!(rx_a.try_recv(), Ok(SessionCommand::Disconnect)));
+        assert!(manager.send_input("s", b"x".to_vec()).is_ok());
+        assert!(matches!(rx_b.try_recv(), Ok(SessionCommand::Input { .. })));
+        assert!(rx_a.try_recv().is_err(), "nada más para el worker viejo");
+
+        let (tx_h, mut rx_h) = mpsc::unbounded_channel();
+        manager.register("h".to_string(), SessionHandle::child(tx_h, "h".to_string()));
+        let (tx_n, _rx_n) = mpsc::unbounded_channel();
+        manager.register(
+            "h".to_string(),
+            SessionHandle::root(tx_n, Arc::new(AtomicBool::new(false))),
+        );
+        assert!(matches!(
+            rx_h.try_recv(),
+            Ok(SessionCommand::CloseShell { shell_id }) if shell_id == "h"
+        ));
+        assert_eq!(manager.session_count(), 2);
     }
 
     /// Versión distinta de SOCKS5 y comandos que no son CONNECT deben
@@ -4859,4 +5578,480 @@ mod tests {
         assert!(bridge.is_closed());
     }
 
+    // ─── Escritor desacoplado: un pegado que el servidor no lee ───────────
+
+    /// Conecta al servidor en proceso fijando su huella (sin tocar ningún
+    /// `known_hosts`) y autentica por contraseña, por el mismo camino que una
+    /// sesión real.
+    async fn connect_shell_server(
+        server: &crate::shell_fixture::ShellServer,
+    ) -> client::Handle<host_keys::KnownHostsClient> {
+        let (mut handler, failure) =
+            host_keys::client("127.0.0.1".to_string(), server.port, false, false);
+        handler.expect_fingerprint(Some(server.fingerprint.clone()));
+        let addr = format!("127.0.0.1:{}", server.port);
+        let mut handle = russh_connect_addr(Arc::new(client::Config::default()), &addr, handler)
+            .await
+            .unwrap_or_else(|e| panic!("no conectó: {e}. {:?}", host_keys::take_failure(&failure)));
+        let auth = authenticate_handle(
+            &mut handle,
+            &AuthType::Password,
+            "ana",
+            "127.0.0.1",
+            Some(&crate::shell_fixture::PASSWORD.to_string()),
+            None,
+            None,
+        )
+        .await
+        .expect("autenticación");
+        assert!(matches!(auth, AuthResult::Success), "auth: {auth:?}");
+        handle
+    }
+
+    /// Canal binario de salida que vuelca en un receptor local.
+    fn capture_channel() -> (Channel<Response>, mpsc::UnboundedReceiver<Vec<u8>>) {
+        let (tx, rx) = mpsc::unbounded_channel::<Vec<u8>>();
+        let on_data: Channel<Response> = Channel::new(move |body| {
+            if let tauri::ipc::InvokeResponseBody::Raw(bytes) = body {
+                let _ = tx.send(bytes);
+            }
+            Ok(())
+        });
+        (on_data, rx)
+    }
+
+    /// Shell con PTY sobre el handle, como hace `open_extra_shell_channel`.
+    async fn open_shell_channel(
+        handle: &client::Handle<host_keys::KnownHostsClient>,
+    ) -> russh::Channel<client::Msg> {
+        let channel = handle.channel_open_session().await.expect("abrir canal");
+        channel
+            .request_pty(true, "xterm", 80, 24, 0, 0, &[])
+            .await
+            .expect("pty");
+        channel.request_shell(true).await.expect("shell");
+        channel
+    }
+
+    /// Lee del receptor hasta sumar `expected` bytes (o agotar el plazo).
+    async fn drain_until(rx: &mut mpsc::UnboundedReceiver<Vec<u8>>, expected: usize) -> usize {
+        let mut got = 0usize;
+        let lectura = async {
+            while got < expected {
+                let Some(bytes) = rx.recv().await else { break };
+                got += bytes.len();
+            }
+        };
+        let _ = tokio::time::timeout(Duration::from_secs(20), lectura).await;
+        got
+    }
+
+    /// **Regresión del bloqueo de la conexión entera.** El servidor anuncia una
+    /// ventana de cero bytes (no lee: como un proceso remoto que no consume su
+    /// stdin con la ventana llena) y a la vez vuelca 300 mensajes de salida,
+    /// más que el buffer de 100 por canal del cliente russh. Con la escritura
+    /// del pegado dentro del `select!` del lector, el bucle se quedaba parado en
+    /// `data` para siempre, el buffer se llenaba y la tarea de sesión de russh
+    /// se bloqueaba al entregar el mensaje 101: la salida nunca llegaba. Con el
+    /// escritor desacoplado la salida llega entera y cerrar la shell no espera
+    /// a un servidor que no lee.
+    #[tokio::test]
+    async fn un_pegado_que_el_servidor_no_lee_no_bloquea_la_salida_de_la_shell() {
+        use crate::shell_fixture::{ShellServer, ShellServerOptions};
+        let opts = ShellServerOptions::never_reads(Some((300, 16 * 1024)));
+        let server = ShellServer::start(opts).await;
+        let handle = connect_shell_server(&server).await;
+        let channel = open_shell_channel(&handle).await;
+        let (on_data, mut data_rx) = capture_channel();
+        let (shell_tx, shell_rx) = mpsc::unbounded_channel();
+        let (cmd_tx, mut cmd_rx) = mpsc::unbounded_channel::<SessionCommand>();
+        // El pegado va por delante: 64 KiB que el servidor jamás absorberá.
+        shell_tx
+            .send(ShellMsg::Input(vec![b'p'; 64 * 1024]))
+            .unwrap();
+        let task = tokio::spawn(run_extra_shell(
+            channel,
+            "hija".to_string(),
+            on_data,
+            shell_rx,
+            cmd_tx,
+        ));
+
+        let expected = opts.burst_len();
+        let got = drain_until(&mut data_rx, expected).await;
+        assert_eq!(got, expected, "la salida se atascó: {got} de {expected} bytes");
+        assert!(
+            server.received().is_empty(),
+            "con ventana cero el servidor no debía recibir nada"
+        );
+
+        // Cerrar no espera al servidor: la tarea escritora se aborta y la hija
+        // avisa al worker como siempre.
+        shell_tx.send(ShellMsg::Close).unwrap();
+        tokio::time::timeout(Duration::from_secs(5), task)
+            .await
+            .expect("la shell debe cerrar aunque el servidor no lea")
+            .unwrap();
+        assert!(matches!(
+            cmd_rx.try_recv(),
+            Ok(SessionCommand::ShellClosed { shell_id }) if shell_id == "hija"
+        ));
+    }
+
+    /// Invariante del escritor: una sola cola por canal. Cientos de entradas
+    /// encoladas de golpe, con una ráfaga de salida masiva a la vez, llegan al
+    /// servidor enteras y en el orden en que se encolaron, y la salida llega
+    /// entera al terminal.
+    #[tokio::test]
+    async fn la_entrada_de_la_shell_llega_entera_y_en_orden_con_salida_masiva_a_la_vez() {
+        use crate::shell_fixture::{ShellServer, ShellServerOptions};
+        let opts = ShellServerOptions::reads(Some((200, 16 * 1024)));
+        let server = ShellServer::start(opts).await;
+        let handle = connect_shell_server(&server).await;
+        let channel = open_shell_channel(&handle).await;
+        let (on_data, mut data_rx) = capture_channel();
+        let (shell_tx, shell_rx) = mpsc::unbounded_channel();
+        let (cmd_tx, _cmd_rx) = mpsc::unbounded_channel::<SessionCommand>();
+        let task = tokio::spawn(run_extra_shell(
+            channel,
+            "hija".to_string(),
+            on_data,
+            shell_rx,
+            cmd_tx,
+        ));
+
+        let mut expected_in = Vec::new();
+        for i in 0..400u32 {
+            let chunk = format!("{i:06}|").repeat(512).into_bytes();
+            expected_in.extend_from_slice(&chunk);
+            shell_tx.send(ShellMsg::Input(chunk)).unwrap();
+        }
+        let espera = async {
+            while server.received().len() < expected_in.len() {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        };
+        tokio::time::timeout(Duration::from_secs(20), espera)
+            .await
+            .unwrap_or_else(|_| {
+                panic!(
+                    "el servidor recibió {} de {} bytes",
+                    server.received().len(),
+                    expected_in.len()
+                )
+            });
+        assert!(server.received() == expected_in, "la entrada llegó desordenada o alterada");
+
+        let expected_out = opts.burst_len();
+        let got = drain_until(&mut data_rx, expected_out).await;
+        assert_eq!(got, expected_out, "salida perdida durante el pegado");
+
+        shell_tx.send(ShellMsg::Close).unwrap();
+        tokio::time::timeout(Duration::from_secs(5), task)
+            .await
+            .expect("cierre limpio")
+            .unwrap();
+    }
+
+    /// Un cambio de tamaño no espera ventana: llega al servidor aunque un
+    /// pegado que el servidor no lee siga esperándola (por la cola de datos
+    /// se quedaría detrás de él). Y de varios seguidos llega el último.
+    #[tokio::test]
+    async fn un_cambio_de_tamano_no_espera_detras_de_un_pegado_sin_leer() {
+        use crate::shell_fixture::{ShellServer, ShellServerOptions};
+        let server = ShellServer::start(ShellServerOptions::never_reads(None)).await;
+        let handle = connect_shell_server(&server).await;
+        let channel = open_shell_channel(&handle).await;
+        let (on_data, _data_rx) = capture_channel();
+        let (shell_tx, shell_rx) = mpsc::unbounded_channel();
+        let (cmd_tx, _cmd_rx) = mpsc::unbounded_channel::<SessionCommand>();
+        shell_tx
+            .send(ShellMsg::Input(vec![b'p'; 64 * 1024]))
+            .unwrap();
+        let task = tokio::spawn(run_extra_shell(
+            channel,
+            "hija".to_string(),
+            on_data,
+            shell_rx,
+            cmd_tx,
+        ));
+        for cols in [100, 110, 120] {
+            shell_tx.send(ShellMsg::Resize { cols, rows: 40 }).unwrap();
+        }
+        let llega = async {
+            while server.window_changes().last() != Some(&(120, 40)) {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        };
+        tokio::time::timeout(Duration::from_secs(5), llega)
+            .await
+            .unwrap_or_else(|_| panic!("el tamaño no llegó: {:?}", server.window_changes()));
+        assert!(server.received().is_empty(), "el pegado no debía salir");
+        shell_tx.send(ShellMsg::Close).unwrap();
+        tokio::time::timeout(Duration::from_secs(5), task)
+            .await
+            .expect("cierre")
+            .unwrap();
+    }
+
+    /// Shell hija sobre una conexión cuya cola de salida está llena y nadie
+    /// vacía: es lo que ve cuando russh deja de vaciar esa cola común (ver
+    /// `crate::channel_pump`). Para provocarlo, otro canal de la conexión
+    /// recibe más de 100 mensajes que no se leen (la tarea de sesión se queda
+    /// esperando para entregarlos) y se le encolan envíos hasta que no cabe
+    /// ninguno más. Devuelve lo que hay que mantener vivo, el buzón de la
+    /// shell, su tarea y el receptor de avisos al worker.
+    async fn shell_with_stalled_outbound() -> (
+        impl Sized,
+        mpsc::UnboundedSender<ShellMsg>,
+        JoinHandle<()>,
+        mpsc::UnboundedReceiver<SessionCommand>,
+    ) {
+        use crate::shell_fixture::{ShellServer, ShellServerOptions};
+        let opts = ShellServerOptions::reads(Some((150, 1024)));
+        let server = ShellServer::start(opts).await;
+        let handle = connect_shell_server(&server).await;
+        let channel = open_shell_channel(&handle).await;
+        let (on_data, mut data_rx) = capture_channel();
+        let (shell_tx, shell_rx) = mpsc::unbounded_channel();
+        let (cmd_tx, cmd_rx) = mpsc::unbounded_channel::<SessionCommand>();
+        let task = tokio::spawn(run_extra_shell(
+            channel,
+            "hija".to_string(),
+            on_data,
+            shell_rx,
+            cmd_tx,
+        ));
+        // La ráfaga de la shell, entera antes de parar la conexión.
+        assert_eq!(
+            drain_until(&mut data_rx, opts.burst_len()).await,
+            opts.burst_len()
+        );
+
+        // Canal que no se lee: su ráfaga para la tarea de sesión.
+        let (stalled_read, stalled_write) = handle
+            .channel_open_direct_tcpip("127.0.0.1", 80, "127.0.0.1", 40000)
+            .await
+            .expect("direct-tcpip")
+            .split();
+        let queued = Arc::new(AtomicU32::new(0));
+        let counter = queued.clone();
+        let filler = tokio::spawn(async move {
+            while stalled_write.data(&b"x"[..]).await.is_ok() {
+                counter.fetch_add(1, Ordering::SeqCst);
+            }
+        });
+        // Llena cuando el contador deja de avanzar (la tarea de sesión se
+        // para en cuanto el canal sin leer recibe su mensaje 101).
+        let llena = async {
+            let mut last = u32::MAX;
+            loop {
+                tokio::time::sleep(Duration::from_millis(300)).await;
+                let now = queued.load(Ordering::SeqCst);
+                if now == last {
+                    break;
+                }
+                last = now;
+            }
+        };
+        tokio::time::timeout(Duration::from_secs(10), llena)
+            .await
+            .expect("la cola de salida no llegó a llenarse");
+        (
+            (server, handle, stalled_read, filler, data_rx),
+            shell_tx,
+            task,
+            cmd_rx,
+        )
+    }
+
+    /// Espera a que la shell cierre y avise al worker.
+    async fn expect_shell_closed(
+        task: JoinHandle<()>,
+        cmd_rx: &mut mpsc::UnboundedReceiver<SessionCommand>,
+    ) {
+        tokio::time::timeout(Duration::from_secs(5), task)
+            .await
+            .expect("la shell se quedó colgada con la cola de salida llena")
+            .unwrap();
+        assert!(matches!(
+            cmd_rx.try_recv(),
+            Ok(SessionCommand::ShellClosed { shell_id }) if shell_id == "hija"
+        ));
+    }
+
+    /// **Regresión: redimensionar no congela la shell.** Con la cola de salida
+    /// llena, el `window_change().await` que había en el bucle lector no
+    /// volvía: la shell dejaba de leer su canal (y, pasados 100 mensajes, la
+    /// conexión entera quedaba parada). Ahora el bucle sigue atendiendo: aquí,
+    /// el cierre que llega detrás.
+    #[tokio::test]
+    async fn redimensionar_con_la_cola_de_salida_llena_no_congela_la_shell() {
+        let (_keep, shell_tx, task, mut cmd_rx) = shell_with_stalled_outbound().await;
+        shell_tx
+            .send(ShellMsg::Resize {
+                cols: 100,
+                rows: 40,
+            })
+            .unwrap();
+        shell_tx.send(ShellMsg::Close).unwrap();
+        expect_shell_closed(task, &mut cmd_rx).await;
+    }
+
+    /// Cerrar con la cola de salida llena tampoco se queda colgado: el EOF y
+    /// el cierre del canal van con plazo (`finish_channel`), y la shell avisa
+    /// al worker igual.
+    #[tokio::test]
+    async fn cerrar_con_la_cola_de_salida_llena_no_se_queda_colgado() {
+        let (_keep, shell_tx, task, mut cmd_rx) = shell_with_stalled_outbound().await;
+        shell_tx.send(ShellMsg::Close).unwrap();
+        expect_shell_closed(task, &mut cmd_rx).await;
+    }
+
+    /// Un túnel remoto se valida antes de pedir nada al servidor: sin puerto
+    /// remoto o sin puerto local de destino no sale ningún forward, y el
+    /// destino vacío es `127.0.0.1`.
+    #[test]
+    fn un_tunel_remoto_se_valida_antes_de_pedir_el_forward() {
+        let config = |remote_port: Option<u16>, local_port: u16, destino: Option<&str>| {
+            SshTunnelConfig {
+                id: None,
+                name: Some("web".to_string()),
+                tunnel_type: SshTunnelType::Remote,
+                bind_host: None,
+                local_port,
+                remote_host: destino.map(str::to_string),
+                remote_port,
+            }
+        };
+        let plan = |c| plan_remote_forward("t".into(), "0.0.0.0".into(), c, Some("hija".into()));
+        assert!(plan(config(None, 3000, None)).is_err());
+        assert!(plan(config(Some(0), 3000, None)).is_err());
+        assert!(plan(config(Some(8080), 0, None)).is_err());
+        assert_eq!(
+            plan(config(Some(8080), 3000, Some("  "))),
+            Ok(RemoteForwardPlan {
+                id: "t".into(),
+                name: Some("web".into()),
+                bind_host: "0.0.0.0".into(),
+                remote_port: 8080,
+                local_host: "127.0.0.1".into(),
+                local_port: 3000,
+                owner: Some("hija".into()),
+            })
+        );
+        assert_eq!(
+            plan(config(Some(8080), 3000, Some(" db.local "))).map(|p| p.local_host),
+            Ok("db.local".to_string())
+        );
+    }
+
+    /// Invariante: al cerrar una shell hija caen SOLO los túneles abiertos
+    /// desde ella (dejan de escuchar en su puerto); los de la raíz y los de
+    /// otras hijas siguen vivos. Y repetirlo sin túneles de esa shell no hace nada.
+    #[tokio::test]
+    async fn cerrar_una_shell_hija_para_sus_tuneles_y_deja_los_demas() {
+        async fn listening_tunnel(id: &str, owner: Option<&str>) -> (ActiveTunnel, u16) {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let port = listener.local_addr().unwrap().port();
+            let task = tokio::spawn(async move {
+                loop {
+                    let _ = listener.accept().await;
+                }
+            });
+            let info = SshTunnelInfo {
+                id: id.to_string(),
+                name: None,
+                tunnel_type: SshTunnelType::Local,
+                bind_host: "127.0.0.1".to_string(),
+                local_port: port,
+                remote_host: Some("destino".to_string()),
+                remote_port: Some(80),
+                status: "running".to_string(),
+                bytes_up: 0,
+                bytes_down: 0,
+            };
+            let tunnel = ActiveTunnel::from_info(
+                info,
+                Some(task),
+                Arc::new(TunnelTraffic::default()),
+                owner.map(str::to_string),
+            );
+            (tunnel, port)
+        }
+        let mut tunnels = HashMap::new();
+        let (hija, port_hija) = listening_tunnel("t-hija", Some("hija")).await;
+        let (raiz, port_raiz) = listening_tunnel("t-raiz", None).await;
+        let (otra, port_otra) = listening_tunnel("t-otra", Some("otra")).await;
+        for tunnel in [hija, raiz, otra] {
+            tunnels.insert(tunnel.info.id.clone(), tunnel);
+        }
+
+        let detached = detach_shell_tunnels(&mut tunnels, "hija");
+        let ids: Vec<&str> = detached.iter().map(|t| t.info.id.as_str()).collect();
+        assert_eq!(ids, ["t-hija"]);
+        assert!(!tunnels.contains_key("t-hija"));
+        assert!(tunnels.contains_key("t-raiz") && tunnels.contains_key("t-otra"));
+
+        // El puerto de la hija queda libre (su listener abortado lo suelta)...
+        let libre = async {
+            while TcpListener::bind(("127.0.0.1", port_hija)).await.is_err() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        };
+        tokio::time::timeout(Duration::from_secs(5), libre)
+            .await
+            .expect("el puerto del túnel de la hija debe quedar libre");
+        // ...y los demás siguen escuchando.
+        assert!(TcpStream::connect(("127.0.0.1", port_raiz)).await.is_ok());
+        assert!(TcpStream::connect(("127.0.0.1", port_otra)).await.is_ok());
+        assert!(detach_shell_tunnels(&mut tunnels, "hija").is_empty());
+    }
+
+    /// Mismo bloqueo en un túnel: con el servidor sin absorber la subida
+    /// (ventana cero), la bajada por ese mismo canal tiene que seguir llegando
+    /// entera al cliente local. Antes, `data` dentro del `select!` paraba el
+    /// bombeo y, tras 100 mensajes, la conexión entera.
+    #[tokio::test]
+    async fn una_subida_por_tunel_que_el_servidor_no_absorbe_no_frena_la_bajada() {
+        use crate::shell_fixture::{ShellServer, ShellServerOptions};
+        let opts = ShellServerOptions::never_reads(Some((300, 16 * 1024)));
+        let server = ShellServer::start(opts).await;
+        let handle = connect_shell_server(&server).await;
+        let channel = handle
+            .channel_open_direct_tcpip("127.0.0.1", 80, "127.0.0.1", 40000)
+            .await
+            .expect("direct-tcpip");
+        // Par de sockets locales: el «cliente» del túnel y el extremo bombeado.
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let mut client_sock = TcpStream::connect(addr).await.unwrap();
+        let (pump_sock, _) = listener.accept().await.unwrap();
+        let traffic = Arc::new(TunnelTraffic::default());
+        let conn = TunnelConnection::open(traffic.clone(), Arc::new(|_| {}));
+        let pump = tokio::spawn(pump_tunnel(channel, pump_sock, conn));
+        assert_eq!(traffic.active_connections(), 1, "la conexión cuenta mientras bombea");
+
+        // Subida que el servidor nunca absorberá...
+        client_sock.write_all(&vec![b'u'; 64 * 1024]).await.unwrap();
+        // ...y la bajada tiene que llegar entera.
+        let expected = opts.burst_len();
+        let mut got = 0usize;
+        let mut buf = vec![0u8; 64 * 1024];
+        let lectura = async {
+            while got < expected {
+                match client_sock.read(&mut buf).await {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => got += n,
+                }
+            }
+        };
+        let _ = tokio::time::timeout(Duration::from_secs(20), lectura).await;
+        assert_eq!(got, expected, "la bajada se atascó: {got} de {expected} bytes");
+        let (_up, down) = traffic.totals();
+        assert_eq!(down as usize, expected);
+        pump.abort();
+        let _ = pump.await;
+        assert_eq!(traffic.active_connections(), 0, "abortar el bombeo la descuenta");
+    }
 }

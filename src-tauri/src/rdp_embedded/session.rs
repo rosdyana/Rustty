@@ -29,11 +29,12 @@ use tokio::sync::{mpsc, Notify};
 use zeroize::Zeroizing;
 
 use super::certs;
-use super::clipboard::{self, ClipNotifier, ClipboardChannel, ClipboardOptions};
+use super::clipboard::{self, ClipNotifier, ClipboardChannel, ClipboardOptions, UploadGate};
 use super::drive;
 use super::frames::{self, Damage, Flow, Rect};
 use super::input::InputEvent;
 use super::perf::PerfProfile;
+use super::resize::{self, ResizeRequest, Resizer};
 use super::tls;
 
 /// Plazo para abrir el TCP y para cada etapa de la negociación.
@@ -57,6 +58,11 @@ pub enum SessionCmd {
     },
     /// El frontend pide comparar el portapapeles local con el remoto.
     ClipboardSync,
+    /// Guardar los ficheros de la oferta `offer` en `dest` (elegida por el
+    /// usuario en el diálogo del backend y ya validada).
+    ClipboardSave { offer: u32, dest: PathBuf },
+    /// Cancelar la descarga de ficheros en curso.
+    ClipboardCancel,
     Close,
 }
 
@@ -88,13 +94,15 @@ pub struct ConnectParams {
     pub cert_store: PathBuf,
     /// Portapapeles compartido (`None` = desactivado).
     pub clipboard: Option<ClipboardOptions>,
-    /// Carpeta de las descargas del portapapeles de esta sesión.
-    pub clipboard_temp: PathBuf,
     pub clipboard_notifier: Arc<dyn ClipNotifier>,
+    /// Pregunta antes de ofrecer al remoto ficheros locales sensibles.
+    pub upload_gate: Arc<dyn UploadGate>,
     /// Carpeta local que se ve en el remoto como unidad.
     pub shared_folder: Option<PathBuf>,
     /// Lo que se pide al servidor para ahorrar ancho de banda.
     pub perf: PerfProfile,
+    /// Preguntar si el certificado cambia (`None` = la política de SSH).
+    pub cert_change_prompt: Option<bool>,
 }
 
 /// Fallo de la sesión con un código estable para el frontend.
@@ -125,6 +133,8 @@ pub enum Ended {
 /// Avisos de la sesión hacia el gestor (que los convierte en eventos).
 pub trait Reporter: Send + Sync {
     fn connected(&self, width: u16, height: u16);
+    /// El servidor admite (o no) cambiar el tamaño del escritorio en caliente.
+    fn display_control(&self, supported: bool);
 }
 
 type Framed = TokioFramed<tokio_rustls::client::TlsStream<TcpStream>>;
@@ -132,6 +142,8 @@ type Framed = TokioFramed<tokio_rustls::client::TlsStream<TcpStream>>;
 fn os_platform() -> MajorPlatformType {
     if cfg!(windows) {
         MajorPlatformType::WINDOWS
+    } else if cfg!(target_os = "macos") {
+        MajorPlatformType::MACINTOSH
     } else {
         MajorPlatformType::UNIX
     }
@@ -218,7 +230,7 @@ fn build_config(p: &ConnectParams) -> Result<connector::Config, SessionError> {
         // IronRDP lo dibujaría en la imagen y cada movimiento sería un fotograma.
         pointer_software_rendering: false,
         multitransport_flags: None,
-        support_dyn_vc_gfx_protocol: false,
+        support_dyn_vc_gfx_protocol: true,
         performance_flags: perf.flags,
         desktop_scale_factor: scale.unwrap_or(0),
         desktop_physical_size: None,
@@ -235,6 +247,13 @@ fn build_config(p: &ConnectParams) -> Result<connector::Config, SessionError> {
         rail_support_level: ironrdp_pdu::rdp::capability_sets::RailSupportLevel::empty(),
     })
 }
+
+/// Canal gráfico (MS-RDPEGFX) sin decodificador H.264: el servidor elige
+/// entre los códecs que IronRDP decodifica solo (RemoteFX progresivo,
+/// ClearCodec, plano). `ActiveStage` compone lo decodificado en la imagen.
+struct GfxHandler;
+
+impl ironrdp_egfx::client::GraphicsPipelineHandler for GfxHandler {}
 
 /// Cliente de red de CredSSP. Solo lo usa Kerberos para hablar con un KDC,
 /// que esta versión no soporta: con NTLM nunca se llama.
@@ -306,8 +325,12 @@ async fn connect(
         .map_err(|e| SessionError::new("unreachable", e.to_string()))?;
 
     let config = build_config(&params)?;
-    let drdynvc =
-        DrdynvcClient::new().with_dynamic_channel(DisplayControlClient::new(|_| Ok(Vec::new())));
+    let drdynvc = DrdynvcClient::new()
+        .with_dynamic_channel(DisplayControlClient::new(|_| Ok(Vec::new())))
+        .with_dynamic_channel(ironrdp_egfx::client::GraphicsPipelineClient::new(
+            Box::new(GfxHandler),
+            None,
+        ));
     let mut connector = ClientConnector::new(config, client_addr).with_static_channel(drdynvc);
     let mut channels = Channels {
         clipboard: None,
@@ -316,8 +339,8 @@ async fn connect(
     if let Some(options) = params.clipboard {
         let (cliprdr, channel) = clipboard::start(
             options,
-            params.clipboard_temp.clone(),
             params.clipboard_notifier.clone(),
+            params.upload_gate.clone(),
         );
         connector = connector.with_static_channel(cliprdr);
         channels.clipboard = Some(channel);
@@ -355,7 +378,7 @@ async fn connect(
         params.port,
         &upgraded.cert_der,
         params.via_jump,
-        certs::Policy::current(),
+        certs::Policy::current(params.cert_change_prompt),
     )
     .await
     .map_err(|r| SessionError::new(r.code, r.message))?;
@@ -440,6 +463,8 @@ struct Sink {
     flow: Flow,
     damage: Damage,
     stats: SinkStats,
+    /// Tamaño del escritorio que conoce el canvas.
+    size: (u16, u16),
 }
 
 impl Sink {
@@ -448,6 +473,37 @@ impl Sink {
         self.stats.messages += 1;
         self.stats.maybe_log();
         self.channel.send(Response::new(bytes)).is_ok()
+    }
+
+    /// Avisa al canvas del tamaño del escritorio y lo repinta entero.
+    fn send_desktop_size(&mut self, width: u16, height: u16) {
+        self.size = (width, height);
+        self.damage.clear();
+        let seq = self.flow.next_seq();
+        self.send(frames::encode_desktop_size(seq, width, height));
+    }
+
+    /// Sigue un cambio de tamaño del framebuffer que no pasó por una
+    /// reactivación: con el canal gráfico, el servidor cambia de resolución con
+    /// un `ResetGraphics` que IronRDP aplica dentro de `process`. `true` si
+    /// cambió.
+    fn follow_size(&mut self, image: &DecodedImage) -> bool {
+        let (width, height) = (image.width(), image.height());
+        if self.size == (width, height) {
+            return false;
+        }
+        log::debug!(
+            "RDP integrado: el escritorio pasa de {}x{} a {width}x{height}",
+            self.size.0,
+            self.size.1
+        );
+        self.send_desktop_size(width, height);
+        if let Some(full) =
+            Rect::from_inclusive(0, 0, width.saturating_sub(1), height.saturating_sub(1))
+        {
+            self.damage.add(full);
+        }
+        true
     }
 
     fn control(&mut self, kind: u8) -> bool {
@@ -518,16 +574,15 @@ pub async fn run(
         flow: Flow::default(),
         damage: Damage::default(),
         stats: SinkStats::default(),
+        size: (0, 0),
     };
     let mut input_db = Database::new();
 
-    let seq = sink.flow.next_seq();
-    sink.send(frames::encode_desktop_size(
-        seq,
-        image.width(),
-        image.height(),
-    ));
+    sink.send_desktop_size(image.width(), image.height());
     reporter.connected(image.width(), image.height());
+
+    let mut resizer = Resizer::default();
+    let mut dc_deadline = Some(tokio::time::Instant::now() + resize::GRACE);
 
     let mut tick = tokio::time::interval(CHANNEL_TICK);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -559,12 +614,29 @@ pub async fn run(
                     }
                 }
                 Some(SessionCmd::Resize { width, height, scale }) => {
-                    // Fase 2: Display Control. Hasta entonces el canvas escala.
-                    let _ = (width, height, scale);
+                    let req = ResizeRequest::normalized(width, height, scale);
+                    match resizer.request(req) {
+                        Some(req) => send_resize(&mut stage, &mut resizer, &mut framed, req).await?,
+                        None => log::debug!(
+                            "RDP integrado: tamaño {}x{} pendiente (Display Control aún no está listo)",
+                            req.width,
+                            req.height
+                        ),
+                    }
                 }
                 Some(SessionCmd::ClipboardSync) => {
                     if let Some(clip) = channels.clipboard.as_ref() {
                         let _ = clip.input.send(clipboard::ClipIn::Sync);
+                    }
+                }
+                Some(SessionCmd::ClipboardSave { offer, dest }) => {
+                    if let Some(clip) = channels.clipboard.as_ref() {
+                        let _ = clip.input.send(clipboard::ClipIn::SaveTo { offer, dest });
+                    }
+                }
+                Some(SessionCmd::ClipboardCancel) => {
+                    if let Some(clip) = channels.clipboard.as_ref() {
+                        let _ = clip.input.send(clipboard::ClipIn::CancelDownload);
                     }
                 }
             },
@@ -586,6 +658,13 @@ pub async fn run(
             () = shared.ack_notify.notified() => {
                 sink.flow.ack(shared.acked.load(Ordering::Acquire));
             }
+            () = sleep_until_opt(dc_deadline), if resizer.awaiting() => {
+                dc_deadline = None;
+                if let Some(supported) = resizer.give_up() {
+                    log::debug!("RDP integrado: el servidor no ofrece Display Control");
+                    reporter.display_control(supported);
+                }
+            }
             pdu = framed.read_pdu() => {
                 let (action, payload) = match pdu {
                     Ok(v) => v,
@@ -598,10 +677,78 @@ pub async fn run(
                 let outputs = stage
                     .process(&mut image, action, &payload, received_at)
                     .map_err(|e| SessionError::new("protocol", e.to_string()))?;
+                // Un `ResetGraphics` del canal gráfico ya cambió el tamaño de
+                // `image`: el canvas lo sabe antes de los rectángulos nuevos.
+                sink.follow_size(&image);
                 if let Some(end) = handle_outputs(outputs, &mut framed, &mut sink, &mut image, &mut stage, &activation_factory).await? {
                     return Ok(end);
                 }
+                if resizer.needs_poll() {
+                    poll_display_control(&mut stage, &mut resizer, reporter.as_ref(), &mut framed).await?;
+                }
             }
+        }
+    }
+}
+
+/// Duerme hasta `deadline`; sin plazo, nunca vuelve.
+async fn sleep_until_opt(deadline: Option<tokio::time::Instant>) {
+    match deadline {
+        Some(d) => tokio::time::sleep_until(d).await,
+        None => std::future::pending().await,
+    }
+}
+
+/// Mira si el canal Display Control ya tiene las capacidades del servidor: lo
+/// avisa al frontend y manda la petición que estuviera guardada.
+async fn poll_display_control(
+    stage: &mut ActiveStage,
+    resizer: &mut Resizer,
+    reporter: &dyn Reporter,
+    framed: &mut Framed,
+) -> Result<(), SessionError> {
+    let ready = stage.display_control_ready() == Some(true);
+    let observed = resizer.observe(ready);
+    if let Some(supported) = observed.report {
+        if supported {
+            log::debug!(
+                "RDP integrado: Display Control listo ({:?})",
+                stage.display_control_capabilities()
+            );
+        }
+        reporter.display_control(supported);
+    }
+    if let Some(req) = observed.send {
+        send_resize(stage, resizer, framed, req).await?;
+    }
+    Ok(())
+}
+
+/// Pide al servidor el tamaño `req` por Display Control. Un fallo al
+/// codificarlo no tumba la sesión; si el canal no está, queda guardada.
+async fn send_resize(
+    stage: &mut ActiveStage,
+    resizer: &mut Resizer,
+    framed: &mut Framed,
+    req: ResizeRequest,
+) -> Result<(), SessionError> {
+    match stage.encode_resize(req.width, req.height, req.scale, None) {
+        Some(Ok(frame)) => {
+            log::debug!(
+                "RDP integrado: se pide el tamaño {}x{} (escala {:?})",
+                req.width,
+                req.height,
+                req.scale
+            );
+            write_frame(framed, frame).await
+        }
+        Some(Err(e)) => {
+            log::debug!("RDP integrado: no se pudo pedir el tamaño nuevo: {e}");
+            Ok(())
+        }
+        None => {
+            resizer.requeue(req);
+            Ok(())
         }
     }
 }
@@ -863,9 +1010,7 @@ async fn reactivate(
         ));
     }
     stage.set_window_support_level(window_level);
-    sink.damage.clear();
-    let seq_no = sink.flow.next_seq();
-    sink.send(frames::encode_desktop_size(seq_no, size.width, size.height));
+    sink.send_desktop_size(size.width, size.height);
     Ok(())
 }
 
@@ -876,6 +1021,132 @@ mod tests {
     struct NoNotice;
     impl ClipNotifier for NoNotice {
         fn notice(&self, _: clipboard::ClipNotice) {}
+    }
+
+    struct Deny;
+    impl UploadGate for Deny {
+        fn allow(&self, _: &[PathBuf]) -> bool {
+            false
+        }
+    }
+
+    struct Connected(std::sync::Mutex<Option<(u16, u16)>>);
+    impl Reporter for Connected {
+        fn connected(&self, width: u16, height: u16) {
+            *self.0.lock().unwrap() = Some((width, height));
+        }
+        fn display_control(&self, _supported: bool) {}
+    }
+
+    /// Conexión de punta a punta contra un servidor RDP **real**: TCP, TLS con
+    /// el proveedor `ring`, TOFU, NLA (CredSSP/NTLM), canal gráfico, portapapeles
+    /// y carpeta compartida negociados, sesión activa, imagen y cierre ordenado. Se salta sin `RUSTTY_RDP_TEST_ADDR` (`host:puerto`);
+    /// pide además `RUSTTY_RDP_TEST_USER`, `RUSTTY_RDP_TEST_PASS` y
+    /// `RUSTTY_RDP_TEST_CERT` (el PEM del servidor, para fijar su huella: sin
+    /// ventana no hay a quién preguntar). Vale, por ejemplo, un GNOME Remote
+    /// Desktop en modo `--headless` con un `mutter --headless` y PipeWire.
+    #[tokio::test]
+    #[ignore = "necesita un servidor RDP real (RUSTTY_RDP_TEST_*)"]
+    async fn conecta_de_verdad_y_recibe_imagen() {
+        let Ok(addr) = std::env::var("RUSTTY_RDP_TEST_ADDR") else {
+            eprintln!("RUSTTY_RDP_TEST_ADDR sin definir: se salta");
+            return;
+        };
+        let (host, port) = addr.rsplit_once(':').expect("host:puerto");
+        let port: u16 = port.parse().expect("puerto");
+        let user = std::env::var("RUSTTY_RDP_TEST_USER").expect("RUSTTY_RDP_TEST_USER");
+        let pass = std::env::var("RUSTTY_RDP_TEST_PASS").expect("RUSTTY_RDP_TEST_PASS");
+        let pem = std::fs::read_to_string(std::env::var("RUSTTY_RDP_TEST_CERT").expect("RUSTTY_RDP_TEST_CERT"))
+            .expect("PEM del servidor");
+        let der = crate::rdp_certs::pem_first_der(&pem).expect("certificado en el PEM");
+
+        let dir = std::env::temp_dir().join(format!("rustty-rdpreal-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(dir.join("compartida")).unwrap();
+        let store = certs::store_path(&dir);
+        certs::remember(&store, host, port, &crate::ftps_certs::fingerprint_sha256_hex(&der)).unwrap();
+
+        let (frame_tx, mut frame_rx) = mpsc::unbounded_channel::<Vec<u8>>();
+        let channel = Channel::new(move |body| {
+            if let tauri::ipc::InvokeResponseBody::Raw(bytes) = body {
+                let _ = frame_tx.send(bytes);
+            }
+            Ok(())
+        });
+        let params = ConnectParams {
+            host: host.into(),
+            port,
+            dial_host: host.into(),
+            dial_port: port,
+            via_jump: false,
+            username: user,
+            domain: None,
+            password: Zeroizing::new(pass),
+            width: 1024,
+            height: 768,
+            scale: None,
+            cert_store: store,
+            clipboard: Some(ClipboardOptions { files: true }),
+            clipboard_notifier: Arc::new(NoNotice),
+            upload_gate: Arc::new(Deny),
+            shared_folder: Some(dir.join("compartida")),
+            perf: PerfProfile::Balanced,
+            cert_change_prompt: Some(false),
+        };
+        let (cmd_tx, cmd_rx) = mpsc::channel(8);
+        let shared = Arc::new(Shared::default());
+        let reporter = Arc::new(Connected(std::sync::Mutex::new(None)));
+        let session = tokio::spawn(run(params, channel, cmd_rx, shared.clone(), reporter.clone()));
+
+        // Primero el tamaño del escritorio y después, píxeles de verdad. Cada
+        // mensaje se confirma como haría el canvas, o el backend se para.
+        let mut size = None;
+        let mut pixels = 0usize;
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+        let mut session = session;
+        while pixels == 0 {
+            let msg = tokio::select! {
+                msg = tokio::time::timeout_at(deadline, frame_rx.recv()) => msg,
+                ended = &mut session => panic!("la sesión terminó antes de la imagen: {ended:?}"),
+            };
+            let msg = msg
+                .expect("el servidor no mandó imagen a tiempo")
+                .expect("canal de fotogramas cerrado");
+            let seq = u32::from_le_bytes(msg[1..5].try_into().unwrap());
+            shared.acked.store(seq, Ordering::Release);
+            shared.ack_notify.notify_one();
+            match msg[0] {
+                frames::MSG_DESKTOP_SIZE => {
+                    size = Some((
+                        u16::from_le_bytes([msg[5], msg[6]]),
+                        u16::from_le_bytes([msg[7], msg[8]]),
+                    ));
+                }
+                frames::MSG_RECTS => pixels += msg.len() - 7,
+                _ => {}
+            }
+        }
+        let (width, height) = size.expect("el tamaño llega antes que la imagen");
+        assert!(width >= 200 && height >= 200, "{width}x{height}");
+        assert_eq!(*reporter.0.lock().unwrap(), Some((width, height)));
+
+        // Un poco de entrada: mover el ratón y pulsar/soltar Mayús.
+        cmd_tx
+            .send(SessionCmd::Input(vec![
+                InputEvent::Op(super::super::input::OpKind::MouseMove { x: 10, y: 10 }),
+                InputEvent::Op(super::super::input::OpKind::Key { scancode: 0x2A, pressed: true }),
+                InputEvent::Op(super::super::input::OpKind::Key { scancode: 0x2A, pressed: false }),
+            ]))
+            .await
+            .unwrap();
+        cmd_tx.send(SessionCmd::Close).await.unwrap();
+        let ended = tokio::time::timeout(Duration::from_secs(10), session)
+            .await
+            .expect("la sesión no se cerró a tiempo")
+            .expect("tarea de la sesión")
+            .expect("la sesión terminó con error");
+        assert!(matches!(ended, Ended::Local), "{ended:?}");
+        eprintln!("RDP real: {width}x{height}, {pixels} bytes de imagen");
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
@@ -925,10 +1196,11 @@ mod tests {
             scale: Some(150),
             cert_store: PathBuf::new(),
             clipboard: None,
-            clipboard_temp: PathBuf::new(),
             clipboard_notifier: Arc::new(NoNotice),
+            upload_gate: Arc::new(Deny),
             shared_folder: None,
             perf: PerfProfile::Speed,
+            cert_change_prompt: None,
         };
         let c = build_config(&p).unwrap();
         assert!(!c.pointer_software_rendering);
@@ -940,5 +1212,7 @@ mod tests {
         assert_eq!(c.device_scale_factor, Some(140));
         assert!(c.enable_credssp);
         assert!(!c.enable_standard_rdp_security);
+        // Sin canal gráfico, GNOME Remote Desktop (y otros) cortan la conexión.
+        assert!(c.support_dyn_vc_gfx_protocol);
     }
 }

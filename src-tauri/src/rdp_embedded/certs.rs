@@ -10,9 +10,10 @@
 //! certificado no confirmado no sale ninguna contraseña del equipo.
 //!
 //! Las huellas se guardan en `<data_dir>/rdp_known_certs.json`
-//! (`host:puerto → SHA-256` en el formato de `ftps_certs`). Las políticas son
-//! las de las host keys SSH (pedir en la primera conexión, pedir ante un
-//! cambio), que el usuario ya configura en Preferencias → Seguridad.
+//! (`host:puerto → SHA-256` en el formato de `ftps_certs`). La primera conexión
+//! sigue la política de las host keys SSH (preguntar, por defecto) y un cambio,
+//! la de RDP («Preguntar si el certificado de un servidor RDP cambia»), las dos
+//! en Preferencias → Seguridad.
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
@@ -175,7 +176,7 @@ async fn ask(
     }
 }
 
-/// Políticas que aplican (las de las host keys SSH).
+/// Políticas que aplican.
 #[derive(Debug, Clone, Copy)]
 pub struct Policy {
     pub strict_first_connect: bool,
@@ -183,11 +184,13 @@ pub struct Policy {
 }
 
 impl Policy {
+    /// La primera conexión, como las host keys SSH; un cambio, según la
+    /// preferencia RDP que manda el frontend (`None` = la de SSH).
     #[must_use]
-    pub fn current() -> Self {
+    pub fn current(prompt_on_change: Option<bool>) -> Self {
         Self {
             strict_first_connect: crate::host_keys::strict_first_connect(),
-            prompt_on_change: crate::host_keys::prompt_on_key_change(),
+            prompt_on_change: prompt_on_change.unwrap_or_else(crate::host_keys::prompt_on_key_change),
         }
     }
 }

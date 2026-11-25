@@ -46,6 +46,8 @@
 
       <!-- ── Rail vertical de iconos ── -->
       <aside id="rail" aria-label="Navegación" data-i18n-aria-label="rail.nav_label">
+        <!-- Solo en macOS: banda bajo los botones nativos de la ventana. -->
+        <div id="rail-titlebar-gap" data-tauri-drag-region aria-hidden="true"></div>
         <div class="rail-section rail-top">
           <button class="rail-btn" id="rail-btn-new" data-rail-action="new-connection" data-i18n-title="sidebar.new_conn_title" data-tooltip="Nueva conexión" data-tooltip-pos="right" aria-label="Nueva conexión" data-i18n-aria-label="sidebar.new_conn_title">
             <svg viewBox="0 0 18 18" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
@@ -90,6 +92,7 @@
             <svg viewBox="0 0 18 18" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
               <path d="M3 4.5h12M3 9h12M3 13.5h8"/>
             </svg>
+            <span class="rail-badge rail-badge-error hidden" id="rail-activity-badge" aria-hidden="true"></span>
           </button>
         </div>
         <div class="rail-section rail-bottom">
@@ -120,7 +123,7 @@
                 <line x1="12" y1="12" x2="15" y2="15"></line>
               </svg>
             </button>
-            <button id="btn-sidebar-tools" data-i18n-title="sidebar.tools_title" title="Filtrar y cambiar de perfil" aria-label="Filtrar y cambiar de perfil" data-i18n-aria-label="sidebar.tools_title">≡</button>
+            <button id="btn-sidebar-tools" data-i18n-title="sidebar.tools_title" title="Filtrar y cambiar de perfil" aria-label="Filtrar y cambiar de perfil" data-i18n-aria-label="sidebar.tools_title"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-menu"/></svg></button>
           </div>
         </div>
 
@@ -143,7 +146,7 @@
             <button class="tools-view-btn" data-view-mode="favorites" data-i18n="sidebar.view_favorites">Favoritos</button>
           </div>
           <button id="btn-sidebar-compact" class="tools-density-btn" type="button" data-i18n-title="sidebar.compact_title" title="Mostrar lista compacta" aria-pressed="false">
-            <span class="tools-density-icon">▤</span>
+            <span class="tools-density-icon"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-rows"/></svg></span>
             <span data-i18n="sidebar.compact_view">Vista compacta</span>
           </button>
 
@@ -166,6 +169,7 @@
 
           <div class="tools-section-title" data-i18n="sidebar.tools_search">Buscar</div>
           <input type="search" id="sidebar-search" data-i18n-placeholder="sidebar.search_placeholder" placeholder="Buscar conexiones…" spellcheck="false" />
+          <select id="sidebar-search-scope" class="search-scope-select" aria-label="Buscar en" data-i18n-aria-label="search_scope.label"></select>
         </div>
 
         <div id="connection-list" role="tree" data-i18n-aria-label="sidebar.tree_label">
@@ -203,9 +207,9 @@
 
       <!-- ── Área principal ── -->
       <main id="main-area">
-        <div id="tab-bar">
+        <div id="tab-bar" data-tauri-drag-region>
           <button id="btn-toggle-sidebar" data-i18n-title="sidebar.toggle_title" title="Ocultar / mostrar la barra lateral" aria-label="Ocultar / mostrar la barra lateral" data-i18n-aria-label="sidebar.toggle_title">
-            <span class="chevron" aria-hidden="true">‹</span>
+            <span class="chevron" aria-hidden="true"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-chevron"/></svg></span>
           </button>
           <div id="tab-scroll">
             <button id="home-tab" class="tab tab-home active" type="button" title="Inicio" data-i18n-title="welcome.home_tab">
@@ -216,7 +220,7 @@
           </div>
           <div id="tab-bar-drag" data-tauri-drag-region></div>
           <button id="btn-tab-overflow" class="hidden" type="button" data-i18n-title="tab_overflow.button_title" title="Pestañas abiertas" aria-label="Pestañas abiertas" data-i18n-aria-label="tab_overflow.button_title" aria-haspopup="true" aria-expanded="false">
-            <span class="tab-overflow-icon" aria-hidden="true">⋯</span>
+            <span class="tab-overflow-icon" aria-hidden="true"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-more"/></svg></span>
           </button>
           <div id="window-controls" aria-hidden="false">
             <button id="btn-win-min" class="win-ctrl" data-i18n-title="window.minimize" title="Minimizar" aria-label="Minimizar" data-i18n-aria-label="window.minimize">
@@ -252,6 +256,10 @@
               <svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-route"/></svg>
               <span id="status-route-text" class="status-route-text"></span>
             </span>
+            <button type="button" class="status-tunnels hidden" id="status-tunnels" aria-haspopup="true">
+              <svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-tunnel"/></svg>
+              <span id="status-tunnels-text" class="mono"></span>
+            </button>
             <span class="status-sep"></span>
             <span class="status-cwd hidden" id="status-cwd-wrap" title="Directorio remoto actual (OSC 7)" data-i18n-title="status.cwd_title">
               <span class="status-cwd-icon" aria-hidden="true"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-folder"/></svg></span>
@@ -261,8 +269,8 @@
             <span class="status-dims" id="status-dims-wrap" title="Tamaño del terminal" data-i18n-title="status.dims_title">
               <span id="status-dims" class="mono">—</span>
             </span>
-            <span class="status-sep"></span>
-            <span class="status-latency">
+            <span class="status-sep" id="status-latency-sep"></span>
+            <span class="status-latency" id="status-latency-wrap">
               <span class="status-label" data-i18n="status.latency">Latencia</span>
               <span id="status-latency">—</span>
             </span>
@@ -352,7 +360,11 @@
                 <div class="dashboard-search-wrap">
                   <span class="dashboard-search-icon" aria-hidden="true"><svg viewBox="0 0 16 16" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><use href="#ci-search"/></svg></span>
                   <input id="dashboard-search" type="search" autocomplete="off" spellcheck="false" placeholder="Buscar perfil, host o usuario…" data-i18n-placeholder="dashboard.search_ph" />
-                  <span class="dashboard-search-kbd" data-i18n="dashboard.search_kbd">Ctrl K</span>
+                  <kbd class="dashboard-search-kbd hidden" id="dashboard-search-kbd" translate="no"></kbd>
+                </div>
+                <div class="dashboard-search-scope">
+                  <label for="dashboard-search-scope" data-i18n="search_scope.label">Buscar en</label>
+                  <select id="dashboard-search-scope" class="search-scope-select"></select>
                 </div>
               </section>
 
@@ -392,14 +404,14 @@
                   </div>
                   <div class="dashboard-quick-grid">
                     <button id="btn-welcome-new" class="dashboard-tool" data-dashboard-action="new-connection">
-                      <span class="dashboard-tool-icon new">＋</span>
+                      <span class="dashboard-tool-icon new"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-plus"/></svg></span>
                       <span>
                         <strong data-i18n="welcome.new_conn">Nueva conexión</strong>
                         <small data-i18n="dashboard.quick_new_hint">SSH o RDP</small>
                       </span>
                     </button>
                     <button id="btn-welcome-local" class="dashboard-tool" data-dashboard-action="local-shell">
-                      <span class="dashboard-tool-icon local">$_</span>
+                      <span class="dashboard-tool-icon local"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-terminal"/></svg></span>
                       <span>
                         <strong data-i18n="dashboard.quick_local">Local</strong>
                         <small data-i18n="dashboard.quick_local_hint">Consola del sistema</small>
@@ -451,6 +463,16 @@
         <symbol id="ci-plus-circle" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5"/><path d="M8 5.2v5.6M5.2 8h5.6"/></symbol>
         <symbol id="ci-disk" viewBox="0 0 16 16"><path d="M4 3h6.2L13 5.8V12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M5.5 3v3.2h4.2V3"/><path d="M5.5 13v-3.3h5V13"/></symbol>
         <symbol id="ci-edit" viewBox="0 0 16 16"><path d="M3.2 12.8l.7-2.6 6.7-6.7a1 1 0 0 1 1.5 0l.4.4a1 1 0 0 1 0 1.5l-6.7 6.7-2.6.7z"/><path d="M9.6 4.3l2 2"/></symbol>
+        <symbol id="ci-note" viewBox="0 0 16 16"><path d="M4 2.5h4.5L12 6v7.5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-10a1 1 0 0 1 1-1z"/><path d="M8.4 2.5V6H12"/><path d="M5.5 8.7h5M5.5 11h3.2"/></symbol>
+        <symbol id="ci-eye" viewBox="0 0 16 16"><path d="M1.8 8s2.3-4.2 6.2-4.2S14.2 8 14.2 8s-2.3 4.2-6.2 4.2S1.8 8 1.8 8z"/><circle cx="8" cy="8" r="1.8"/></symbol>
+        <symbol id="ci-trash" viewBox="0 0 16 16"><path d="M3 4.3h10M6.4 4.3V2.8h3.2v1.5M4.7 4.3l.5 8.4a1 1 0 0 0 1 .95h3.6a1 1 0 0 0 1-.95l.5-8.4"/><path d="M6.7 6.9v4.2M9.3 6.9v4.2"/></symbol>
+        <symbol id="ci-undo" viewBox="0 0 16 16"><path d="M5.6 4.2 3 6.8l2.6 2.6"/><path d="M3 6.8h6.8a3 3 0 0 1 0 6H7"/></symbol>
+        <symbol id="ci-redo" viewBox="0 0 16 16"><path d="M10.4 4.2 13 6.8l-2.6 2.6"/><path d="M13 6.8H6.2a3 3 0 0 0 0 6H9"/></symbol>
+        <symbol id="ci-cut" viewBox="0 0 16 16"><circle cx="4.8" cy="11.4" r="1.8"/><circle cx="11.2" cy="11.4" r="1.8"/><path d="M6.1 10.1 11.5 2.8M9.9 10.1 4.5 2.8"/></symbol>
+        <symbol id="ci-copy" viewBox="0 0 16 16"><rect x="5.5" y="5.5" width="8" height="8" rx="1.2"/><path d="M10.5 5.5V3.7a1.2 1.2 0 0 0-1.2-1.2H3.7a1.2 1.2 0 0 0-1.2 1.2v5.6a1.2 1.2 0 0 0 1.2 1.2h1.8"/></symbol>
+        <symbol id="ci-paste" viewBox="0 0 16 16"><path d="M5.6 3.3H4.3a.8.8 0 0 0-.8.8v8.8a.8.8 0 0 0 .8.8h7.4a.8.8 0 0 0 .8-.8V4.1a.8.8 0 0 0-.8-.8h-1.3"/><rect x="5.6" y="2.2" width="4.8" height="2.2" rx=".6"/><path d="M6 8h4M6 10.4h2.6"/></symbol>
+        <symbol id="ci-select-all" viewBox="0 0 16 16"><rect x="2.6" y="2.6" width="10.8" height="10.8" rx="1.2" stroke-dasharray="2 1.7"/><path d="M5.4 6h5.2M5.4 8h5.2M5.4 10h3.4"/></symbol>
+        <symbol id="ci-format" viewBox="0 0 16 16"><path d="M3.6 12.4 7.4 3.6h1.2l3.8 8.8"/><path d="M5.2 9h5.6"/></symbol>
         <symbol id="ci-export" viewBox="0 0 16 16"><path d="M8 10V3M5.2 5.8L8 3l2.8 2.8"/><path d="M3.5 10.5v1.4a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1v-1.4"/></symbol>
         <symbol id="ci-x" viewBox="0 0 16 16"><path d="M4.2 4.2l7.6 7.6M11.8 4.2l-7.6 7.6"/></symbol>
         <symbol id="ci-play" viewBox="0 0 16 16"><path d="M5.5 3.6l6.2 4.4-6.2 4.4z"/></symbol>
@@ -466,6 +488,10 @@
         <symbol id="ci-pin" viewBox="0 0 16 16"><path d="M5.8 3h4.4"/><path d="M6.4 3 6 7.2 4.2 9.3h7.6L10 7.2 9.6 3"/><path d="M8 9.3V13"/></symbol>
         <symbol id="ci-arrow-up" viewBox="0 0 16 16"><path d="M8 3v9.5M4.8 6.2 8 3l3.2 3.2"/></symbol>
         <symbol id="ci-arrow-down" viewBox="0 0 16 16"><path d="M8 13V3.5M4.8 9.8 8 13l3.2-3.2"/></symbol>
+        <symbol id="ci-chevron" viewBox="0 0 16 16"><path d="M6 3.5 10.5 8 6 12.5"/></symbol>
+        <symbol id="ci-more" viewBox="0 0 16 16"><circle cx="3.8" cy="8" r=".6"/><circle cx="8" cy="8" r=".6"/><circle cx="12.2" cy="8" r=".6"/></symbol>
+        <symbol id="ci-plus" viewBox="0 0 16 16"><path d="M8 3.2v9.6M3.2 8h9.6"/></symbol>
+        <symbol id="ci-menu" viewBox="0 0 16 16"><path d="M3 4.5h10M3 8h10M3 11.5h10"/></symbol>
         <symbol id="ci-refresh" viewBox="0 0 16 16"><path d="M12.6 8a4.6 4.6 0 1 1-1.3-3.2"/><path d="M13.4 2v3h-3"/></symbol>
         <symbol id="ci-folder" viewBox="0 0 16 16"><path d="M3 5.4a1 1 0 0 1 1-1h2.3l1.3 1.5H12a1 1 0 0 1 1 1v4.7a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/></symbol>
         <symbol id="ci-file" viewBox="0 0 16 16"><path d="M5 3h4l3 3v6.4a.7.7 0 0 1-.7.7H5a.7.7 0 0 1-.7-.7V3.7A.7.7 0 0 1 5 3z"/><path d="M8.8 3.2V6.2H11.8"/></symbol>
@@ -485,6 +511,10 @@
         <symbol id="ci-arrow-left" viewBox="0 0 16 16"><path d="M13 8H3.5M6.7 4.8 3.5 8l3.2 3.2"/></symbol>
         <symbol id="ci-home" viewBox="0 0 16 16"><path d="M2.8 7.8 8 3.2l5.2 4.6"/><path d="M4.4 7.4v5.4h7.2V7.4"/></symbol>
         <symbol id="ci-ban" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.2"/><path d="M4.3 4.3l7.4 7.4"/></symbol>
+        <symbol id="ci-monitor" viewBox="0 0 16 16"><rect x="2.2" y="3" width="11.6" height="7.8" rx="1"/><path d="M6 13.4h4M8 10.8v2.6"/></symbol>
+        <symbol id="ci-check" viewBox="0 0 16 16"><path d="M3.6 8.4l2.9 2.9 5.9-6.6"/></symbol>
+        <symbol id="ci-terminal" viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10" rx="1.4"/><path d="M4.8 6.4 6.9 8l-2.1 1.6M8.4 10.2h2.8"/></symbol>
+        <symbol id="ci-external" viewBox="0 0 16 16"><path d="M9.6 3h3.4v3.4M13 3 7.6 8.4"/><path d="M11.6 9.4v2.8a.8.8 0 0 1-.8.8H3.8a.8.8 0 0 1-.8-.8V5.2a.8.8 0 0 1 .8-.8h2.8"/></symbol>
         <symbol id="ci-script" viewBox="0 0 16 16"><path d="M4.2 2.6h5.2l2.8 2.8v7.2a.8.8 0 0 1-.8.8H4.2a.8.8 0 0 1-.8-.8V3.4a.8.8 0 0 1 .8-.8z"/><path d="M9.1 2.7v3h3"/><path d="M6.6 8l2.9 1.9-2.9 1.9z"/></symbol>
       </defs>
     </svg>
@@ -526,6 +556,9 @@
       <button class="ctx-item ctx-folder-only hidden" data-ctx="export-folder">
         <span class="ctx-icon"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-export"/></svg></span><span data-i18n="ctx.export_folder">Exportar conexiones de la carpeta…</span>
       </button>
+      <button class="ctx-item ctx-folder-only hidden" data-ctx="bulk-edit-folder" id="ctx-bulk-edit-folder">
+        <span class="ctx-icon"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-sliders"/></svg></span><span id="ctx-bulk-edit-folder-label" data-i18n="bulk_edit.ctx_folder_static">Editar las conexiones de esta carpeta…</span>
+      </button>
       <button class="ctx-item ctx-folder-only hidden" data-ctx="run-script-folder">
         <span class="ctx-icon"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-script"/></svg></span><span data-i18n="scripts.ctx_run">Ejecutar script…</span>
       </button>
@@ -561,10 +594,10 @@
           </svg>
         </span><span data-i18n="ctx.connect_private">Abrir en privado</span>
       </button>
-      <div class="ctx-item ctx-has-submenu ctx-conn-only ctx-connect-as-only hidden" id="ctx-connect-as" aria-haspopup="menu">
-        <span class="ctx-icon"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-play"/></svg></span><span data-i18n="ctx.connect_as">Conectar con otro usuario</span>
-        <span class="ctx-submenu-arrow">▸</span>
-        <div class="ctx-submenu" id="ctx-connect-as-submenu" role="menu"></div>
+      <div class="ctx-item ctx-has-submenu ctx-conn-only ctx-connect-as-only hidden" id="ctx-connect-as" role="menuitem" tabindex="-1" aria-haspopup="menu" aria-expanded="false" aria-labelledby="ctx-connect-as-label">
+        <span class="ctx-icon"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-play"/></svg></span><span id="ctx-connect-as-label" data-i18n="ctx.connect_as">Conectar con otro usuario</span>
+        <span class="ctx-submenu-arrow" aria-hidden="true"><svg class="ctx-icon-svg"><use href="#ci-chevron"/></svg></span>
+        <div class="ctx-submenu" id="ctx-connect-as-submenu" role="menu" aria-labelledby="ctx-connect-as-label"></div>
       </div>
       <button class="ctx-item ctx-conn-only ctx-restore-only hidden" data-ctx="connect-restore" id="ctx-connect-restore">
         <span class="ctx-icon"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-restore"/></svg></span><span data-i18n="ctx.connect_restore">Conectar y restaurar pantalla anterior</span>
@@ -572,10 +605,10 @@
       <button class="ctx-item ctx-conn-only hidden" data-ctx="connect-overrides">
         <span class="ctx-icon"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-play"/></svg></span><span data-i18n="ctx.connect_overrides">Conectar con cambios…</span>
       </button>
-      <div class="ctx-item ctx-has-submenu ctx-conn-only ctx-jump-via-only hidden" id="ctx-connect-via" aria-haspopup="menu">
-        <span class="ctx-icon"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-route"/></svg></span><span data-i18n="jump.ctx_connect_via">Conectar a través de</span>
-        <span class="ctx-submenu-arrow">▸</span>
-        <div class="ctx-submenu" id="ctx-connect-via-submenu" role="menu"></div>
+      <div class="ctx-item ctx-has-submenu ctx-conn-only ctx-jump-via-only hidden" id="ctx-connect-via" role="menuitem" tabindex="-1" aria-haspopup="menu" aria-expanded="false" aria-labelledby="ctx-connect-via-label">
+        <span class="ctx-icon"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-route"/></svg></span><span id="ctx-connect-via-label" data-i18n="jump.ctx_connect_via">Conectar a través de</span>
+        <span class="ctx-submenu-arrow" aria-hidden="true"><svg class="ctx-icon-svg"><use href="#ci-chevron"/></svg></span>
+        <div class="ctx-submenu" id="ctx-connect-via-submenu" role="menu" aria-labelledby="ctx-connect-via-label"></div>
       </div>
 
       <!-- Grupo 2 · Editar y organizar -->
@@ -585,6 +618,9 @@
       </button>
       <button class="ctx-item ctx-conn-only hidden" data-ctx="edit-conn">
         <span class="ctx-icon"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-edit"/></svg></span><span data-i18n="ctx.edit">Editar</span>
+      </button>
+      <button class="ctx-item ctx-conn-only hidden" data-ctx="bulk-edit-selection" id="ctx-bulk-edit-selection">
+        <span class="ctx-icon"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-sliders"/></svg></span><span id="ctx-bulk-edit-selection-label" data-i18n="bulk_edit.ctx_selection_static">Editar las conexiones seleccionadas…</span>
       </button>
       <button class="ctx-item ctx-conn-only hidden" data-ctx="duplicate-conn">
         <span class="ctx-icon"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-duplicate"/></svg></span><span data-i18n="ctx.duplicate">Duplicar</span>
@@ -606,32 +642,35 @@
           </svg>
         </span><span data-i18n="ctx.copy_host">Copiar host / IP</span>
       </button>
-      <button class="ctx-item ctx-conn-only hidden" data-ctx="edit-note">
-        <span class="ctx-icon">
-          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M4 2.5h4.5L12 6v7.5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-10a1 1 0 0 1 1-1z"/>
-            <path d="M8.4 2.5V6H12"/><path d="M5.5 8.7h5M5.5 11h3.2"/>
-          </svg>
-        </span><span id="ctx-note-label" data-i18n="ctx.add_note">Añadir nota</span>
+      <button class="ctx-item ctx-conn-only ctx-note-missing hidden" data-ctx="edit-note">
+        <span class="ctx-icon"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-note"/></svg></span><span data-i18n="ctx.add_note">Añadir nota</span>
       </button>
-      <button class="ctx-item ctx-conn-only ctx-note-exists hidden" data-ctx="delete-note">
-        <span class="ctx-icon">
-          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M3 4.3h10M6.4 4.3V2.8h3.2v1.5M4.7 4.3l.5 8.4a1 1 0 0 0 1 .95h3.6a1 1 0 0 0 1-.95l.5-8.4"/>
-            <path d="M6.7 6.9v4.2M9.3 6.9v4.2"/>
-          </svg>
-        </span><span data-i18n="ctx.delete_note">Eliminar nota</span>
-      </button>
+      <div class="ctx-item ctx-has-submenu ctx-conn-only ctx-note-exists hidden" id="ctx-note" role="menuitem" tabindex="-1" aria-haspopup="menu" aria-expanded="false" aria-labelledby="ctx-note-label">
+        <span class="ctx-icon"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-note"/></svg></span><span id="ctx-note-label" data-i18n="ctx.note">Nota</span>
+        <span class="ctx-submenu-arrow" aria-hidden="true"><svg class="ctx-icon-svg"><use href="#ci-chevron"/></svg></span>
+        <div class="ctx-submenu" id="ctx-note-submenu" role="menu" aria-labelledby="ctx-note-label">
+          <button class="ctx-item" type="button" data-ctx="view-note">
+            <span class="ctx-icon"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-eye"/></svg></span><span data-i18n="ctx.view_note">Ver nota</span>
+          </button>
+          <button class="ctx-item" type="button" data-ctx="edit-note">
+            <span class="ctx-icon"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-edit"/></svg></span><span data-i18n="ctx.edit_note">Editar nota</span>
+          </button>
+          <div class="ctx-sep"></div>
+          <button class="ctx-item danger" type="button" data-ctx="delete-note">
+            <span class="ctx-icon"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-trash"/></svg></span><span data-i18n="ctx.delete_note">Eliminar nota</span>
+          </button>
+        </div>
+      </div>
 
       <!-- Grupo 3 · Red y avanzado -->
       <div class="ctx-sep ctx-conn-only hidden"></div>
       <button class="ctx-item ctx-conn-only ctx-jump-active-only hidden" data-ctx="toggle-active-jump" id="ctx-toggle-active-jump">
         <span class="ctx-icon"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-route"/></svg></span><span id="ctx-active-jump-label" data-i18n="jump.ctx_use_active">Usar como salto activo</span>
       </button>
-      <div class="ctx-item ctx-has-submenu ctx-conn-only hidden" id="ctx-tunnels" aria-haspopup="menu">
-        <span class="ctx-icon"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-tunnel"/></svg></span><span data-i18n="ctx.tunnels">Túneles</span>
-        <span class="ctx-submenu-arrow">▸</span>
-        <div class="ctx-submenu" id="ctx-tunnels-submenu" role="menu"></div>
+      <div class="ctx-item ctx-has-submenu ctx-conn-only hidden" id="ctx-tunnels" role="menuitem" tabindex="-1" aria-haspopup="menu" aria-expanded="false" aria-labelledby="ctx-tunnels-label">
+        <span class="ctx-icon"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-tunnel"/></svg></span><span id="ctx-tunnels-label" data-i18n="ctx.tunnels">Túneles</span>
+        <span class="ctx-submenu-arrow" aria-hidden="true"><svg class="ctx-icon-svg"><use href="#ci-chevron"/></svg></span>
+        <div class="ctx-submenu" id="ctx-tunnels-submenu" role="menu" aria-labelledby="ctx-tunnels-label"></div>
       </div>
       <button class="ctx-item ctx-conn-only ctx-script-only hidden" data-ctx="run-script-conn">
         <span class="ctx-icon"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-script"/></svg></span><span data-i18n="scripts.ctx_run">Ejecutar script…</span>
@@ -661,13 +700,25 @@
         <span class="ctx-icon"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-x"/></svg></span><span data-i18n="ctx.delete">Eliminar</span>
       </button>
 
-      <!-- Solo cuando el clic fue sobre un workspace en vista "Todos" -->
+      <!-- Solo cuando el clic fue sobre un perfil (workspace): en la vista «Todos» o en la lista de perfiles -->
       <div class="ctx-sep ctx-ws-only hidden"></div>
       <button class="ctx-item ctx-ws-only hidden" data-ctx="rename-ws">
         <span class="ctx-icon"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-edit"/></svg></span><span data-i18n="ctx.rename_workspace">Renombrar perfil</span>
       </button>
+      <button class="ctx-item ctx-ws-only hidden" data-ctx="move-ws-up">
+        <span class="ctx-icon"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-arrow-up"/></svg></span><span data-i18n="ctx.move_up">Mover arriba</span>
+      </button>
+      <button class="ctx-item ctx-ws-only hidden" data-ctx="move-ws-down">
+        <span class="ctx-icon"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-arrow-down"/></svg></span><span data-i18n="ctx.move_down">Mover abajo</span>
+      </button>
+      <button class="ctx-item ctx-ws-only hidden" data-ctx="health-ws">
+        <span class="ctx-icon"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-refresh"/></svg></span><span data-i18n="health.workspace_action">Comprobar salud de las conexiones</span>
+      </button>
       <button class="ctx-item ctx-ws-only hidden" data-ctx="export-ws">
         <span class="ctx-icon"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-export"/></svg></span><span data-i18n="ctx.export_workspace">Exportar conexiones del perfil…</span>
+      </button>
+      <button class="ctx-item ctx-ws-only hidden" data-ctx="bulk-edit-ws" id="ctx-bulk-edit-ws">
+        <span class="ctx-icon"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-sliders"/></svg></span><span id="ctx-bulk-edit-ws-label" data-i18n="bulk_edit.ctx_workspace_static">Editar las conexiones del perfil…</span>
       </button>
       <button class="ctx-item danger ctx-ws-only hidden" data-ctx="delete-ws">
         <span class="ctx-icon"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-x"/></svg></span><span data-i18n="ctx.delete_workspace">Eliminar perfil</span>
@@ -698,6 +749,9 @@
         <span class="ctx-icon"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-upload"/></svg></span><span data-i18n="sftp.upload_selection">Subir selección al remoto</span>
       </button>
       <div class="ctx-sep"></div>
+      <button class="ctx-item sftpctx-link-only hidden" data-sftpctx="link-target">
+        <span class="ctx-icon"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-external"/></svg></span><span data-i18n="sftp.link_go">Ir al destino del enlace</span>
+      </button>
       <button class="ctx-item sftpctx-single-selection" data-sftpctx="rename">
         <span class="ctx-icon"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-edit"/></svg></span><span data-i18n="sftp.rename_dialog_title">Renombrar</span>
       </button>
@@ -706,6 +760,36 @@
       </button>
       <button class="ctx-item danger sftpctx-needs-selection" data-sftpctx="delete">
         <span class="ctx-icon"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-x"/></svg></span><span data-i18n="sftp.delete_title">Eliminar</span>
+      </button>
+    </div>
+
+    <!-- Clic derecho en una transferencia del panel de archivos. Las opciones
+         de estado repiten los botones de la fila y se muestran según el estado. -->
+    <div id="sftp-transfer-menu" class="ctx-menu hidden" role="menu" data-i18n-aria-label="sftp.transfer_menu_label">
+      <button class="ctx-item" data-xferctx="pause">
+        <span class="ctx-icon"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-pause"/></svg></span><span data-i18n="sftp.transfer_pause">Pausar</span>
+      </button>
+      <button class="ctx-item" data-xferctx="resume">
+        <span class="ctx-icon"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-play"/></svg></span><span data-i18n="sftp.transfer_resume">Reanudar</span>
+      </button>
+      <button class="ctx-item" data-xferctx="retry">
+        <span class="ctx-icon"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-refresh"/></svg></span><span data-i18n="sftp.transfer_retry">Reintentar</span>
+      </button>
+      <button class="ctx-item" data-xferctx="reveal">
+        <span class="ctx-icon"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-folder"/></svg></span><span data-i18n="sftp.transfer_reveal">Mostrar en la carpeta de destino</span>
+      </button>
+      <button class="ctx-item" data-xferctx="copy-path">
+        <span class="ctx-icon"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-copy"/></svg></span><span data-i18n="sftp.transfer_copy_path">Copiar la ruta de destino</span>
+      </button>
+      <div class="ctx-sep"></div>
+      <button class="ctx-item danger" data-xferctx="cancel">
+        <span class="ctx-icon"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-x"/></svg></span><span data-i18n="sftp.transfer_cancel">Cancelar</span>
+      </button>
+      <button class="ctx-item" data-xferctx="remove">
+        <span class="ctx-icon"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-x"/></svg></span><span data-i18n="sftp.transfer_remove">Quitar de la lista</span>
+      </button>
+      <button class="ctx-item" data-xferctx="clear-done">
+        <span class="ctx-icon"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-trash"/></svg></span><span data-i18n="sftp.clear_completed">Limpiar completadas</span>
       </button>
     </div>
 
@@ -772,6 +856,25 @@
       </button>
       <button class="ctx-item tabctx-read-only hidden" data-tabctx="toggle-read-only">
         <span class="ctx-icon"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-lock"/></svg></span><span data-i18n="tabctx.read_only">Solo lectura</span>
+      </button>
+      <!-- Solo en el RDP integrado: el submenú lo rellena showTabContextMenu -->
+      <div class="ctx-item ctx-has-submenu tabctx-rdp-res hidden" id="tabctx-rdp-res" role="menuitem" tabindex="-1" aria-haspopup="menu" aria-expanded="false" aria-labelledby="tabctx-rdp-res-label">
+        <span class="ctx-icon"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-monitor"/></svg></span><span id="tabctx-rdp-res-label" data-i18n="tabctx.rdp_resolution">Resolución</span>
+        <span class="ctx-submenu-arrow" aria-hidden="true"><svg class="ctx-icon-svg"><use href="#ci-chevron"/></svg></span>
+        <div class="ctx-submenu" id="tabctx-rdp-res-submenu" role="menu" aria-labelledby="tabctx-rdp-res-label"></div>
+      </div>
+
+      <!-- Paneles de la sesión: lo mismo que los botones de la pestaña, que
+           pueden ocultarse en Preferencias (visibles según los que tenga) -->
+      <div class="ctx-sep tabctx-panels-sep hidden"></div>
+      <button class="ctx-item tabctx-panel-sftp hidden" data-tabctx="panel-sftp">
+        <span class="ctx-icon"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-folder"/></svg></span><span data-i18n="sftp.panel">Panel SFTP</span>
+      </button>
+      <button class="ctx-item tabctx-panel-tunnels hidden" data-tabctx="panel-tunnels">
+        <span class="ctx-icon"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-tunnel"/></svg></span><span data-i18n="tunnels.panel">Túneles SSH</span>
+      </button>
+      <button class="ctx-item tabctx-panel-runbook hidden" data-tabctx="panel-runbook">
+        <span class="ctx-icon"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-file"/></svg></span><span data-i18n="notes.runbook_title">Nota (runbook)</span>
       </button>
 
       <!-- Grupo 2 · Acciones de división/vista (visibilidad calculada al abrir el menú) -->
@@ -965,7 +1068,7 @@
             <div class="note-modal-actions">
               <button type="button" class="btn-secondary" id="modal-note-edit-btn" data-i18n="notes.open_editor">Abrir editor de notas…</button>
             </div>
-            <p class="form-hint" id="modal-note-save-first" data-i18n="notes.save_first" hidden>Guarda la conexión antes de añadir una nota.</p>
+            <p class="form-hint warn" id="modal-note-save-first" data-i18n="notes.save_first" hidden>Guarda la conexión antes de añadir una nota.</p>
             <!-- Campo inline histórico (semilla de migración). Oculto: el .md es la fuente de verdad. -->
             <textarea id="f-notes" hidden></textarea>
           </div>
@@ -1013,7 +1116,7 @@
             <!-- Checkbox histórico: oculto y sincronizado con el selector para
                  reutilizar toda la lógica KeePass existente que lo consulta. -->
             <input id="f-use-keepass" type="checkbox" hidden />
-            <p class="form-hint" id="keepass-hint-locked" data-i18n="modal_conn.keepass_locked" style="display:none;">
+            <p class="form-hint warn" id="keepass-hint-locked" data-i18n="modal_conn.keepass_locked" style="display:none;">
               La base KeePass está bloqueada. Desbloquéala en Preferencias.
             </p>
           </div>
@@ -1109,7 +1212,7 @@
             </p>
             <div id="extra-creds-list"></div>
             <button type="button" class="btn-secondary" id="btn-add-extra-cred">
-              <span class="ctx-icon">＋</span><span data-i18n="modal_conn.add_user">Añadir otro usuario</span>
+              <span class="ctx-icon"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-plus"/></svg></span><span data-i18n="modal_conn.add_user">Añadir otro usuario</span>
             </button>
           </div>
 
@@ -1205,6 +1308,54 @@
                 </svg>
                 <span data-i18n="modal_conn.agent_forwarding_warning">Habilítalo solo en hosts de confianza: un servidor comprometido puede usar tu agente (y tus claves) para saltar a otros equipos.</span>
               </p>
+            </div>
+
+            <!-- Segundo factor con el TOTP de KeePass: opt-in por perfil. El
+                 código lo calcula y lo envía el backend; aquí solo se elige. -->
+            <div class="form-row" id="field-totp-keepass">
+              <label class="checkbox-label">
+                <input id="f-totp-keepass" type="checkbox" aria-describedby="totp-keepass-warning" />
+                <span data-i18n="modal_conn.totp_keepass">Responder el código de verificación con el TOTP de KeePass</span>
+              </label>
+              <p class="form-hint" data-i18n="modal_conn.totp_keepass_hint">
+                Cuando el servidor pida el código de verificación (Google Authenticator, PAM…), el diálogo ofrecerá «Usar código de KeePass». Rustty lo calcula con la semilla del campo «otp» de la entrada y lo envía; el código no se muestra ni se guarda.
+              </p>
+              <p class="form-hint warning" id="totp-keepass-warning">
+                <svg class="hint-warn-icon" viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
+                  <path d="M8 2 L15 14 H1 Z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
+                  <line x1="8" y1="6.3" x2="8" y2="9.8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+                  <circle cx="8" cy="11.8" r="0.95" fill="currentColor"/>
+                </svg>
+                <span data-i18n="modal_conn.totp_keepass_warning">Guardar la contraseña y la semilla del segundo factor en la misma base reduce los dos factores a uno: quien abra la base tiene los dos.</span>
+              </p>
+              <div id="totp-keepass-options" class="totp-keepass-options" hidden>
+                <div class="form-row">
+                  <label for="f-totp-keepass-entry" data-i18n="modal_conn.totp_keepass_entry">Entrada con la semilla TOTP</label>
+                  <select id="f-totp-keepass-entry"></select>
+                  <p class="form-hint" data-i18n="modal_conn.totp_keepass_entry_hint">
+                    Solo aparecen las entradas con semilla TOTP (campo «otp», como las guarda KeePassXC).
+                  </p>
+                  <p class="form-hint keepass-entry-status hidden" id="totp-keepass-entry-status" role="status"></p>
+                  <p class="form-error hidden" data-error-for="f-totp-keepass-entry"></p>
+                </div>
+                <div class="form-row">
+                  <label class="checkbox-label">
+                    <input id="f-totp-keepass-auto" type="checkbox" />
+                    <span data-i18n="modal_conn.totp_keepass_auto">Enviar el código sin preguntar</span>
+                  </label>
+                  <p class="form-hint" data-i18n="modal_conn.totp_keepass_auto_hint">
+                    También en las reconexiones y al abrir el panel SFTP. Si el servidor rechaza el código no se reintenta: se te pregunta hasta que acepte un código de KeePass pedido a mano. Con la base bloqueada o sin semilla se muestra el diálogo de siempre.
+                  </p>
+                </div>
+                <div class="form-row">
+                  <label for="f-totp-keepass-regex"><span data-i18n="modal_conn.totp_keepass_regex">Pregunta a la que se responde (regex)</span> <span class="optional" data-i18n="modal_conn.optional">(opcional)</span></label>
+                  <input id="f-totp-keepass-regex" type="text" spellcheck="false" autocomplete="off" maxlength="256" />
+                  <p class="form-hint" data-i18n="modal_conn.totp_keepass_regex_hint">
+                    Expresión regular que reconoce la pregunta del código de verificación. Vacía = patrón por defecto. Solo se contestan las rondas de una sola pregunta.
+                  </p>
+                  <p class="form-error hidden" data-error-for="f-totp-keepass-regex"></p>
+                </div>
+              </div>
             </div>
 
             <div class="form-row">
@@ -1384,22 +1535,239 @@
       </div>
     </div>
 
+    <!-- ══════════════════════════════════════════════════════
+         MODAL: Edición en lote de conexiones
+    ══════════════════════════════════════════════════════ -->
+    <div id="bulk-edit-overlay" class="hidden">
+      <div id="bulk-edit-modal" role="dialog" aria-modal="true" aria-labelledby="bulk-edit-title" aria-describedby="bulk-edit-scope">
+        <div class="modal-header">
+          <h2 id="bulk-edit-title" data-i18n="bulk_edit.title">Editar conexiones en lote</h2>
+          <button type="button" class="btn-icon modal-close" id="bulk-edit-close" data-i18n-aria-label="bulk_edit.close" aria-label="Cerrar"><svg class="icon-x-svg" aria-hidden="true"><use href="#ci-x"/></svg></button>
+        </div>
+        <form id="bulk-edit-form" autocomplete="off" novalidate>
+          <p class="bulk-scope" id="bulk-edit-scope"></p>
+          <p class="form-hint bulk-hint" id="bulk-edit-change-hint" data-i18n="bulk_edit.change_hint">Marca la casilla de cada campo que quieras cambiar; lo demás no se toca. Cada campo se aplica solo a las conexiones de un tipo compatible.</p>
+          <div class="bulk-fields">
+          <div class="bulk-field" data-bulk-field="username">
+            <label class="checkbox-label bulk-toggle">
+              <input type="checkbox" class="bulk-on" id="bulk-on-username" data-bulk-field="username" aria-describedby="bulk-edit-change-hint" />
+              <span id="bulk-lbl-username" data-i18n="modal_conn.user">Usuario</span>
+            </label>
+            <div class="bulk-control">
+              <input id="bulk-username" type="text" autocomplete="off" spellcheck="false" aria-labelledby="bulk-lbl-username" disabled />
+            </div>
+            <span class="bulk-skip hidden" data-bulk-skip="username"></span>
+          </div>
+          <div class="bulk-field" data-bulk-field="port">
+            <label class="checkbox-label bulk-toggle">
+              <input type="checkbox" class="bulk-on" id="bulk-on-port" data-bulk-field="port" aria-describedby="bulk-edit-change-hint" />
+              <span id="bulk-lbl-port" data-i18n="modal_conn.port">Puerto</span>
+            </label>
+            <div class="bulk-control">
+              <input id="bulk-port" type="number" min="1" max="65535" step="1" aria-labelledby="bulk-lbl-port" disabled />
+            </div>
+            <span class="bulk-skip hidden" data-bulk-skip="port"></span>
+          </div>
+          <div class="bulk-field" data-bulk-field="auth">
+            <label class="checkbox-label bulk-toggle">
+              <input type="checkbox" class="bulk-on" id="bulk-on-auth" data-bulk-field="auth" aria-describedby="bulk-edit-change-hint" />
+              <span id="bulk-lbl-auth" data-i18n="modal_conn.auth">Autenticación</span>
+            </label>
+            <div class="bulk-control">
+              <select id="bulk-auth" aria-labelledby="bulk-lbl-auth" disabled>
+                <option value="password" data-i18n="modal_conn.auth_password">Contraseña</option>
+                <option value="public_key" data-i18n="modal_conn.auth_publickey">Clave pública / privada</option>
+                <option value="agent" data-i18n="modal_conn.auth_agent">Agente SSH</option>
+                <option value="keyboard_interactive" data-i18n="modal_conn.auth_keyboard_interactive">Interactiva (código de verificación)</option>
+              </select>
+              <div class="bulk-sub hidden" id="bulk-key-path-row">
+                <label for="bulk-key-path" data-i18n="modal_conn.key_path">Ruta de clave privada</label>
+                <input id="bulk-key-path" type="text" autocomplete="off" spellcheck="false" disabled />
+                <p class="form-hint bulk-hint" data-i18n="bulk_edit.key_path_hint">Vacío: cada conexión conserva su ruta de clave.</p>
+              </div>
+            <p class="form-hint bulk-hint" data-i18n="bulk_edit.ssh_only_hint">Solo conexiones SSH.</p>
+            </div>
+            <span class="bulk-skip hidden" data-bulk-skip="auth"></span>
+          </div>
+          <div class="bulk-field" data-bulk-field="master_credential">
+            <label class="checkbox-label bulk-toggle">
+              <input type="checkbox" class="bulk-on" id="bulk-on-master_credential" data-bulk-field="master_credential" aria-describedby="bulk-edit-change-hint" />
+              <span id="bulk-lbl-master_credential" data-i18n="modal_conn.password_source_master">Credencial maestra</span>
+            </label>
+            <div class="bulk-control">
+              <select id="bulk-master-cred" aria-labelledby="bulk-lbl-master_credential" disabled>
+                <option value="" data-i18n="bulk_edit.master_own">Contraseña propia de cada conexión</option>
+              </select>
+            <p class="form-hint bulk-hint" data-i18n="bulk_edit.master_hint">Las contraseñas no se escriben en lote: asigna una credencial maestra ya guardada o vuelve a la propia de cada conexión.</p>
+            </div>
+            <span class="bulk-skip hidden" data-bulk-skip="master_credential"></span>
+          </div>
+          <div class="bulk-field" data-bulk-field="bastion">
+            <label class="checkbox-label bulk-toggle">
+              <input type="checkbox" class="bulk-on" id="bulk-on-bastion" data-bulk-field="bastion" aria-describedby="bulk-edit-change-hint" />
+              <span id="bulk-lbl-bastion" data-i18n="jump.form_bastion">Bastión</span>
+            </label>
+            <div class="bulk-control">
+              <select id="bulk-bastion" aria-labelledby="bulk-lbl-bastion" disabled>
+                <option value="" data-i18n="jump.form_none">Ninguno (conexión directa)</option>
+                <option value="manual" data-i18n="jump.form_manual">Dirección manual…</option>
+              </select>
+              <div class="bulk-sub hidden" id="bulk-proxy-jump-row">
+                <label for="bulk-proxy-jump" data-i18n="bulk_edit.bastion_manual_label">Dirección del bastión (usuario@host:puerto)</label>
+                <input id="bulk-proxy-jump" type="text" autocomplete="off" spellcheck="false" disabled />
+              </div>
+            <p class="form-hint bulk-hint" data-i18n="bulk_edit.bastion_hint">SSH, RDP, VNC y Telnet; la dirección manual, solo SSH y RDP. Nunca a sí misma ni formando un bucle.</p>
+            </div>
+            <span class="bulk-skip hidden" data-bulk-skip="bastion"></span>
+          </div>
+          <div class="bulk-field" data-bulk-field="keep_alive_secs">
+            <label class="checkbox-label bulk-toggle">
+              <input type="checkbox" class="bulk-on" id="bulk-on-keep_alive_secs" data-bulk-field="keep_alive_secs" aria-describedby="bulk-edit-change-hint" />
+              <span id="bulk-lbl-keep_alive_secs" data-i18n="modal_conn.keep_alive">Keep-alive (segundos)</span>
+            </label>
+            <div class="bulk-control">
+              <input id="bulk-keep-alive" type="number" min="0" max="3600" step="5" aria-labelledby="bulk-lbl-keep_alive_secs" disabled />
+            <p class="form-hint bulk-hint" data-i18n="bulk_edit.zero_off_hint">0 = desactivado. Solo conexiones SSH.</p>
+            </div>
+            <span class="bulk-skip hidden" data-bulk-skip="keep_alive_secs"></span>
+          </div>
+          <div class="bulk-field" data-bulk-field="auto_reconnect">
+            <label class="checkbox-label bulk-toggle">
+              <input type="checkbox" class="bulk-on" id="bulk-on-auto_reconnect" data-bulk-field="auto_reconnect" aria-describedby="bulk-edit-change-hint" />
+              <span id="bulk-lbl-auto_reconnect" data-i18n="modal_conn.auto_reconnect">Reintentos de reconexión</span>
+            </label>
+            <div class="bulk-control">
+              <input id="bulk-auto-reconnect" type="number" min="0" max="20" step="1" aria-labelledby="bulk-lbl-auto_reconnect" disabled />
+            <p class="form-hint bulk-hint" data-i18n="bulk_edit.zero_off_hint">0 = desactivado. Solo conexiones SSH.</p>
+            </div>
+            <span class="bulk-skip hidden" data-bulk-skip="auto_reconnect"></span>
+          </div>
+          <div class="bulk-field" data-bulk-field="environment">
+            <label class="checkbox-label bulk-toggle">
+              <input type="checkbox" class="bulk-on" id="bulk-on-environment" data-bulk-field="environment" aria-describedby="bulk-edit-change-hint" />
+              <span id="bulk-lbl-environment" data-i18n="modal_conn.environment">Entorno</span>
+            </label>
+            <div class="bulk-control">
+              <select id="bulk-environment" aria-labelledby="bulk-lbl-environment" disabled>
+                <option value="" data-i18n="modal_conn.environment_none">Sin entorno</option>
+                <option value="prod" translate="no">PROD</option>
+                <option value="stage" translate="no">STAGE</option>
+                <option value="dev" translate="no">DEV</option>
+              </select>
+            </div>
+            <span class="bulk-skip hidden" data-bulk-skip="environment"></span>
+          </div>
+          <div class="bulk-field" data-bulk-field="legacy">
+            <label class="checkbox-label bulk-toggle">
+              <input type="checkbox" class="bulk-on" id="bulk-on-legacy" data-bulk-field="legacy" aria-describedby="bulk-edit-change-hint" />
+              <span id="bulk-lbl-legacy" data-i18n="modal_conn.allow_legacy">Permitir cifrados / kex / MAC antiguos</span>
+            </label>
+            <div class="bulk-control">
+              <select id="bulk-legacy" aria-labelledby="bulk-lbl-legacy" disabled>
+                <option value="on" data-i18n="bulk_edit.on">Activado</option>
+                <option value="off" data-i18n="bulk_edit.off">Desactivado</option>
+              </select>
+            <p class="form-hint bulk-hint" data-i18n="bulk_edit.legacy_hint">Solo conexiones SSH. Al activarlo, cada conexión conserva su selección de algoritmos.</p>
+            </div>
+            <span class="bulk-skip hidden" data-bulk-skip="legacy"></span>
+          </div>
+          <div class="bulk-field" data-bulk-field="session_log">
+            <label class="checkbox-label bulk-toggle">
+              <input type="checkbox" class="bulk-on" id="bulk-on-session_log" data-bulk-field="session_log" aria-describedby="bulk-edit-change-hint" />
+              <span id="bulk-lbl-session_log" data-i18n="modal_conn.session_log">Grabar sesión a fichero</span>
+            </label>
+            <div class="bulk-control">
+              <select id="bulk-session-log" aria-labelledby="bulk-lbl-session_log" disabled>
+                <option value="on" data-i18n="bulk_edit.on">Activado</option>
+                <option value="off" data-i18n="bulk_edit.off">Desactivado</option>
+              </select>
+            <p class="form-hint bulk-hint" data-i18n="bulk_edit.ssh_only_hint">Solo conexiones SSH.</p>
+            </div>
+            <span class="bulk-skip hidden" data-bulk-skip="session_log"></span>
+          </div>
+          <div class="bulk-field" data-bulk-field="open_read_only">
+            <label class="checkbox-label bulk-toggle">
+              <input type="checkbox" class="bulk-on" id="bulk-on-open_read_only" data-bulk-field="open_read_only" aria-describedby="bulk-edit-change-hint" />
+              <span id="bulk-lbl-open_read_only" data-i18n="modal_conn.open_read_only">Abrir en solo lectura</span>
+            </label>
+            <div class="bulk-control">
+              <select id="bulk-open-read-only" aria-labelledby="bulk-lbl-open_read_only" disabled>
+                <option value="on" data-i18n="bulk_edit.on">Activado</option>
+                <option value="off" data-i18n="bulk_edit.off">Desactivado</option>
+              </select>
+            <p class="form-hint bulk-hint" data-i18n="bulk_edit.ssh_only_hint">Solo conexiones SSH.</p>
+            </div>
+            <span class="bulk-skip hidden" data-bulk-skip="open_read_only"></span>
+          </div>
+          <div class="bulk-field" data-bulk-field="group">
+            <label class="checkbox-label bulk-toggle">
+              <input type="checkbox" class="bulk-on" id="bulk-on-group" data-bulk-field="group" aria-describedby="bulk-edit-change-hint" />
+              <span id="bulk-lbl-group" data-i18n="modal_conn.folder">Carpeta</span>
+            </label>
+            <div class="bulk-control">
+              <select id="bulk-folder" aria-labelledby="bulk-lbl-group" disabled>
+                <option value="" data-i18n="bulk_edit.folder_root">Raíz (sin carpeta)</option>
+                <option value="__new__" data-i18n="bulk_edit.folder_new">Nueva carpeta…</option>
+              </select>
+              <div class="bulk-sub hidden" id="bulk-folder-new-row">
+                <label for="bulk-folder-new" data-i18n="bulk_edit.folder_new_label">Nombre de la carpeta nueva</label>
+                <input id="bulk-folder-new" type="text" autocomplete="off" spellcheck="false" disabled />
+              </div>
+            </div>
+            <span class="bulk-skip hidden" data-bulk-skip="group"></span>
+          </div>
+          <div class="bulk-field" data-bulk-field="host_replace">
+            <label class="checkbox-label bulk-toggle">
+              <input type="checkbox" class="bulk-on" id="bulk-on-host_replace" data-bulk-field="host_replace" aria-describedby="bulk-edit-change-hint" />
+              <span id="bulk-lbl-host_replace" data-i18n="bulk_edit.host_replace">Buscar y reemplazar en el host</span>
+            </label>
+            <div class="bulk-control">
+              <div class="bulk-split">
+                <div class="bulk-sub">
+                  <label for="bulk-host-from" data-i18n="bulk_edit.host_from">Buscar</label>
+                  <input id="bulk-host-from" type="text" autocomplete="off" spellcheck="false" disabled />
+                </div>
+                <div class="bulk-sub">
+                  <label for="bulk-host-to" data-i18n="bulk_edit.host_to">Reemplazar por</label>
+                  <input id="bulk-host-to" type="text" autocomplete="off" spellcheck="false" disabled />
+                </div>
+              </div>
+              <ul class="bulk-host-preview hidden" id="bulk-host-preview" aria-live="polite"></ul>
+            <p class="form-hint bulk-hint" data-i18n="bulk_edit.host_hint">Texto literal, sin comodines. Solo cambian los hosts que lo contienen.</p>
+            </div>
+            <span class="bulk-skip hidden" data-bulk-skip="host_replace"></span>
+          </div>
+          </div>
+          <p class="bulk-summary" id="bulk-edit-summary" aria-live="polite"></p>
+          <p class="bulk-error hidden" id="bulk-edit-error" role="alert"></p>
+          <div class="modal-actions">
+            <button type="button" class="btn-secondary" id="bulk-edit-cancel" data-i18n="bulk_edit.cancel">Cancelar</button>
+            <button type="submit" class="btn-primary" id="bulk-edit-apply" data-i18n="bulk_edit.apply" disabled>Aplicar cambios</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Centro de actividad: diálogo del controlador común (`registerDialogs`),
+         titulado por su encabezado; los filtros son conmutadores (`aria-pressed`). -->
     <div id="activity-center-overlay" class="hidden">
-      <aside id="activity-center-panel" aria-label="Centro de actividad" data-i18n-aria-label="activity.panel_label">
+      <aside id="activity-center-panel" role="dialog" aria-modal="true" aria-labelledby="activity-center-title" aria-describedby="activity-center-subtitle">
         <div class="activity-center-head">
           <div>
-            <h2 data-i18n="activity.title">Actividad</h2>
-            <p data-i18n="activity.subtitle">Transferencias, conexiones, sync y avisos guardados</p>
+            <h2 id="activity-center-title" data-i18n="activity.title">Actividad</h2>
+            <p id="activity-center-subtitle" data-i18n="activity.subtitle">Transferencias, conexiones, sync y avisos guardados</p>
           </div>
-          <button type="button" class="btn-icon" id="btn-activity-close" aria-label="Cerrar" data-i18n-aria-label="toast.close"><svg class="icon-x-svg" aria-hidden="true"><use href="#ci-x"/></svg></button>
+          <button type="button" class="btn-icon" id="btn-activity-close" aria-label="Cerrar" data-i18n-aria-label="activity.close"><svg class="icon-x-svg" aria-hidden="true"><use href="#ci-x"/></svg></button>
         </div>
-        <div class="activity-center-toolbar">
-          <button type="button" class="activity-filter active" data-activity-filter="all" data-i18n="activity.filter_all">Todo</button>
-          <button type="button" class="activity-filter" data-activity-filter="connection" data-i18n="activity.filter_connection">Conexiones</button>
-          <button type="button" class="activity-filter" data-activity-filter="sftp">SFTP</button>
-          <button type="button" class="activity-filter" data-activity-filter="sync" data-i18n="rail.sync">Sync</button>
-          <button type="button" class="activity-filter" data-activity-filter="update" data-i18n="activity.filter_update">Avisos</button>
-          <button type="button" class="activity-clear" id="btn-activity-clear" data-i18n="sftp.clear">Limpiar</button>
+        <div class="activity-center-toolbar" role="group" aria-label="Filtrar la actividad" data-i18n-aria-label="activity.filters_label">
+          <button type="button" class="activity-filter active" data-activity-filter="all" aria-pressed="true" data-i18n="activity.filter_all">Todo</button>
+          <button type="button" class="activity-filter" data-activity-filter="connection" aria-pressed="false" data-i18n="activity.filter_connection">Conexiones</button>
+          <button type="button" class="activity-filter" data-activity-filter="sftp" aria-pressed="false" translate="no">SFTP</button>
+          <button type="button" class="activity-filter" data-activity-filter="sync" aria-pressed="false" data-i18n="activity.filter_sync">Sincronización</button>
+          <button type="button" class="activity-filter" data-activity-filter="update" aria-pressed="false" data-i18n="activity.filter_update">Avisos</button>
+          <button type="button" class="activity-filter activity-filter-error" data-activity-filter="error" aria-pressed="false" data-i18n="activity.filter_errors">Errores</button>
+          <button type="button" class="activity-clear activity-export" id="btn-activity-export" data-i18n="activity.export" data-i18n-title="activity.export_title" title="Guardar en un fichero las entradas que se ven">Exportar…</button>
+          <button type="button" class="activity-clear" id="btn-activity-clear" data-i18n="activity.clear" data-i18n-title="activity.clear_title" title="Vaciar el historial de actividad">Limpiar</button>
         </div>
         <div id="activity-center-list" class="activity-center-list"></div>
       </aside>
@@ -1920,6 +2288,10 @@
     </div>
 
     <!-- Menú de la píldora de ruta (lo rellena main.js). -->
+    <!-- Menú contextual de los campos de texto (cortar, copiar, pegar, formato).
+         Lo rellena `showTextContextMenu`; vive fuera de #app para seguir activo
+         con un diálogo abierto (el editor de notas). -->
+    <div id="text-context-menu" class="ctx-menu hidden" role="menu" data-i18n-aria-label="text_menu.label" aria-label="Edición de texto"></div>
     <div id="route-menu" class="hidden" role="menu" data-i18n-aria-label="jump.pill_label" aria-label="Ruta de las conexiones nuevas"></div>
 
     <!-- Selector «Elegir conexión…»: salto activo y «Conectar a través de». -->
@@ -2174,8 +2546,12 @@
               <span class="prefs-nav-icon"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4v13"/><path d="M4 7l3-3 3 3"/><path d="M17 20V7"/><path d="M14 17l3 3 3-3"/></svg></span>
               <span class="prefs-nav-label" data-i18n="modal_prefs.tab_transfer">FTP/SFTP</span>
             </button>
+            <button type="button" class="prefs-nav-item" role="tab" data-prefs-tab="rdp">
+              <span class="prefs-nav-icon"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/><path d="M9 13l5.5-5.5M10 7.5h4.5V12"/></svg></span>
+              <span class="prefs-nav-label" data-i18n="modal_prefs.tab_rdp">RDP</span>
+            </button>
             <button type="button" class="prefs-nav-item" role="tab" data-prefs-tab="language">
-              <span class="prefs-nav-icon" translate="no">A文</span>
+              <span class="prefs-nav-icon"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z"/></svg></span>
               <span class="prefs-nav-label" data-i18n="modal_prefs.tab_language">Idioma</span>
             </button>
             <button type="button" class="prefs-nav-item" role="tab" data-prefs-tab="credentials">
@@ -2380,6 +2756,26 @@
               </div>
               <p class="settings-hint" data-i18n="prefs_terminal.remote_title_hint">El que ponen bash, zsh o vim (OSC 0/2), como la carpeta o el fichero abierto. Si renombras la pestaña, manda tu nombre.</p>
 
+              <div class="settings-row settings-row-inline">
+                <label for="pref-tab-wheel" data-i18n="prefs_terminal.tab_wheel">Rueda del ratón sobre las pestañas</label>
+                <select id="pref-tab-wheel">
+                  <option value="scroll" data-i18n="prefs_terminal.tab_wheel_scroll">Desplazar la barra de pestañas</option>
+                  <option value="switch" data-i18n="prefs_terminal.tab_wheel_switch">Cambiar de pestaña</option>
+                  <option value="off" data-i18n="prefs_terminal.tab_wheel_off">No hacer nada</option>
+                </select>
+              </div>
+              <p class="settings-hint" data-i18n="prefs_terminal.tab_wheel_hint">Con muchas pestañas abiertas, girar la rueda sobre ellas mueve la barra para llegar a las que no caben. Ctrl+rueda sigue siendo el zoom del terminal.</p>
+
+              <div class="settings-row settings-row-inline">
+                <label for="pref-tab-buttons" data-i18n="prefs_terminal.tab_buttons">Botones de la pestaña</label>
+                <select id="pref-tab-buttons">
+                  <option value="always" data-i18n="prefs_terminal.tab_buttons_always">Siempre</option>
+                  <option value="active" data-i18n="prefs_terminal.tab_buttons_active">Solo en la activa</option>
+                  <option value="never" data-i18n="prefs_terminal.tab_buttons_never">Nunca</option>
+                </select>
+              </div>
+              <p class="settings-hint" data-i18n="prefs_terminal.tab_buttons_hint">Los accesos al panel SFTP, a los túneles y a la nota de cada pestaña. Ocultos, siguen en el menú del clic derecho sobre la pestaña y en sus atajos. Las pestañas ancladas los muestran solo en la activa o al pasar el ratón.</p>
+
               <div class="settings-row">
                 <label for="pref-local-cwd" data-i18n="prefs_terminal.local_cwd">Carpeta inicial de la consola local</label>
                 <div class="settings-control">
@@ -2394,6 +2790,14 @@
                   <span data-i18n="prefs_terminal.shell_integration">Integración de shell en la consola local</span>
                 </label>
                 <p class="settings-hint" data-i18n="prefs_terminal.shell_integration_hint">Hace que bash y zsh emitan las marcas OSC 133 y OSC 7 en las consolas locales nuevas: bloques de comando, aviso de fin de comando largo y carpeta actual, sin tocar tus ficheros de configuración. Otros shells arrancan como siempre.</p>
+              </div>
+
+              <div class="settings-row">
+                <label class="checkbox-label">
+                  <input type="checkbox" id="pref-local-status-bar" />
+                  <span data-i18n="prefs_terminal.local_status_bar">Mostrar la barra inferior en la consola local</span>
+                </label>
+                <p class="settings-hint" data-i18n="prefs_terminal.local_status_bar_hint">Usuario y equipo, carpeta actual (con la integración de shell), tamaño del terminal y, en Linux, el monitor de recursos de este equipo. Lo que es de una conexión remota, como la latencia o los túneles, no aparece.</p>
               </div>
 
               <div class="settings-row">
@@ -2412,7 +2816,7 @@
                   </thead>
                   <tbody id="highlight-rules-body"></tbody>
                 </table>
-                <button type="button" class="btn-secondary" id="btn-highlight-add" data-i18n="prefs_terminal.highlight_add">＋ Añadir regla</button>
+                <button type="button" class="btn-secondary" id="btn-highlight-add"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-plus"/></svg><span data-i18n="prefs_terminal.highlight_add">Añadir regla</span></button>
               </div>
 
               <div class="settings-row">
@@ -2433,7 +2837,7 @@
                   </thead>
                   <tbody id="quick-select-patterns-body"></tbody>
                 </table>
-                <button type="button" class="btn-secondary" id="btn-quick-select-add" data-i18n="prefs_terminal.quick_select_add">＋ Añadir patrón</button>
+                <button type="button" class="btn-secondary" id="btn-quick-select-add"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-plus"/></svg><span data-i18n="prefs_terminal.quick_select_add">Añadir patrón</span></button>
               </div>
             </section>
 
@@ -2446,7 +2850,7 @@
                 <label data-i18n="prefs_appearance.theme">Tema</label>
                 <div class="theme-picker" data-for="ui">
                   <label class="theme-option" data-theme="dark">
-                    <input type="radio" name="pref-theme" value="dark" />
+                    <input type="radio" class="visually-hidden" name="pref-theme" value="dark" />
                     <div class="theme-preview">
                       <div class="theme-preview-sidebar"></div>
                       <div class="theme-preview-main"></div>
@@ -2454,7 +2858,7 @@
                     <span class="theme-label" data-i18n="prefs_appearance.theme_dark">Oscuro</span>
                   </label>
                   <label class="theme-option" data-theme="light">
-                    <input type="radio" name="pref-theme" value="light" />
+                    <input type="radio" class="visually-hidden" name="pref-theme" value="light" />
                     <div class="theme-preview light">
                       <div class="theme-preview-sidebar"></div>
                       <div class="theme-preview-main"></div>
@@ -2462,7 +2866,7 @@
                     <span class="theme-label" data-i18n="prefs_appearance.theme_light">Claro</span>
                   </label>
                   <label class="theme-option" data-theme="system">
-                    <input type="radio" name="pref-theme" value="system" />
+                    <input type="radio" class="visually-hidden" name="pref-theme" value="system" />
                     <div class="theme-preview system">
                       <div class="theme-preview-sidebar"></div>
                       <div class="theme-preview-main"></div>
@@ -2470,7 +2874,7 @@
                     <span class="theme-label" data-i18n="prefs_appearance.theme_system">Sistema</span>
                   </label>
                   <label class="theme-option" data-theme="dracula">
-                    <input type="radio" name="pref-theme" value="dracula" />
+                    <input type="radio" class="visually-hidden" name="pref-theme" value="dracula" />
                     <div class="theme-preview dracula">
                       <div class="theme-preview-sidebar"></div>
                       <div class="theme-preview-main"></div>
@@ -2478,7 +2882,7 @@
                     <span class="theme-label" translate="no">Dracula</span>
                   </label>
                   <label class="theme-option" data-theme="nord">
-                    <input type="radio" name="pref-theme" value="nord" />
+                    <input type="radio" class="visually-hidden" name="pref-theme" value="nord" />
                     <div class="theme-preview nord">
                       <div class="theme-preview-sidebar"></div>
                       <div class="theme-preview-main"></div>
@@ -2486,7 +2890,7 @@
                     <span class="theme-label" translate="no">Nord</span>
                   </label>
                   <label class="theme-option" data-theme="xterm">
-                    <input type="radio" name="pref-theme" value="xterm" />
+                    <input type="radio" class="visually-hidden" name="pref-theme" value="xterm" />
                     <div class="theme-preview xterm">
                       <div class="theme-preview-sidebar"></div>
                       <div class="theme-preview-main"></div>
@@ -2494,7 +2898,7 @@
                     <span class="theme-label" translate="no">xterm</span>
                   </label>
                   <label class="theme-option" data-theme="vscode-dark">
-                    <input type="radio" name="pref-theme" value="vscode-dark" />
+                    <input type="radio" class="visually-hidden" name="pref-theme" value="vscode-dark" />
                     <div class="theme-preview vscode-dark">
                       <div class="theme-preview-sidebar"></div>
                       <div class="theme-preview-main"></div>
@@ -2502,7 +2906,7 @@
                     <span class="theme-label" translate="no">VS Code Dark+</span>
                   </label>
                   <label class="theme-option" data-theme="tango">
-                    <input type="radio" name="pref-theme" value="tango" />
+                    <input type="radio" class="visually-hidden" name="pref-theme" value="tango" />
                     <div class="theme-preview tango">
                       <div class="theme-preview-sidebar"></div>
                       <div class="theme-preview-main"></div>
@@ -2510,7 +2914,7 @@
                     <span class="theme-label" translate="no">Tango</span>
                   </label>
                   <label class="theme-option" data-theme="solarized-dark">
-                    <input type="radio" name="pref-theme" value="solarized-dark" />
+                    <input type="radio" class="visually-hidden" name="pref-theme" value="solarized-dark" />
                     <div class="theme-preview solarized-dark">
                       <div class="theme-preview-sidebar"></div>
                       <div class="theme-preview-main"></div>
@@ -2518,7 +2922,7 @@
                     <span class="theme-label" translate="no">Solarized Dark</span>
                   </label>
                   <label class="theme-option" data-theme="solarized-light">
-                    <input type="radio" name="pref-theme" value="solarized-light" />
+                    <input type="radio" class="visually-hidden" name="pref-theme" value="solarized-light" />
                     <div class="theme-preview solarized-light">
                       <div class="theme-preview-sidebar"></div>
                       <div class="theme-preview-main"></div>
@@ -2526,7 +2930,7 @@
                     <span class="theme-label" translate="no">Solarized Light</span>
                   </label>
                   <label class="theme-option" data-theme="gruvbox-dark">
-                    <input type="radio" name="pref-theme" value="gruvbox-dark" />
+                    <input type="radio" class="visually-hidden" name="pref-theme" value="gruvbox-dark" />
                     <div class="theme-preview gruvbox-dark">
                       <div class="theme-preview-sidebar"></div>
                       <div class="theme-preview-main"></div>
@@ -2534,7 +2938,7 @@
                     <span class="theme-label" translate="no">Gruvbox Dark</span>
                   </label>
                   <label class="theme-option" data-theme="tokyo-night">
-                    <input type="radio" name="pref-theme" value="tokyo-night" />
+                    <input type="radio" class="visually-hidden" name="pref-theme" value="tokyo-night" />
                     <div class="theme-preview tokyo-night">
                       <div class="theme-preview-sidebar"></div>
                       <div class="theme-preview-main"></div>
@@ -2542,7 +2946,7 @@
                     <span class="theme-label" translate="no">Tokyo Night</span>
                   </label>
                   <label class="theme-option" data-theme="monokai">
-                    <input type="radio" name="pref-theme" value="monokai" />
+                    <input type="radio" class="visually-hidden" name="pref-theme" value="monokai" />
                     <div class="theme-preview monokai">
                       <div class="theme-preview-sidebar"></div>
                       <div class="theme-preview-main"></div>
@@ -2557,7 +2961,7 @@
                 <p class="settings-hint" data-i18n="prefs_appearance.terminal_theme_hint">Si se deja en "Igual que la interfaz", el terminal hereda el tema de arriba.</p>
                 <div class="theme-picker" data-for="terminal">
                   <label class="theme-option" data-theme="inherit">
-                    <input type="radio" name="pref-terminal-theme" value="inherit" />
+                    <input type="radio" class="visually-hidden" name="pref-terminal-theme" value="inherit" />
                     <div class="theme-preview inherit">
                       <div class="theme-preview-sidebar"></div>
                       <div class="theme-preview-main"></div>
@@ -2565,7 +2969,7 @@
                     <span class="theme-label" data-i18n="prefs_appearance.theme_inherit">Igual que la interfaz</span>
                   </label>
                   <label class="theme-option" data-theme="dark">
-                    <input type="radio" name="pref-terminal-theme" value="dark" />
+                    <input type="radio" class="visually-hidden" name="pref-terminal-theme" value="dark" />
                     <div class="theme-preview">
                       <div class="theme-preview-sidebar"></div>
                       <div class="theme-preview-main"></div>
@@ -2573,7 +2977,7 @@
                     <span class="theme-label" data-i18n="prefs_appearance.theme_dark">Oscuro</span>
                   </label>
                   <label class="theme-option" data-theme="light">
-                    <input type="radio" name="pref-terminal-theme" value="light" />
+                    <input type="radio" class="visually-hidden" name="pref-terminal-theme" value="light" />
                     <div class="theme-preview light">
                       <div class="theme-preview-sidebar"></div>
                       <div class="theme-preview-main"></div>
@@ -2581,7 +2985,7 @@
                     <span class="theme-label" data-i18n="prefs_appearance.theme_light">Claro</span>
                   </label>
                   <label class="theme-option" data-theme="dracula">
-                    <input type="radio" name="pref-terminal-theme" value="dracula" />
+                    <input type="radio" class="visually-hidden" name="pref-terminal-theme" value="dracula" />
                     <div class="theme-preview dracula">
                       <div class="theme-preview-sidebar"></div>
                       <div class="theme-preview-main"></div>
@@ -2589,7 +2993,7 @@
                     <span class="theme-label" translate="no">Dracula</span>
                   </label>
                   <label class="theme-option" data-theme="nord">
-                    <input type="radio" name="pref-terminal-theme" value="nord" />
+                    <input type="radio" class="visually-hidden" name="pref-terminal-theme" value="nord" />
                     <div class="theme-preview nord">
                       <div class="theme-preview-sidebar"></div>
                       <div class="theme-preview-main"></div>
@@ -2597,7 +3001,7 @@
                     <span class="theme-label" translate="no">Nord</span>
                   </label>
                   <label class="theme-option" data-theme="xterm">
-                    <input type="radio" name="pref-terminal-theme" value="xterm" />
+                    <input type="radio" class="visually-hidden" name="pref-terminal-theme" value="xterm" />
                     <div class="theme-preview xterm">
                       <div class="theme-preview-sidebar"></div>
                       <div class="theme-preview-main"></div>
@@ -2605,7 +3009,7 @@
                     <span class="theme-label" translate="no">xterm</span>
                   </label>
                   <label class="theme-option" data-theme="vscode-dark">
-                    <input type="radio" name="pref-terminal-theme" value="vscode-dark" />
+                    <input type="radio" class="visually-hidden" name="pref-terminal-theme" value="vscode-dark" />
                     <div class="theme-preview vscode-dark">
                       <div class="theme-preview-sidebar"></div>
                       <div class="theme-preview-main"></div>
@@ -2613,7 +3017,7 @@
                     <span class="theme-label" translate="no">VS Code Dark+</span>
                   </label>
                   <label class="theme-option" data-theme="tango">
-                    <input type="radio" name="pref-terminal-theme" value="tango" />
+                    <input type="radio" class="visually-hidden" name="pref-terminal-theme" value="tango" />
                     <div class="theme-preview tango">
                       <div class="theme-preview-sidebar"></div>
                       <div class="theme-preview-main"></div>
@@ -2621,7 +3025,7 @@
                     <span class="theme-label" translate="no">Tango</span>
                   </label>
                   <label class="theme-option" data-theme="solarized-dark">
-                    <input type="radio" name="pref-terminal-theme" value="solarized-dark" />
+                    <input type="radio" class="visually-hidden" name="pref-terminal-theme" value="solarized-dark" />
                     <div class="theme-preview solarized-dark">
                       <div class="theme-preview-sidebar"></div>
                       <div class="theme-preview-main"></div>
@@ -2629,7 +3033,7 @@
                     <span class="theme-label" translate="no">Solarized Dark</span>
                   </label>
                   <label class="theme-option" data-theme="solarized-light">
-                    <input type="radio" name="pref-terminal-theme" value="solarized-light" />
+                    <input type="radio" class="visually-hidden" name="pref-terminal-theme" value="solarized-light" />
                     <div class="theme-preview solarized-light">
                       <div class="theme-preview-sidebar"></div>
                       <div class="theme-preview-main"></div>
@@ -2637,7 +3041,7 @@
                     <span class="theme-label" translate="no">Solarized Light</span>
                   </label>
                   <label class="theme-option" data-theme="gruvbox-dark">
-                    <input type="radio" name="pref-terminal-theme" value="gruvbox-dark" />
+                    <input type="radio" class="visually-hidden" name="pref-terminal-theme" value="gruvbox-dark" />
                     <div class="theme-preview gruvbox-dark">
                       <div class="theme-preview-sidebar"></div>
                       <div class="theme-preview-main"></div>
@@ -2645,7 +3049,7 @@
                     <span class="theme-label" translate="no">Gruvbox Dark</span>
                   </label>
                   <label class="theme-option" data-theme="tokyo-night">
-                    <input type="radio" name="pref-terminal-theme" value="tokyo-night" />
+                    <input type="radio" class="visually-hidden" name="pref-terminal-theme" value="tokyo-night" />
                     <div class="theme-preview tokyo-night">
                       <div class="theme-preview-sidebar"></div>
                       <div class="theme-preview-main"></div>
@@ -2653,7 +3057,7 @@
                     <span class="theme-label" translate="no">Tokyo Night</span>
                   </label>
                   <label class="theme-option" data-theme="monokai">
-                    <input type="radio" name="pref-terminal-theme" value="monokai" />
+                    <input type="radio" class="visually-hidden" name="pref-terminal-theme" value="monokai" />
                     <div class="theme-preview monokai">
                       <div class="theme-preview-sidebar"></div>
                       <div class="theme-preview-main"></div>
@@ -2762,6 +3166,22 @@
               </div>
 
               <div class="settings-row">
+                <label class="checkbox-label">
+                  <input type="checkbox" id="pref-native-selects" />
+                  <span data-i18n="prefs_appearance.native_selects">Usar los desplegables del sistema</span>
+                </label>
+                <p class="settings-hint" data-i18n="prefs_appearance.native_selects_hint">Deja los desplegables nativos del sistema en lugar de los de Rustty; algunos lectores de pantalla los manejan mejor. Los de Rustty también se manejan con el teclado: flechas, Inicio/Fin y tecleando el principio de una opción.</p>
+              </div>
+
+              <div class="settings-row">
+                <label class="checkbox-label">
+                  <input type="checkbox" id="pref-tooltips" />
+                  <span data-i18n="prefs_appearance.tooltips">Mostrar una descripción al pasar el ratón</span>
+                </label>
+                <p class="settings-hint" data-i18n="prefs_appearance.tooltips_hint">Al dejar el ratón sobre un icono o un botón (o al llegar a él con el teclado) aparece qué hace. Desactivado, queda el comportamiento del sistema.</p>
+              </div>
+
+              <div class="settings-row">
                 <label for="pref-toast-duration" data-i18n="prefs_appearance.toast_duration">Duración de los avisos</label>
                 <select id="pref-toast-duration">
                   <option value="normal" data-i18n="prefs_appearance.toast_duration_normal">Normal</option>
@@ -2805,13 +3225,11 @@
                 <p class="settings-hint" data-i18n="prefs_appearance.term_cursor_highvis_hint">Pinta el cursor con una tinta de alto contraste (blanco o negro según el fondo) en cualquier estilo y engrosa el caret cuando el estilo es «barra».</p>
               </div>
 
-              <div class="settings-row">
-                <label class="checkbox-label">
-                  <input type="checkbox" id="pref-search-all-workspaces" />
-                  <span data-i18n="prefs_appearance.search_all_workspaces">Buscar conexiones en todos los workspaces</span>
-                </label>
-                <p class="settings-hint" data-i18n="prefs_appearance.search_all_workspaces_hint">Si se desactiva, los buscadores del inicio y de la sidebar solo muestran conexiones del workspace activo.</p>
+              <div class="settings-row settings-row-inline">
+                <label for="pref-search-scope" data-i18n="prefs_appearance.search_scope">Dónde buscan los buscadores de conexiones</label>
+                <select id="pref-search-scope" class="search-scope-select"></select>
               </div>
+              <p class="settings-hint" data-i18n="prefs_appearance.search_scope_hint">En el perfil actual, en uno concreto o en todos. También se cambia desde el propio buscador, en la barra lateral y en el inicio.</p>
 
               <div class="settings-row">
                 <label class="checkbox-label">
@@ -2860,6 +3278,20 @@
                 </select>
               </div>
               <p class="settings-hint" data-i18n="prefs_aesthetics.sftp_layout_hint">Elige en qué lado del panel de ficheros se muestra el directorio remoto; el local queda en el lado opuesto.</p>
+              <div class="settings-row">
+                <label class="checkbox-label">
+                  <input type="checkbox" id="pref-sftp-disk-space" />
+                  <span data-i18n="prefs_transfer.sftp_disk_space">Mostrar el espacio libre del servidor en el panel SFTP</span>
+                </label>
+                <p class="settings-hint" data-i18n="prefs_transfer.sftp_disk_space_hint">Al entrar en una carpeta remota pregunta al servidor cuánto espacio queda en ese disco y lo enseña en la cabecera del panel, con una barra de ocupación. Solo con servidores SFTP que lo admiten (OpenSSH); con los demás, y con FTP y FTPS, no aparece nada.</p>
+              </div>
+              <div class="settings-row">
+                <label class="checkbox-label">
+                  <input type="checkbox" id="pref-sftp-link-targets" />
+                  <span data-i18n="prefs_transfer.sftp_link_targets">Mostrar a dónde apuntan los enlaces simbólicos</span>
+                </label>
+                <p class="settings-hint" data-i18n="prefs_transfer.sftp_link_targets_hint">Al detener el puntero sobre un enlace simbólico del servidor, lee su destino y lo enseña en la descripción que aparece. Desactivado, el destino solo se lee al elegir «Ir al destino del enlace» en el menú del clic derecho. Solo SFTP.</p>
+              </div>
               <div class="settings-row settings-row-inline">
                 <label for="pref-sftp-conflict-policy" data-i18n="prefs_transfer.sftp_conflict_policy">Conflictos SFTP</label>
                 <select id="pref-sftp-conflict-policy">
@@ -2901,9 +3333,87 @@
               <div class="settings-row">
                 <label class="checkbox-label">
                   <input type="checkbox" id="pref-transfer-resume" />
-                  <span data-i18n="prefs_transfer.resume">Reanudar descargas interrumpidas</span>
+                  <span data-i18n="prefs_transfer.resume">Reanudar transferencias interrumpidas</span>
                 </label>
-                <p class="settings-hint" data-i18n="prefs_transfer.resume_hint">Conserva el trozo ya bajado cuando una descarga falla o se cancela, y continúa desde ahí la próxima vez. Solo reanuda si el fichero del servidor sigue igual (misma ruta, tamaño y fecha); si cambió, empieza de cero. El precio es que un fallo deja un fichero temporal «.rustty-part» junto al destino en vez de borrarlo. Solo SFTP.</p>
+                <p class="settings-hint" data-i18n="prefs_transfer.resume_hint">Conserva lo ya copiado cuando una transferencia falla o se cancela y continúa desde ahí la próxima vez. Una descarga solo se reanuda si el fichero del servidor sigue igual —misma ruta, tamaño y fecha—, y una subida, si el fichero local sigue igual y lo que hay en el servidor coincide con él; si algo cambió, empieza de cero. Las subidas van a un temporal en el servidor y solo ocupan su nombre al terminar. El precio es que un fallo deja un temporal «.rustty-part» junto al destino, en tu equipo o en el servidor, en vez de borrarlo. Solo SFTP.</p>
+            </section>
+
+            <!-- ── RDP ── -->
+            <section class="prefs-panel" role="tabpanel" data-prefs-panel="rdp">
+              <h3 class="prefs-panel-title" data-i18n="prefs_rdp.title">Escritorio remoto (RDP)</h3>
+              <p class="prefs-panel-hint" data-i18n="prefs_rdp.hint">Cómo se abre el escritorio remoto y qué comparte con este equipo. El rendimiento, el portapapeles y la carpeta compartida solo se aplican al cliente integrado, en la pestaña.</p>
+
+              <h4 class="prefs-subhead" data-i18n="prefs_rdp.group_window">Ventana y modo</h4>
+              <div class="settings-row settings-row-inline">
+                <label for="pref-rdp-mode" data-i18n="prefs_rdp.mode">Abrir el escritorio remoto (RDP)</label>
+                <select id="pref-rdp-mode">
+                  <option value="external" data-i18n="rdp_mode.external">En una ventana externa (mstsc / xfreerdp)</option>
+                  <option value="embedded" data-i18n="rdp_mode.embedded">En la pestaña</option>
+                </select>
+              </div>
+              <p class="settings-hint" data-i18n="prefs_rdp.mode_hint">La ventana externa (por defecto) usa el cliente de escritorio remoto del sistema (mstsc en Windows, xfreerdp en Linux) y admite lo que ese cliente admita (audio, impresoras, varios monitores…). En la pestaña, el escritorio se ve dentro de Rustty con el cliente integrado, que es nuevo: si algo no funciona con tu servidor, vuelve a la ventana externa.</p>
+
+              <div class="settings-row settings-row-inline">
+                <label for="pref-rdp-display" data-i18n="prefs_rdp.display">Ventana del escritorio remoto (RDP)</label>
+                <select id="pref-rdp-display">
+                  <option value="window" data-i18n="rdp_display.window">Ventana redimensionable</option>
+                  <option value="fullscreen" data-i18n="rdp_display.fullscreen">Pantalla completa</option>
+                  <option value="workarea" data-i18n="rdp_display.workarea">Área de trabajo</option>
+                  <option value="fixed" data-i18n="rdp_display.fixed">Tamaño fijo (servidores antiguos)</option>
+                </select>
+              </div>
+              <p class="settings-hint" data-i18n="prefs_rdp.display_hint">Valor por defecto de las sesiones RDP; cada perfil puede llevar el suyo. La ventana redimensionable deja maximizar y arrastrar, y el escritorio remoto sigue el tamaño: necesita Windows 8 / Server 2012 o superior. «Tamaño fijo» es el comportamiento anterior, para servidores que no lo admiten.</p>
+
+              <h4 class="prefs-subhead" data-i18n="prefs_rdp.group_perf">Rendimiento</h4>
+              <div class="settings-row" data-rdp-embedded-only>
+                <div class="settings-row-inline">
+                  <label for="pref-rdp-perf" data-i18n="prefs_rdp.perf">Rendimiento del escritorio remoto</label>
+                  <select id="pref-rdp-perf">
+                    <option value="speed" data-i18n="rdp_perf.speed">Velocidad</option>
+                    <option value="balanced" data-i18n="rdp_perf.balanced">Equilibrado</option>
+                    <option value="quality" data-i18n="rdp_perf.quality">Calidad</option>
+                  </select>
+                </div>
+                <p class="settings-hint" data-i18n="prefs_rdp.perf_hint">Se aplica a las conexiones nuevas. «Velocidad» quita en el remoto el fondo, los temas y las animaciones, y comprime al máximo: para enlaces lentos. «Equilibrado» quita el fondo y las animaciones pero mantiene las fuentes suavizadas. «Calidad» muestra el escritorio tal cual, para redes locales.</p>
+              </div>
+
+              <h4 class="prefs-subhead" data-i18n="prefs_rdp.group_sharing">Portapapeles y carpeta compartida</h4>
+              <div class="settings-row" data-rdp-embedded-only>
+                <label class="checkbox-label">
+                  <input type="checkbox" id="pref-rdp-clipboard" />
+                  <span data-i18n="prefs_rdp.clipboard">Compartir el portapapeles con el escritorio remoto</span>
+                </label>
+                <p class="settings-hint" data-i18n="prefs_rdp.clipboard_hint">Copiar en un lado y pegar en el otro. Lo copiado en local se envía al remoto al volver a la pestaña o al pegar.</p>
+              </div>
+
+              <div class="settings-row" data-rdp-embedded-only>
+                <label class="checkbox-label">
+                  <input type="checkbox" id="pref-rdp-clipboard-files" />
+                  <span data-i18n="prefs_rdp.clipboard_files">Copiar y pegar también ficheros y carpetas</span>
+                </label>
+                <p class="settings-hint" data-i18n="prefs_rdp.clipboard_files_hint">Los ficheros copiados en el remoto no se descargan solos: Rustty avisa y los guarda en la carpeta que elijas. Lo copiado en local se ofrece al remoto al volver a la pestaña (el remoto puede leerlo desde ese momento) y, si parece sensible —una clave privada, algo de ~/.ssh—, se pregunta antes.</p>
+              </div>
+
+              <div class="settings-row" data-rdp-embedded-only>
+                <label class="checkbox-label">
+                  <input type="checkbox" id="pref-rdp-shared-folder" />
+                  <span data-i18n="prefs_rdp.shared_folder">Compartir una carpeta local como unidad del remoto</span>
+                </label>
+                <div class="data-actions">
+                  <code id="rdp-shared-folder-path" class="settings-hint"></code>
+                  <button type="button" class="btn-secondary" id="btn-rdp-shared-folder-pick" data-i18n="prefs_rdp.shared_folder_pick">Elegir carpeta…</button>
+                </div>
+                <p class="settings-hint" data-i18n="prefs_rdp.shared_folder_hint">La carpeta aparece en el Explorador del remoto, con lectura y escritura. Solo esa carpeta: nada fuera de ella. No se puede compartir la carpeta personal entera ni ninguna que contenga tus claves SSH o los datos de Rustty. Se aplica a las conexiones nuevas.</p>
+              </div>
+
+              <h4 class="prefs-subhead" data-i18n="prefs_rdp.group_cert">Seguridad del certificado</h4>
+              <div class="settings-row">
+                <label class="checkbox-label">
+                  <input type="checkbox" id="pref-rdp-cert-change-prompt" />
+                  <span data-i18n="prefs_rdp.cert_change_prompt">Preguntar si el certificado de un servidor RDP cambia</span>
+                </label>
+                <p class="settings-hint" data-i18n="prefs_rdp.cert_change_prompt_hint">El cliente externo recuerda el certificado de cada servidor y, si cambia, cancela la conexión sin poder preguntar nada. Con esto activo, Rustty muestra las dos huellas y deja decidir: aceptar olvida el certificado guardado y reconecta en la misma pestaña; rechazar no toca nada. Si lo desactivas, el aviso se limita a explicar cómo borrarlo a mano. Con el cliente integrado en la pestaña se pregunta antes de enviar ninguna credencial; desactivado, el cambio se rechaza.</p>
+              </div>
             </section>
 
             <!-- ── Idioma ── -->
@@ -3180,14 +3690,6 @@
                   <span data-i18n="prefs_security.host_key_change_prompt">Preguntar si la clave de un servidor cambia</span>
                 </label>
                 <p class="settings-hint" data-i18n="prefs_security.host_key_change_prompt_hint">Si la clave de un servidor ya conocido cambia (señal típica de un intermediario, pero también de una reinstalación), muestra un aviso con las huellas y deja decidir: aceptar reemplaza la entrada antigua y la conexión continúa; rechazar no toca nada. Si lo desactivas, el cambio se rechaza siempre y hay que editar known_hosts a mano.</p>
-              </div>
-
-              <div class="settings-row">
-                <label class="checkbox-label">
-                  <input type="checkbox" id="pref-rdp-cert-change-prompt" />
-                  <span data-i18n="prefs_security.rdp_cert_change_prompt">Preguntar si el certificado de un servidor RDP cambia</span>
-                </label>
-                <p class="settings-hint" data-i18n="prefs_security.rdp_cert_change_prompt_hint">Equivalente para RDP: el cliente externo recuerda el certificado de cada servidor y, si cambia, cancela la conexión sin poder preguntar nada. Con esto activo, Rustty muestra las dos huellas y deja decidir: aceptar olvida el certificado guardado y reconecta en la misma pestaña; rechazar no toca nada. Si lo desactivas, el aviso se limita a explicar cómo borrarlo a mano.</p>
               </div>
 
               <div class="settings-row">
@@ -3551,7 +4053,7 @@
                     <option value="" data-i18n="prefs_sync.snapshots_none">— Sin copias disponibles —</option>
                   </select>
                   <button type="button" class="btn-secondary" id="btn-sync-restore" data-i18n="prefs_sync.snapshots_restore">Restaurar</button>
-                  <button type="button" class="btn-icon" id="btn-sync-snapshots-refresh" data-i18n-aria-label="prefs_sync.snapshots_refresh" aria-label="Refrescar copias">⟳</button>
+                  <button type="button" class="btn-icon" id="btn-sync-snapshots-refresh" data-i18n-aria-label="prefs_sync.snapshots_refresh" aria-label="Refrescar copias"><svg class="ctx-icon-svg" aria-hidden="true"><use href="#ci-refresh"/></svg></button>
                   <p class="form-hint" data-i18n="prefs_sync.snapshots_hint">Selecciona una copia previa y pulsa "Restaurar" para sustituir tu estado actual con esa versión.</p>
                 </div>
               </div>
@@ -3627,66 +4129,6 @@
                 <p class="settings-hint" data-i18n="prefs_system.autostart_hint">Añade Rustty a los programas que se lanzan automáticamente al iniciar sesión.</p>
               </div>
 
-              <div class="settings-row settings-row-inline">
-                <label for="pref-rdp-display" data-i18n="prefs_system.rdp_display">Ventana del escritorio remoto (RDP)</label>
-                <select id="pref-rdp-display">
-                  <option value="window" data-i18n="rdp_display.window">Ventana redimensionable</option>
-                  <option value="fullscreen" data-i18n="rdp_display.fullscreen">Pantalla completa</option>
-                  <option value="workarea" data-i18n="rdp_display.workarea">Área de trabajo</option>
-                  <option value="fixed" data-i18n="rdp_display.fixed">Tamaño fijo (servidores antiguos)</option>
-                </select>
-              </div>
-              <p class="settings-hint" data-i18n="prefs_system.rdp_display_hint">Valor por defecto de las sesiones RDP; cada perfil puede llevar el suyo. La ventana redimensionable deja maximizar y arrastrar, y el escritorio remoto sigue el tamaño: necesita Windows 8 / Server 2012 o superior. «Tamaño fijo» es el comportamiento anterior, para servidores que no lo admiten.</p>
-
-              <div class="settings-row settings-row-inline">
-                <label for="pref-rdp-mode" data-i18n="prefs_system.rdp_mode">Abrir el escritorio remoto (RDP)</label>
-                <select id="pref-rdp-mode">
-                  <option value="embedded" data-i18n="rdp_mode.embedded">En la pestaña</option>
-                  <option value="external" data-i18n="rdp_mode.external">En una ventana externa (mstsc / xfreerdp)</option>
-                </select>
-              </div>
-              <p class="settings-hint" data-i18n="prefs_system.rdp_mode_hint">En la pestaña, el escritorio se ve dentro de Rustty con el cliente integrado. La ventana externa usa mstsc (Windows) o xfreerdp (Linux) y admite lo que ese cliente admita (audio, impresoras, varios monitores…).</p>
-
-              <div class="settings-row" data-rdp-embedded-only>
-                <div class="settings-row-inline">
-                  <label for="pref-rdp-perf" data-i18n="prefs_system.rdp_perf">Rendimiento del escritorio remoto</label>
-                  <select id="pref-rdp-perf">
-                    <option value="speed" data-i18n="rdp_perf.speed">Velocidad</option>
-                    <option value="balanced" data-i18n="rdp_perf.balanced">Equilibrado</option>
-                    <option value="quality" data-i18n="rdp_perf.quality">Calidad</option>
-                  </select>
-                </div>
-                <p class="settings-hint" data-i18n="prefs_system.rdp_perf_hint">Se aplica a las conexiones nuevas. «Velocidad» quita en el remoto el fondo, los temas y las animaciones, y comprime al máximo: para enlaces lentos. «Equilibrado» quita el fondo y las animaciones pero mantiene las fuentes suavizadas. «Calidad» muestra el escritorio tal cual, para redes locales.</p>
-              </div>
-
-              <div class="settings-row" data-rdp-embedded-only>
-                <label class="checkbox-label">
-                  <input type="checkbox" id="pref-rdp-clipboard" />
-                  <span data-i18n="prefs_system.rdp_clipboard">Compartir el portapapeles con el escritorio remoto</span>
-                </label>
-                <p class="settings-hint" data-i18n="prefs_system.rdp_clipboard_hint">Copiar en un lado y pegar en el otro. Lo copiado en local se envía al remoto al volver a la pestaña o al pegar.</p>
-              </div>
-
-              <div class="settings-row" data-rdp-embedded-only>
-                <label class="checkbox-label">
-                  <input type="checkbox" id="pref-rdp-clipboard-files" />
-                  <span data-i18n="prefs_system.rdp_clipboard_files">Copiar y pegar también ficheros y carpetas</span>
-                </label>
-                <p class="settings-hint" data-i18n="prefs_system.rdp_clipboard_files_hint">Los ficheros copiados en el remoto se descargan a una carpeta temporal y, al terminar, se pueden pegar en local. Los copiados en local se leen del disco solo cuando el remoto pega.</p>
-              </div>
-
-              <div class="settings-row" data-rdp-embedded-only>
-                <label class="checkbox-label">
-                  <input type="checkbox" id="pref-rdp-shared-folder" />
-                  <span data-i18n="prefs_system.rdp_shared_folder">Compartir una carpeta local como unidad del remoto</span>
-                </label>
-                <div class="data-actions">
-                  <code id="rdp-shared-folder-path" class="settings-hint"></code>
-                  <button type="button" class="btn-secondary" id="btn-rdp-shared-folder-pick" data-i18n="prefs_system.rdp_shared_folder_pick">Elegir carpeta…</button>
-                </div>
-                <p class="settings-hint" data-i18n="prefs_system.rdp_shared_folder_hint">La carpeta aparece en el Explorador del remoto, con lectura y escritura. Solo esa carpeta: nada fuera de ella. Se aplica a las conexiones nuevas.</p>
-              </div>
-
               <div class="settings-row">
                 <label class="checkbox-label">
                   <input type="checkbox" id="pref-restore-work-tabs" />
@@ -3760,7 +4202,7 @@
 
             <section class="prefs-panel" role="tabpanel" data-prefs-panel="monitor">
               <h3 class="prefs-panel-title" data-i18n="prefs_system.metrics_title">Monitor de recursos</h3>
-              <p class="prefs-panel-hint" data-i18n="prefs_system.metrics_hint">Muestra CPU, memoria, disco, red y procesos del servidor remoto por la propia conexión SSH, sin instalar nada. Solo Linux por ahora.</p>
+              <p class="prefs-panel-hint" data-i18n="prefs_system.metrics_hint">Muestra CPU, memoria, disco, red y procesos del servidor remoto por la propia conexión SSH, sin instalar nada, y los de este equipo en la consola local. Solo Linux por ahora.</p>
 
               <div class="settings-row">
                 <label class="checkbox-label">
@@ -3959,13 +4401,14 @@
             </svg>
           </button>
         </div>
-        <div class="note-editor-meta">
+        <div class="note-view-meta note-view-only" id="note-view-meta"></div>
+        <div class="note-editor-meta note-edit-only">
           <input type="text" id="note-editor-title-input" class="note-meta-input"
                  data-i18n-placeholder="notes.title_ph" placeholder="Título (opcional)" autocomplete="off" />
           <input type="text" id="note-editor-tags" class="note-meta-input"
                  data-i18n-placeholder="notes.tags_ph" placeholder="Tags separadas por comas" autocomplete="off" />
         </div>
-        <div class="note-editor-toolbar" id="note-editor-toolbar">
+        <div class="note-editor-toolbar note-edit-only" id="note-editor-toolbar">
           <button type="button" class="note-tool" data-md="h"      data-i18n-title="notes.tool_heading" title="Encabezado" aria-label="Encabezado" data-i18n-aria-label="notes.tool_heading">
             <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
               <path d="M4 3.5v9M11 3.5v9M4 8h7"/>
@@ -3986,14 +4429,29 @@
               <path d="M6 5l-3 3 3 3M10 5l3 3-3 3"/>
             </svg>
           </button>
+          <button type="button" class="note-tool" data-md="codeblock" data-i18n-title="notes.tool_codeblock" title="Bloque de código" aria-label="Bloque de código" data-i18n-aria-label="notes.tool_codeblock">
+            <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="2.5" y="2.5" width="11" height="11" rx="2"/><path d="M6.6 6.2 4.8 8l1.8 1.8M9.4 6.2 11.2 8l-1.8 1.8"/>
+            </svg>
+          </button>
           <button type="button" class="note-tool" data-md="ul"     data-i18n-title="notes.tool_list"    title="Lista" aria-label="Lista" data-i18n-aria-label="notes.tool_list">
             <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
               <path d="M6.5 4.5h6.5M6.5 8h6.5M6.5 11.5h6.5"/><path d="M3.4 4.5h.01M3.4 8h.01M3.4 11.5h.01"/>
             </svg>
           </button>
+          <button type="button" class="note-tool" data-md="ol"     data-i18n-title="notes.tool_ol"      title="Lista numerada" aria-label="Lista numerada" data-i18n-aria-label="notes.tool_ol">
+            <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M7 4.5h6M7 8h6M7 11.5h6"/><path d="M3 3.4l1-.6v3.4M2.9 9.6a1 1 0 0 1 1.8.4c0 .7-1.8 1.3-1.8 2.2h1.9"/>
+            </svg>
+          </button>
           <button type="button" class="note-tool" data-md="task"   data-i18n-title="notes.tool_task"    title="Casilla" aria-label="Casilla" data-i18n-aria-label="notes.tool_task">
             <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
               <rect x="2.5" y="2.5" width="11" height="11" rx="2"/><path d="M5.4 8.2l1.8 1.8 3.3-3.7"/>
+            </svg>
+          </button>
+          <button type="button" class="note-tool" data-md="quote"  data-i18n-title="notes.tool_quote"   title="Cita" aria-label="Cita" data-i18n-aria-label="notes.tool_quote">
+            <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3.5 3.5v9M6.5 5h6M6.5 8h6M6.5 11h4"/>
             </svg>
           </button>
           <button type="button" class="note-tool" data-md="link"   data-i18n-title="notes.tool_link"    title="Enlace" aria-label="Enlace" data-i18n-aria-label="notes.tool_link">
@@ -4004,16 +4462,18 @@
           </button>
         </div>
         <div class="note-editor-split">
-          <textarea id="note-editor-textarea" class="note-editor-textarea"
+          <textarea id="note-editor-textarea" class="note-editor-textarea" data-markdown="true"
                     spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off"
                     data-i18n-placeholder="notes.body_ph" placeholder="Escribe la nota en Markdown…"></textarea>
-          <div id="note-editor-preview" class="note-editor-preview markdown-body"></div>
+          <div id="note-editor-preview" class="note-editor-preview markdown-body" data-text-region></div>
         </div>
         <div class="modal-actions">
-          <span class="note-editor-hint" data-i18n="notes.editor_hint">Ctrl+S para guardar · Markdown · evita guardar secretos</span>
+          <span class="note-editor-hint note-edit-only" data-i18n="notes.editor_hint">Ctrl+S para guardar · Markdown · evita guardar secretos</span>
           <span class="note-editor-spacer"></span>
-          <button type="button" class="btn-secondary" id="note-editor-cancel" data-i18n="notes.cancel">Cancelar</button>
-          <button type="button" class="btn-primary"   id="note-editor-save"   data-i18n="notes.save">Guardar</button>
+          <button type="button" class="btn-secondary note-edit-only" id="note-editor-cancel" data-i18n="notes.cancel">Cancelar</button>
+          <button type="button" class="btn-primary note-edit-only"   id="note-editor-save"   data-i18n="notes.save">Guardar</button>
+          <button type="button" class="btn-secondary note-view-only" id="note-view-close" data-i18n="notes.close">Cerrar</button>
+          <button type="button" class="btn-primary note-view-only"   id="note-view-edit"  data-i18n="notes.edit">Editar</button>
         </div>
       </div>
     </div>
@@ -4047,15 +4507,19 @@
       </div>
     </div>
 
-    <!-- ── Toast de notificaciones ── -->
-    <div id="toast-container" role="region" aria-live="polite" aria-atomic="false" data-i18n-aria-label="toast.region_label" aria-label="Notificaciones"></div>
-
-    <!-- Indicador discreto de la sincronización de arranque (esquina inferior) -->
-    <div id="sync-boot-indicator" class="sync-boot-indicator hidden" aria-live="polite">
-      <svg class="sync-boot-spinner" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
-        <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-dasharray="28" stroke-dashoffset="20" />
-      </svg>
-      <span id="sync-boot-indicator-text"></span>
+    <!-- ── Pila de avisos (toasts) ──
+         Una sola región viva: el contenedor anuncia con cortesía lo que entra
+         (existe desde la carga, que es lo que los lectores de pantalla exigen
+         para anunciar) y solo los errores llevan además `role="alert"`. Ningún
+         aviso lleva `role="status"`: duplicaba el anuncio. El indicador de la
+         sincronización de arranque vive dentro, al final de la pila. -->
+    <div id="toast-container" role="region" aria-live="polite" aria-atomic="false" data-i18n-aria-label="toast.region_label" aria-label="Notificaciones">
+      <div id="sync-boot-indicator" class="sync-boot-indicator hidden">
+        <svg class="sync-boot-spinner" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+          <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-dasharray="28" stroke-dashoffset="20" />
+        </svg>
+        <span id="sync-boot-indicator-text"></span>
+      </div>
     </div>
 
     <!-- ── Botón flotante para salir del modo zen ── -->

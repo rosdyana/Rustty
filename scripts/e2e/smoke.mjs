@@ -23,6 +23,25 @@
 //      de datos no se toca ni desde una descarga ni desde un borrado, tampoco
 //      borrando una carpeta que la contenga, y subir una clave privada abre el
 //      diálogo nativo de confirmación (cerrarlo cancela la subida).
+//   6b. Accesibilidad de controles por teclado (`keyboard.mjs`): el
+//      desplegable de Idioma se abre y elige con las flechas y Enter, y su
+//      Escape no cierra Preferencias; la preferencia de desplegables del
+//      sistema deshace y rehace el control en vivo; en el menú contextual de
+//      una conexión → abre el submenú y Escape vuelve al padre; y en la barra
+//      de pestañas las flechas mueven el foco con tabindex itinerante.
+//   6c. Preferencias se mueve, se redimensiona, recuerda su marco y se queda
+//      en iconos cuando es estrecha; los tooltips propios salen con el ratón
+//      y no dejan el `title` nativo a la vez (`frames.mjs`).
+//   6d. El buscador de la barra lateral busca en el perfil actual, en uno
+//      concreto o en todos, y los perfiles se reordenan (`workspaces.mjs`).
+//   6e. La consola local tiene barra inferior y, en Linux, el monitor de
+//      recursos de este equipo (`local-status.mjs`); su tabla de procesos se
+//      filtra, se ordena y se pausa sin perder el buscador en los refrescos
+//      (`metrics-panel.mjs`). Los botones de la pestaña se ocultan desde
+//      Preferencias sin que el menú contextual pierda sus paneles
+//      (`tab-buttons.mjs`).
+//   6f. Con el zoom de la interfaz al 140 %, menús, desplegables y
+//      Preferencias en su sitio y escalados (`zoom.mjs`).
 //   7. Salto activo y bastiones por la interfaz (`jump.mjs`), sin servidores:
 //      el formulario guarda el bastión elegido entre las conexiones guardadas,
 //      «Usar como salto activo» enciende la píldora de la barra lateral y su ✕
@@ -53,10 +72,29 @@ import { checkPrefsSync } from "./prefs-sync.mjs";
 import { checkSyncFeedback } from "./sync-feedback.mjs";
 import { checkShortcuts } from "./shortcuts.mjs";
 import { checkDialogs } from "./dialogs.mjs";
+import { checkConnectionFrame, checkFrames, checkTooltips } from "./frames.mjs";
+import { checkWorkspaces } from "./workspaces.mjs";
+import { checkLocalStatusBar } from "./local-status.mjs";
+import { checkMetricsPanel } from "./metrics-panel.mjs";
+import { checkTabButtons } from "./tab-buttons.mjs";
+import { zoomDialogs, zoomFloating } from "./zoom.mjs";
+import { checkKeyboard } from "./keyboard.mjs";
+import { checkToasts } from "./toasts.mjs";
+import { checkTerminalLayers } from "./terminal-layers.mjs";
+import { checkTree } from "./tree.mjs";
 import { checkTunnels } from "./tunnels.mjs";
+import { checkThemeTone } from "./theme-tone.mjs";
 import { checkTerminalProtocols } from "./terminal-protocols.mjs";
 import { checkQuickSelect } from "./quick-select.mjs";
 import { checkJump } from "./jump.mjs";
+import { checkBulkEdit } from "./bulk-edit.mjs";
+import { checkDesign } from "./design.mjs";
+import { checkNotesAndText } from "./notes.mjs";
+import { checkActivityCenter } from "./activity.mjs";
+import { checkSftpSpace } from "./sftp-space.mjs";
+import { checkSftpScroll, prepareLongListing } from "./sftp-scroll.mjs";
+import { checkSftpSelection } from "./sftp-selection.mjs";
+import { checkTotpForm } from "./totp-form.mjs";
 import { checkJumpReal } from "./jump-real.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -243,6 +281,32 @@ async function checkSftpPanel(app) {
   if (!connected.ok) return;
   const sessionId = connected.value;
 
+  // Lo que el panel pregunta por su cuenta: el espacio del disco al entrar en
+  // una carpeta y el destino de un enlace al parar el puntero sobre él.
+  const linkDir = path.join(workDir, "enlaces");
+  fs.mkdirSync(path.join(linkDir, "destino"), { recursive: true });
+  fs.symlinkSync("destino", path.join(linkDir, "a-carpeta"));
+  fs.symlinkSync("no-existe", path.join(linkDir, "roto"));
+  const space = await app.invoke("sftp_disk_space", { sessionId, path: linkDir });
+  check(
+    "el servidor dice cuánto espacio libre queda en el disco de una carpeta remota",
+    space.ok && space.value && space.value.total > 0 && space.value.available <= space.value.total,
+    space.ok ? JSON.stringify(space.value) : space.reason,
+  );
+  const link = await app.invoke("sftp_read_link", { sessionId, path: path.join(linkDir, "a-carpeta") });
+  check(
+    "un enlace simbólico remoto dice a dónde apunta y que su destino es una carpeta",
+    link.ok && link.value?.target === "destino" && link.value?.is_dir === true
+      && link.value?.resolved === fs.realpathSync(path.join(linkDir, "destino")),
+    link.ok ? JSON.stringify(link.value) : link.reason,
+  );
+  const broken = await app.invoke("sftp_read_link", { sessionId, path: path.join(linkDir, "roto") });
+  check(
+    "de un enlace roto se sabe el destino, pero no se da por carpeta",
+    broken.ok && broken.value?.target === "no-existe" && broken.value?.is_dir !== true,
+    broken.ok ? JSON.stringify(broken.value) : broken.reason,
+  );
+
   // Subir y bajar una carpeta grande: los pequeños viajan en lotes.
   const tree = path.join(workDir, "arbol");
   const remoteTree = path.join(workDir, "remoto", "arbol");
@@ -342,6 +406,13 @@ async function checkSftpPanel(app) {
     plainUp.reason || "",
   );
   await app.invoke("sftp_disconnect", { sessionId });
+  const longDir = prepareLongListing(workDir);
+  await checkSftpSpace(app, check, profile, {
+    whileOpen: async () => {
+      await checkSftpScroll(app, check, longDir);
+      await checkSftpSelection(app, check, { dir: longDir });
+    },
+  });
 }
 
 /** Sección 5: los límites del IPC de ficheros y de los comandos locales. */
@@ -460,6 +531,13 @@ async function main() {
     await sleep(2500);
     check("la interfaz monta y enseña el dashboard", true);
 
+    // Atajo para iterar sobre el panel de archivos sin esperar al resto.
+    if (process.env.E2E_ONLY === "sftp") {
+      if (await prepareSftpServer(home)) await checkSftpPanel(app);
+      else check("hay sshd para la sección del panel SFTP", false);
+      return;
+    }
+
     await app.jsClick("#btn-welcome-local");
     await app.waitFor(".xterm-helper-textarea");
     await sleep(2000);
@@ -498,6 +576,21 @@ async function main() {
     await checkSyncFeedback(app, check);
     await checkShortcuts(app, check);
     await checkDialogs(app, check);
+    await checkFrames(app, check);
+    await checkConnectionFrame(app, check);
+    await checkTooltips(app, check);
+    await checkWorkspaces(app, check);
+    await checkLocalStatusBar(app, check);
+    await checkMetricsPanel(app, check);
+    await checkTabButtons(app, check);
+    await zoomFloating(app, check);
+    await zoomDialogs(app, check);
+    await checkKeyboard(app, check);
+    await checkToasts(app, check);
+    await checkActivityCenter(app, check);
+    await checkTotpForm(app, check);
+    await checkTerminalLayers(app, check);
+    await checkTree(app, check);
     await checkIpcLeastPrivilege(app, home);
     const sftpServer = await prepareSftpServer(home);
     if (sftpServer) {
@@ -507,8 +600,14 @@ async function main() {
       console.log("  --   sin sshd en esta máquina: se salta la sección del panel SFTP");
     }
     await checkTunnels(app, check, artifactsDir);
+    await checkThemeTone(app, check, artifactsDir);
     await checkQuickSelect(app, check, workDir);
     await checkJump(app, check, artifactsDir);
+    await checkBulkEdit(app, check);
+    await checkDesign(app, check, {
+      shot: artifactsDir ? (name) => app.screenshot(path.join(artifactsDir, `${name}.png`)) : null,
+    });
+    await checkNotesAndText(app, check);
     const sshdBin = findSshd();
     if (sshdBin) {
       await checkJumpReal(app, check, { sshd: sshdBin, workDir, home, children });

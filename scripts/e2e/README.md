@@ -35,10 +35,67 @@ entra al abrir Nueva conexión y vuelve a quien la abrió al cerrar, el fondo
 queda inerte (salvo los tiradores de la ventana), Escape en el selector de
 carpeta no cierra el formulario ni borra lo escrito, Tab y Shift+Tab dan la
 vuelta en los extremos, Ctrl+W y Ctrl+, no actúan detrás de un modal (el zoom
-de la interfaz sí), Escape en known_hosts no cierra Preferencias y una
-confirmación destructiva es `alertdialog` con el foco en «Cancelar». Como
+de la interfaz sí), Escape en known_hosts no cierra Preferencias, la sección
+RDP de Preferencias se alcanza con las flechas desde FTP/SFTP, reúne todas las
+opciones del escritorio remoto y, con la ventana externa, desactiva las que
+solo usa el cliente integrado, y una confirmación destructiva es `alertdialog` con el foco en «Cancelar». Como
 WebKitWebDriver no mueve el foco con eventos sintéticos, solo prueba lo que el
 controlador hace de forma explícita.
+
+La sección de marcos y tooltips (`frames.mjs`) arrastra la cabecera de
+Preferencias y su esquina con eventos de puntero sintéticos: comprueba que se
+mueve, que redimensionar deja quieto el borde opuesto, que el marco se recuerda
+al reabrir y que el doble clic en la cabecera lo devuelve a fábrica; estrecha,
+la barra de secciones se queda en iconos con tooltip. Después pasa el puntero
+por un icono del rail y por un botón con `title`: sale la burbuja propia
+(`#app-tooltip`), el atributo `title` se retira mientras dura (sin el nativo
+doble en Windows y macOS), `el.title` sigue leyendo y escribiendo y al salir el
+atributo vuelve con su último valor.
+
+La sección de perfiles (`workspaces.mjs`) crea dos perfiles con una conexión
+cada uno y busca desde la barra lateral con los tres alcances (perfil actual,
+uno concreto y todos): comprueba qué sale, que el alcance se guarda junto al
+booleano antiguo y que el selector del inicio lo refleja, y que elegir en la
+lista del desplegable no cierra la búsqueda. Después baja el perfil activo con
+el botón del menú y lo sube con Alt+↑, y mira el orden guardado.
+
+La sección de la consola local (`local-status.mjs`) abre una consola desde el
+inicio y comprueba la barra inferior: usuario@equipo y tamaño, sin latencia,
+túneles ni ruta; en Linux, encender el monitor trae CPU y memoria de este
+equipo, y el icono del monitor enseña su tooltip.
+
+La sección de teclado (`keyboard.mjs`) recorre los controles accesibles: el
+desplegable de Idioma de Preferencias es un combobox que se abre con ↓, elige
+con Enter, busca tecleando y cuyo Escape cierra la lista sin cerrar
+Preferencias; la preferencia «Usar los desplegables del sistema» deshace y
+rehace el control en vivo; en el menú contextual de una conexión las flechas
+recorren solo el primer nivel, → entra en el submenú («Túneles»), Escape y ←
+vuelven al padre y un segundo Escape cierra el menú; y en la barra de pestañas
+→, Inicio y Fin mueven el foco con tabindex itinerante y cada pestaña describe
+su estado en palabras para el lector de pantalla.
+
+La sección de avisos (`toasts.mjs`) asigna en Preferencias una combinación a
+«Ir al último aviso» (sin combinación de fábrica), provoca un aviso de error con
+acción interceptando en la página la llamada al opener del sistema y comprueba
+que el atajo lleva el foco a la acción —también con Preferencias abierto—, que
+Escape y Tab fuera del aviso devuelven el foco sin cerrar el diálogo, que la
+pila queda por encima de la barra de estado con el icono de severidad visible
+y que el centro de actividad es un diálogo titulado con filtros conmutables que
+Escape cierra devolviendo el foco. Sin red ni ventanas nativas.
+
+Las capas del área del terminal (`terminal-layers.mjs`) se muestran a la vez
+sobre una consola local —barra de disposición, panel de bloques, búsqueda,
+aviso de reconexión y diagnóstico— en sus cinco combinaciones y se mide que
+sus rectángulos no se solapen ni salgan del área; es una comprobación de la
+hoja de estilos, sin conexiones.
+
+El árbol de conexiones (`tree.mjs`) se recorre con eventos de teclado: la
+carpeta enfocada lleva el único tabindex 0 del árbol y su nombre como etiqueta,
+→ la despliega, ↓ baja a su conexión (que pasa a ser la parada de Tab con sus
+acciones), marcar favorito desde la fila repinta la lista sin perder el foco,
+Shift+F10 abre el menú contextual sobre la fila y Escape devuelve el foco, ←
+sube a la carpeta, Enter la pliega y teclear un nombre salta a esa conexión.
+Crea dos perfiles de prueba (uno en una carpeta) y recarga la interfaz.
 
 El panel de túneles se comprueba en claro, oscuro y una ventana de 800 px:
 controles de cabecera juntos, contenido sin desbordar, minimizar/reabrir,
@@ -61,6 +118,30 @@ la paleta con el selector «Elegir conexión…» manejado por teclado. Deja
 capturas en tema oscuro y claro en `E2E_ARTIFACT_DIR`. Las conexiones de verdad
 por un salto las prueba la integración del backend.
 
+La edición en lote (`bulk-edit.mjs`) crea tres conexiones SSH, las selecciona
+con clic y Ctrl+clic, abre «Editar 3 conexiones…» desde el menú contextual y
+comprueba que el modal nace con los campos desactivados y el foco dentro; marca
+«Usuario», lo cambia, mira el resumen, aplica y comprueba en los perfiles que
+solo cambió ese campo (y la fecha); después pulsa «Deshacer» en el aviso y
+comprueba que los tres vuelven a estar como antes. Sin conexiones reales.
+
+El pulido visual (`design.mjs`) se mide con estilos computados y geometría en
+el WebView real, después de la edición en lote (necesita conexiones en la barra
+lateral): las ayudas de formulario en gris y los avisos en amarillo, la botonera
+de una conexión que aparece al pasar el puntero sin cambiar el ancho del nombre,
+la línea de la pestaña activa y el filo de la barra de estado con el color de
+un entorno PROD/STAGE, los bordes fundidos de la tira de pestañas cuando
+desborda, los iconos SVG de Idioma, la consola local y el tema elegido, y que
+«Tamaño del texto de la interfaz» llegue a la barra lateral, las pestañas y la
+barra de estado. La sección de zoom comprueba además que la papelera, los
+túneles y los scripts caben en la ventana a 140 %.
+
+En el panel de archivos (`sftp-selection.mjs`), con teclado y ratón de verdad:
+Ctrl+clic suma filas, Alt+clic no toca la selección, Mayús+clic selecciona un
+tramo, Supr pide confirmar el borrado (y cancelar no borra) y el clic derecho
+sobre una descarga abre su menú, cuyo «Mostrar en la carpeta de destino» marca
+lo descargado en el lado local.
+
 En Linux hacen falta `cargo build --locked` en `src-tauri/`, `npm ci`,
 `tauri-driver` 2.1.0, WebKitWebDriver, `wmctrl` y un escritorio con gestor de
 ventanas. `TAURI_DRIVER` permite indicar la ruta del controlador. Con Rustty
@@ -81,6 +162,10 @@ capturas en `E2E_ARTIFACT_DIR`, o en una carpeta temporal si no se indica.
 `openssh-server` habilita la sección SFTP; con `E2E_REQUIRE_SFTP=1` su ausencia
 es un error en lugar de omitirla. Los diálogos nativos se detectan y cancelan;
 elegir archivos dentro del selector sigue requiriendo validación manual.
+
+Para iterar sobre el panel de archivos sin esperar al resto, `E2E_ONLY=sftp`
+arranca la app y salta directamente a la sección SFTP (transferencias, espacio
+libre y el listado largo de `sftp-scroll.mjs`): poco más de un minuto.
 
 El workflow **E2E Rustty** se lanza desde GitHub Actions → Run workflow. Ejecuta
 la misma prueba bajo Xvfb/Openbox con SFTP obligatorio y publica logs y capturas

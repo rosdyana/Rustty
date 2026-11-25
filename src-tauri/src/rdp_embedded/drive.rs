@@ -6,6 +6,9 @@
 //! y se guarda aquí, en el directorio de datos: el frontend solo la enseña o la
 //! quita. Así el código de la página nunca puede decidir qué parte del disco se
 //! expone a un servidor remoto (mismo criterio que [`crate::file_grants`]).
+//! Y no vale cualquiera: ni la carpeta de datos ni `~/.ssh`, ni nada que las
+//! contenga o esté dentro (`LocalFsGuard::check_share`), al elegirla y otra vez
+//! al conectar.
 //!
 //! El acceso al disco lo hace `ironrdp-rdpdr-native`, que resuelve cada ruta
 //! del servidor componente a componente bajo la carpeta abierta, sin seguir
@@ -17,6 +20,7 @@ use ironrdp_rdpdr::Rdpdr;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
+use crate::local_fs_guard::LocalFsGuard;
 use crate::DataDir;
 
 const CONFIG_FILE: &str = "rdp_shared_folder.json";
@@ -133,16 +137,18 @@ pub fn rdp_shared_folder_get(data_dir: State<'_, DataDir>) -> SharedFolder {
 }
 
 /// Abre el diálogo de carpeta y guarda la elegida. `None` = cancelado.
+/// Una carpeta que no se puede compartir falla con `local-fs:protected|…`.
 #[tauri::command]
 pub async fn rdp_shared_folder_pick(
     window: tauri::Window,
     data_dir: State<'_, DataDir>,
+    guard: State<'_, LocalFsGuard>,
     title: Option<String>,
 ) -> Result<Option<SharedFolder>, String> {
     use tauri_plugin_dialog::DialogExt;
 
     let mut builder = window.dialog().file();
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     {
         builder = builder.set_parent(&window);
     }
@@ -159,6 +165,7 @@ pub async fn rdp_shared_folder_pick(
     else {
         return Ok(None);
     };
+    guard.check_share(&picked)?;
     save(&data_dir.0, Some(picked.clone()))?;
     Ok(Some(view(Some(picked))))
 }

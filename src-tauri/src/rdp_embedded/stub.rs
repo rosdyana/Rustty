@@ -81,17 +81,19 @@ pub mod certs {
 #[tauri::command]
 pub fn rdp_embed_clipboard_sync(session_id: String) {}
 
-#[must_use]
-pub fn clipboard_downloads_base(
-    _app: &tauri::AppHandle,
-    data_dir: &std::path::Path,
-) -> std::path::PathBuf {
-    data_dir.join("cache").join("rdp-clipboard")
+#[allow(clippy::unused_async, unused_variables)]
+#[tauri::command]
+pub async fn rdp_embed_clipboard_save(
+    session_id: String,
+    offer: u32,
+    title: Option<String>,
+) -> Result<bool, String> {
+    Err(UNAVAILABLE.into())
 }
 
-pub mod clipboard {
-    pub fn cleanup_stale_downloads(_root: &std::path::Path) {}
-}
+#[allow(unused_variables)]
+#[tauri::command]
+pub fn rdp_embed_clipboard_cancel(session_id: String) {}
 
 pub mod drive {
     use super::UNAVAILABLE;

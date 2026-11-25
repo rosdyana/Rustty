@@ -105,3 +105,142 @@ export function groupActivityByDay(
   }
   return [...groups.values()].sort((a, b) => b.sort - a.sort);
 }
+
+/**
+ * Filtros del centro de actividad. Los cuatro centrales van por tipo de
+ * entrada; «error» es transversal: cualquier entrada que terminó en error.
+ */
+export const ACTIVITY_FILTERS = /** @type {const} */ (["all", "connection", "sftp", "sync", "update", "error"]);
+
+/**
+ * @param {Pick<ActivityItem, "kind"|"status">} item
+ * @param {string} filter
+ */
+export function matchesActivityFilter(item, filter) {
+  if (filter === "all") return true;
+  if (filter === "error") return item.status === "error";
+  return item.kind === filter;
+}
+
+/**
+ * @template {Pick<ActivityItem, "kind"|"status">} T
+ * @param {T[]} items
+ * @param {string} filter
+ * @returns {T[]}
+ */
+export function filterActivityItems(items, filter) {
+  return filter === "all" ? items : items.filter((item) => matchesActivityFilter(item, filter));
+}
+
+/**
+ * Cuántas entradas caen en cada filtro, para rotular los chips.
+ * @param {Pick<ActivityItem, "kind"|"status">[]} items
+ * @returns {Record<string, number>}
+ */
+export function activityFilterCounts(items) {
+  /** @type {Record<string, number>} */
+  const counts = {};
+  for (const filter of ACTIVITY_FILTERS) counts[filter] = 0;
+  for (const item of items) {
+    for (const filter of ACTIVITY_FILTERS) {
+      if (matchesActivityFilter(item, filter)) counts[filter] += 1;
+    }
+  }
+  return counts;
+}
+
+/**
+ * ¿La entrada es posterior a la última vez que se miró el centro de actividad?
+ * Sin marca guardada no hay nada «nuevo»: al estrenar la función, el historial
+ * antiguo no puede aparecer de golpe como pendiente.
+ *
+ * @param {Pick<ActivityItem, "timestamp">} item
+ * @param {string|null|undefined} seenAt ISO de la última apertura
+ */
+export function isActivityUnseen(item, seenAt) {
+  if (!seenAt) return false;
+  const seen = Date.parse(seenAt);
+  const at = Date.parse(item.timestamp);
+  return Number.isFinite(seen) && Number.isFinite(at) && at > seen;
+}
+
+/**
+ * Errores registrados desde la última apertura: el número del distintivo del
+ * botón «Historial y logs».
+ *
+ * @param {Pick<ActivityItem, "status"|"timestamp">[]} items
+ * @param {string|null|undefined} seenAt
+ */
+export function countUnseenErrors(items, seenAt) {
+  return items.reduce(
+    (n, item) => n + (item.status === "error" && isActivityUnseen(item, seenAt) ? 1 : 0),
+    0,
+  );
+}
+
+/**
+ * Fecha y hora local `AAAA-MM-DD HH:MM:SS`: la que el usuario ve en su reloj,
+ * en un formato que se ordena solo y no depende del idioma.
+ * @param {string|number|Date} value
+ */
+export function activityLocalStamp(value) {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "";
+  const pad = (/** @type {number} */ n) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} `
+    + `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
+
+/**
+ * Una entrada como texto plano, para copiarla o volcarla a un fichero: una
+ * cabecera con fecha, tipo, estado y título, y el detalle debajo, sangrado.
+ * Los rótulos llegan traducidos de fuera; aquí no hay interfaz.
+ *
+ * @param {Pick<ActivityItem, "kind"|"status"|"title"|"detail"|"timestamp">} item
+ * @param {{ kindLabel?: (kind: string) => string, statusLabel?: (status: string) => string }} [labels]
+ */
+export function activityItemText(item, { kindLabel = (k) => k, statusLabel = (s) => s } = {}) {
+  const stamp = activityLocalStamp(item.timestamp);
+  const head = [kindLabel(item.kind), statusLabel(item.status), item.title]
+    .map((part) => String(part ?? "").replace(/\s*[\r\n]+\s*/g, " ").trim())
+    .filter(Boolean)
+    .join(" · ");
+  const lines = [stamp ? `[${stamp}] ${head}` : head];
+  const detail = String(item.detail || "").replace(/\r\n?/g, "\n").trim();
+  if (detail) {
+    for (const line of detail.split("\n")) lines.push(`    ${line.trimEnd()}`);
+  }
+  return lines.join("\n");
+}
+
+/**
+ * Volcado de varias entradas a texto plano, en el orden recibido.
+ * @param {Pick<ActivityItem, "kind"|"status"|"title"|"detail"|"timestamp">[]} items
+ * @param {Parameters<typeof activityItemText>[1]} [labels]
+ */
+export function activityExportText(items, labels) {
+  return items.map((item) => activityItemText(item, labels)).join("\n") + (items.length ? "\n" : "");
+}
+
+/**
+ * Volcado a JSON: los campos tal cual se guardan (sin callbacks), con la fecha
+ * en ISO para que otra herramienta pueda ordenarlos.
+ * @param {ActivityItem[]} items
+ * @param {{ exportedAt?: string, filter?: string }} [meta]
+ */
+export function activityExportJson(items, { exportedAt = new Date().toISOString(), filter = "all" } = {}) {
+  const entries = items.map((item) => {
+    const { kind, status, title, detail, timestamp } = serializableActivityItem(item);
+    return { timestamp, kind, status, title, detail };
+  });
+  return JSON.stringify({ exportedAt, filter, count: entries.length, entries }, null, 2);
+}
+
+/**
+ * Formato del volcado según el nombre que eligió el usuario en el diálogo.
+ * @param {string} path
+ * @returns {"json"|"text"}
+ */
+export function activityExportFormat(path) {
+  return /\.json$/i.test(String(path || "")) ? "json" : "text";
+}

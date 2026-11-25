@@ -22,20 +22,20 @@ Al tratarse de un proyecto mantenido de forma voluntaria, no se garantizan plazo
 
 ## Versiones soportadas
 
-Solo la última versión menor publicada recibe parches de seguridad. La versión actual es la línea **2.22.x** (`package.json` y `src-tauri/Cargo.toml` declaran `2.22.0`).
+Solo la última versión menor publicada recibe parches de seguridad. La versión actual es la línea **2.30.x** (`package.json` y `src-tauri/Cargo.toml` declaran `2.30.1`).
 
 | Versión | Soporte de seguridad |
 | ------- | -------------------- |
-| 2.22.x  | Sí                   |
-| < 2.22  | No                   |
+| 2.30.x  | Sí                   |
+| < 2.30  | No                   |
 
-Si usas una versión anterior, actualiza a la última 2.22.x para recibir correcciones.
+Si usas una versión anterior, actualiza a la última 2.30.x para recibir correcciones.
 
 ## Superficie de seguridad
 
 Rustty incluye, dentro del alcance de esta política, los siguientes componentes:
 
-- **SSH y SFTP**: implementados con [`russh`](https://github.com/warp-tech/russh) y `russh-sftp`, en Rust puro (no envuelven el binario `ssh` del sistema).
+- **SSH y SFTP**: implementados con [`russh`](https://github.com/Eugeny/russh) y `russh-sftp`, en Rust puro (no envuelven el binario `ssh` del sistema).
 - **RDP**: Rustty no implementa el protocolo RDP; actúa como **lanzador de un cliente externo del sistema** (`mstsc.exe` en Windows; `xfreerdp3`/`xfreerdp` o `rdesktop` como alternativa en Linux).
 - **Shell local**: terminal sobre un PTY local.
 - **Túneles SSH**: reenvío de puertos local y remoto, agent forwarding y X11 forwarding (estos dos últimos solo cuando se activan explícitamente en el perfil).
